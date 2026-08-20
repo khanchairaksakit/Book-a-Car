@@ -50,6 +50,7 @@ export default function BookingSystem({
   // Search & filter states for bookings list
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [deletingBooking, setDeletingBooking] = useState<Booking | null>(null);
 
   // Check availability state (for instant quick check)
   const [checkDate, setCheckDate] = useState('2026-07-20');
@@ -387,6 +388,7 @@ export default function BookingSystem({
                             setStartDate(`${checkDate}T09:00`);
                             setEndDate(`${checkDate}T17:00`);
                             setErrorMessage('');
+                            document.getElementById('booking-input-vehicle')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                           }}
                           className="w-full text-center py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
                         >
@@ -568,12 +570,7 @@ export default function BookingSystem({
                   <button
                     id="btn-submit-booking-form"
                     type="submit"
-                    disabled={!currentUser}
-                    className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm ${
-                      currentUser
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
-                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    }`}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-all shadow-xs cursor-pointer"
                   >
                     🚀 ยืนยันคำขอจองรถส่วนกลาง
                   </button>
@@ -745,11 +742,7 @@ export default function BookingSystem({
                         {isAdmin && (
                           <button
                             id={`btn-delete-booking-history-${booking.id}`}
-                            onClick={() => {
-                              if (confirm('ต้องการลบประวัติคำขอจองรถยนต์ส่วนกลางรายการนี้ออกจากระบบถาวรหรือไม่?')) {
-                                onDeleteBooking(booking.id);
-                              }
-                            }}
+                            onClick={() => setDeletingBooking(booking)}
                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                             title="ลบออกจากระบบ"
                           >
@@ -770,6 +763,47 @@ export default function BookingSystem({
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Delete Booking Custom Modal */}
+      {deletingBooking && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center font-bold text-lg shrink-0">
+                📋
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">ยืนยันลบประวัติการจอง</h3>
+                <p className="text-xs text-gray-500">คุณต้องการลบรายการขอจองรถยนต์นี้ถาวรใช่หรือไม่?</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
+              <p><strong className="font-semibold text-gray-900">ผู้ขอจอง:</strong> {deletingBooking.userName}</p>
+              <p><strong className="font-semibold text-gray-900">รถยนต์:</strong> {deletingBooking.vehicleName}</p>
+              <p><strong className="font-semibold text-gray-900">ปลายทาง:</strong> {deletingBooking.destination}</p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                id="btn-cancel-delete-booking"
+                onClick={() => setDeletingBooking(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                id="btn-confirm-delete-booking"
+                onClick={() => {
+                  onDeleteBooking(deletingBooking.id);
+                  setDeletingBooking(null);
+                }}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
+              >
+                ยืนยันลบรายการ
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

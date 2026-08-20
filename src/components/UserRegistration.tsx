@@ -28,6 +28,7 @@ export default function UserRegistration({
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'User' | 'Admin'>('User');
   const [error, setError] = useState('');
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
 
   const resetForm = () => {
     setName('');
@@ -211,14 +212,9 @@ export default function UserRegistration({
                       </button>
                       <button
                         id={`btn-delete-user-${user.id}`}
-                        onClick={() => {
-                          if (confirm(`คุณต้องการลบผู้ใช้งาน ${user.name} ใช่หรือไม่?`)) {
-                            onDeleteUser(user.id);
-                          }
-                        }}
+                        onClick={() => setDeletingUser(user)}
                         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
                         title="ลบผู้ใช้"
-                        disabled={isActive && users.length > 1}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -369,6 +365,47 @@ export default function UserRegistration({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Delete User Custom Modal */}
+      {deletingUser && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center font-bold text-lg shrink-0">
+                🗑️
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">ยืนยันลบผู้ใช้งาน</h3>
+                <p className="text-xs text-gray-500">คุณต้องการลบรายชื่อผู้ใช้งานนี้ออกจากระบบใช่หรือไม่?</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
+              <p><strong className="font-semibold text-gray-900">ชื่อ-นามสกุล:</strong> {deletingUser.name}</p>
+              <p><strong className="font-semibold text-gray-900">แผนก:</strong> {deletingUser.department}</p>
+              <p><strong className="font-semibold text-gray-900">อีเมล:</strong> {deletingUser.email}</p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                id="btn-cancel-delete-user"
+                onClick={() => setDeletingUser(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                id="btn-confirm-delete-user"
+                onClick={() => {
+                  onDeleteUser(deletingUser.id);
+                  setDeletingUser(null);
+                }}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
+              >
+                ยืนยันลบผู้ใช้
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

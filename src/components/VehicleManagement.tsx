@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Vehicle, VehicleType, VehicleStatus, User } from '../types';
-import { Plus, Edit2, Trash2, ShieldAlert, SlidersHorizontal, Image as ImageIcon, CheckCircle, HelpCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, ShieldAlert, SlidersHorizontal, X, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface VehicleManagementProps {
@@ -35,6 +35,8 @@ export default function VehicleManagement({
   // Filters
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | null>(null);
+  const [adminNotice, setAdminNotice] = useState<string | null>(null);
 
   const isAdmin = currentUser?.role === 'Admin';
 
@@ -227,115 +229,105 @@ export default function VehicleManagement({
         </div>
       </div>
 
-      {/* Main Grid / Modal Display */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Vehicles Display Grid (2/3 size if form is open, otherwise full) */}
-        <div className={`${isAdding ? 'lg:col-span-2' : 'lg:col-span-3'} grid grid-cols-1 md:grid-cols-2 ${isAdding ? '' : 'xl:grid-cols-3'} gap-6`}>
-          {filteredVehicles.map((vehicle) => {
-            const isSelectable = isAdmin;
-            return (
-              <div
-                key={vehicle.id}
-                id={`vehicle-card-${vehicle.id}`}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col group"
-              >
-                {/* Vehicle Image Aspect Ratio */}
-                <div className="aspect-video relative overflow-hidden bg-gray-100">
-                  <img
-                    src={vehicle.imageUrl}
-                    alt={`${vehicle.brand} ${vehicle.model}`}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
-                  />
-                  <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
-                    {getStatusText(vehicle.status)}
-                  </div>
-                  <div className="absolute top-3 right-3 bg-indigo-600 text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
-                    {typeLabels[vehicle.type] || vehicle.type}
-                  </div>
+      {/* Vehicles Display Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredVehicles.map((vehicle) => {
+          return (
+            <div
+              key={vehicle.id}
+              id={`vehicle-card-${vehicle.id}`}
+              className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col group"
+            >
+              {/* Vehicle Image Aspect Ratio */}
+              <div className="aspect-video relative overflow-hidden bg-gray-100">
+                <img
+                  src={vehicle.imageUrl}
+                  alt={`${vehicle.brand} ${vehicle.model}`}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                />
+                <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
+                  {getStatusText(vehicle.status)}
                 </div>
-
-                {/* Card Content */}
-                <div className="p-5 flex-1 flex flex-col justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-1">
-                      <h4 className="font-bold text-gray-900 text-lg leading-tight">
-                        {vehicle.brand} {vehicle.model}
-                      </h4>
-                      <span className="px-2 py-0.5 border border-indigo-100 bg-indigo-50 text-indigo-700 font-mono text-xs font-semibold rounded-md shrink-0">
-                        {vehicle.plateNumber}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-gray-500 line-clamp-2 h-8">
-                      {vehicle.description || 'ไม่มีคำอธิบายเพิ่มเติมเกี่ยวกับยานพาหนะนี้'}
-                    </p>
-
-                    <div className="flex items-center gap-1 text-xs text-gray-600 bg-slate-50 p-2 rounded-lg">
-                      <span className="font-semibold">ความจุผู้โดยสาร:</span>
-                      <span>{vehicle.capacity} ที่นั่งหลัก (รวมคนขับ)</span>
-                    </div>
-                  </div>
-
-                  {/* Actions for Admin */}
-                  <div className="flex items-center gap-2 border-t border-gray-100 pt-4 mt-4">
-                    <button
-                      id={`btn-edit-vehicle-icon-${vehicle.id}`}
-                      onClick={() => {
-                        if (!isAdmin) {
-                          alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถแก้ไขข้อมูลรถได้');
-                          return;
-                        }
-                        startEdit(vehicle);
-                      }}
-                      className={`flex-1 py-1.5 px-3 border rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                        isAdmin
-                          ? 'border-gray-200 text-gray-700 hover:bg-slate-50'
-                          : 'border-gray-100 text-gray-300 cursor-not-allowed'
-                      }`}
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>แก้ไขรถ</span>
-                    </button>
-                    <button
-                      id={`btn-delete-vehicle-icon-${vehicle.id}`}
-                      onClick={() => {
-                        if (!isAdmin) {
-                          alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถลบข้อมูลรถได้');
-                          return;
-                        }
-                        if (confirm(`คุณแน่ใจว่าต้องการลบรถ ${vehicle.brand} ${vehicle.model} ทะเบียน ${vehicle.plateNumber} ใช่หรือไม่?`)) {
-                          onDeleteVehicle(vehicle.id);
-                        }
-                      }}
-                      className={`py-1.5 px-3 border rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                        isAdmin
-                          ? 'border-red-100 text-red-600 hover:bg-red-50/50 hover:border-red-200'
-                          : 'border-gray-100 text-gray-300 cursor-not-allowed'
-                      }`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                <div className="absolute top-3 right-3 bg-indigo-600 text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
+                  {typeLabels[vehicle.type] || vehicle.type}
                 </div>
               </div>
-            );
-          })}
-        </div>
 
-        {/* Modal-like sidebar for Add/Edit Vehicle */}
-        <AnimatePresence>
-          {isAdding && (
+              {/* Card Content */}
+              <div className="p-5 flex-1 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-1">
+                    <h4 className="font-bold text-gray-900 text-lg leading-tight">
+                      {vehicle.brand} {vehicle.model}
+                    </h4>
+                    <span className="px-2 py-0.5 border border-indigo-100 bg-indigo-50 text-indigo-700 font-mono text-xs font-semibold rounded-md shrink-0">
+                      {vehicle.plateNumber}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-gray-500 line-clamp-2 h-8">
+                    {vehicle.description || 'ไม่มีคำอธิบายเพิ่มเติมเกี่ยวกับยานพาหนะนี้'}
+                  </p>
+
+                  <div className="flex items-center gap-1 text-xs text-gray-600 bg-slate-50 p-2 rounded-lg">
+                    <span className="font-semibold">ความจุผู้โดยสาร:</span>
+                    <span>{vehicle.capacity} ที่นั่งหลัก (รวมคนขับ)</span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 border-t border-gray-100 pt-4 mt-4">
+                  <button
+                    id={`btn-edit-vehicle-icon-${vehicle.id}`}
+                    onClick={() => {
+                      startEdit(vehicle);
+                    }}
+                    className="flex-1 py-1.5 px-3 border border-gray-200 hover:bg-slate-50 text-gray-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>แก้ไขรถ</span>
+                  </button>
+                  <button
+                    id={`btn-delete-vehicle-icon-${vehicle.id}`}
+                    onClick={() => {
+                      setDeletingVehicle(vehicle);
+                    }}
+                    className="py-1.5 px-3 border border-red-100 text-red-600 hover:bg-red-50/50 hover:border-red-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add / Edit Vehicle Modal Dialog */}
+      <AnimatePresence>
+        {isAdding && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="bg-white rounded-xl border border-gray-200 p-5 shadow-md space-y-4 h-fit"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                <h3 className="font-semibold text-gray-900 text-md">
-                  {editingVehicle ? '✏️ แก้ไขข้อมูลรถยนต์' : '🚗 เพิ่มรถยนต์คันใหม่'}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                    {editingVehicle ? '✏️' : '🚗'}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">
+                      {editingVehicle ? 'แก้ไขข้อมูลรถยนต์' : 'เพิ่มรถยนต์คันใหม่'}
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {editingVehicle ? `ทะเบียน: ${editingVehicle.plateNumber}` : 'กรอกรายละเอียดรถยนต์เพื่อเปิดใช้งานระบบจอง'}
+                    </p>
+                  </div>
+                </div>
                 <button
                   id="btn-close-vehicle-form"
                   onClick={() => {
@@ -343,28 +335,21 @@ export default function VehicleManagement({
                     setEditingVehicle(null);
                     resetForm();
                   }}
-                  className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Warning for user role */}
-              {!isAdmin && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex items-start gap-2">
-                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>คุณต้องได้รับสิทธิ์แอดมินในการทำรายการส่งฟอร์มนี้</span>
-                </div>
-              )}
-
               {error && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">
-                  {error}
+                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{error}</span>
                 </div>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">ยี่ห้อ (Brand) <span className="text-red-500">*</span></label>
                     <input
@@ -373,7 +358,7 @@ export default function VehicleManagement({
                       value={brand}
                       onChange={(e) => setBrand(e.target.value)}
                       placeholder="เช่น Toyota"
-                      className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                       required
                     />
                   </div>
@@ -385,7 +370,7 @@ export default function VehicleManagement({
                       value={model}
                       onChange={(e) => setModel(e.target.value)}
                       placeholder="เช่น Camry"
-                      className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                       required
                     />
                   </div>
@@ -399,19 +384,19 @@ export default function VehicleManagement({
                     value={plateNumber}
                     onChange={(e) => setPlateNumber(e.target.value)}
                     placeholder="เช่น กข 1234 กรุงเทพฯ"
-                    className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-indigo-500 font-mono"
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                     required
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">ประเภทรถยนต์</label>
                     <select
                       id="car-input-type"
                       value={type}
                       onChange={(e) => handleTypeChange(e.target.value as VehicleType)}
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                     >
                       <option value="Sedan">รถเก๋ง (Sedan)</option>
                       <option value="SUV">รถอเนกประสงค์ (SUV)</option>
@@ -426,10 +411,10 @@ export default function VehicleManagement({
                       id="car-input-capacity"
                       type="number"
                       min={1}
-                      max={15}
+                      max={20}
                       value={capacity}
                       onChange={(e) => handleCapacityChange(e.target.value)}
-                      className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                       required
                     />
                   </div>
@@ -441,7 +426,7 @@ export default function VehicleManagement({
                     id="car-input-status"
                     value={status}
                     onChange={(e) => setStatus(e.target.value as VehicleStatus)}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                   >
                     <option value="Available">🟢 ว่างพร้อมใช้งาน</option>
                     <option value="In Use">🔵 กำลังเดินทาง</option>
@@ -456,23 +441,23 @@ export default function VehicleManagement({
                     type="url"
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
-                    placeholder="ปล่อยว่างเพื่อสุ่มรูปสวยงามให้ฟรี"
-                    className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    placeholder="ปล่อยว่างเพื่อสุ่มรูปตัวอย่างให้อัตโนมัติ"
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                   />
                   <span className="text-[10px] text-gray-400 mt-1 block">
-                    ตัวอย่างเว็บบรรจุรูปภาพ เช่น Unsplash หรือเว็บสำเร็จรูปทั่วไป
+                    ระบบจะเลือกรูปสวยงามจาก Unsplash ให้หากคุณไม่ได้ใส่ลิงก์
                   </span>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">คำอธิบายเพิ่มเติม</label>
+                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">คำอธิบาย / หมายเหตุ</label>
                   <textarea
                     id="car-input-desc"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={2}
-                    placeholder="รายละเอียด เช่น มี Easy Pass, น้ำมันเต็มถัง เติมแก๊สโซฮอล์ 95"
-                    className="w-full px-3.5 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                    placeholder="รายละเอียดเพิ่มเติม เช่น มี Easy Pass, น้ำมันเต็มถัง"
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                   />
                 </div>
 
@@ -485,28 +470,64 @@ export default function VehicleManagement({
                       setEditingVehicle(null);
                       resetForm();
                     }}
-                    className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold rounded-lg transition-colors cursor-pointer text-center"
+                    className="flex-1 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold rounded-lg transition-colors cursor-pointer text-center"
                   >
                     ยกเลิก
                   </button>
                   <button
                     id="btn-save-vehicle"
                     type="submit"
-                    disabled={!isAdmin}
-                    className={`flex-1 py-2 text-white text-sm font-semibold rounded-lg transition-colors shadow-xs text-center ${
-                      isAdmin
-                        ? 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
-                        : 'bg-indigo-300 cursor-not-allowed'
-                    }`}
+                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-xs cursor-pointer text-center"
                   >
                     {editingVehicle ? 'บันทึกแก้ไข' : 'เพิ่มรถใหม่'}
                   </button>
                 </div>
               </form>
             </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Vehicle Custom Modal */}
+      {deletingVehicle && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center font-bold text-lg shrink-0">
+                🚘
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">ยืนยันลบข้อมูลรถยนต์</h3>
+                <p className="text-xs text-gray-500">คุณต้องการลบรถคันนี้ออกจากระบบส่วนกลางใช่หรือไม่?</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
+              <p><strong className="font-semibold text-gray-900">ยี่ห้อ/รุ่น:</strong> {deletingVehicle.brand} {deletingVehicle.model}</p>
+              <p><strong className="font-semibold text-gray-900">ทะเบียน:</strong> {deletingVehicle.plateNumber}</p>
+              <p><strong className="font-semibold text-gray-900">ประเภท:</strong> {typeLabels[deletingVehicle.type] || deletingVehicle.type}</p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                id="btn-cancel-delete-vehicle"
+                onClick={() => setDeletingVehicle(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                id="btn-confirm-delete-vehicle"
+                onClick={() => {
+                  onDeleteVehicle(deletingVehicle.id);
+                  setDeletingVehicle(null);
+                }}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
+              >
+                ยืนยันลบรถ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

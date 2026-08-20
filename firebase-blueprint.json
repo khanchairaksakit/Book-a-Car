@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Represents a company fleet vehicle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "plateNumber": { "type": "string" },
+        "type": { "type": "string", "enum": ["Sedan", "SUV", "Van", "Pickup"] },
+        "capacity": { "type": "integer" },
+        "status": { "type": "string", "enum": ["Available", "In Use", "Maintenance"] },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "brand", "model", "plateNumber", "type", "capacity", "status", "imageUrl"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the fleet system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "department": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["User", "Admin"] }
+      },
+      "required": ["id", "name", "department", "phone", "email", "role"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Represents a vehicle booking record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "vehicleName": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "purpose": { "type": "string" },
+        "destination": { "type": "string" },
+        "passengersCount": { "type": "integer" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Cancelled", "Completed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "vehicleId", "userId", "userName", "vehicleName", "startDate", "endDate", "purpose", "destination", "passengersCount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Company fleet vehicles collection"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Corporate users collection"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Fleet bookings collection"
+    }
+  }
+}
