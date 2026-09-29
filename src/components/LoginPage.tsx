@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { User } from '../types';
+import { User, UserRole } from '../types';
 import { translations, Language } from '../utils/translations';
+import { getUserRoles, getRoleBadgeInfo } from '../utils/userHelpers';
 import {
   Car,
   Lock,
@@ -12,12 +13,19 @@ import {
   EyeOff,
   AtSign,
   KeyRound,
+  Zap,
+  CheckCircle,
+  Users,
+  ShieldCheck,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LoginPageProps {
   users: User[];
   onLogin: (user: User) => void;
+  onDirectAccess?: () => void;
   language: Language;
   onToggleLanguage: (lang: Language) => void;
 }
@@ -25,6 +33,7 @@ interface LoginPageProps {
 export default function LoginPage({
   users,
   onLogin,
+  onDirectAccess,
   language,
   onToggleLanguage,
 }: LoginPageProps) {
@@ -33,11 +42,34 @@ export default function LoginPage({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
 
   const t = translations[language];
 
+  // Default primary user for quick direct access
+  const defaultUser = users.find((u) => {
+    const roles = getUserRoles(u);
+    return roles.includes('Admin');
+  }) || users[0];
+
+  const handleDirectAccessClick = () => {
+    if (onDirectAccess) {
+      onDirectAccess();
+    } else if (defaultUser) {
+      onLogin(defaultUser);
+    }
+  };
+
+  const handleQuickUserSelect = (targetUser: User) => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setIsLoading(false);
+      onLogin(targetUser);
+    }, 200);
+  };
+
   // Handle manual login submit
-  const handleLogin = (e: React.FormEvent) => {
+  const handleManualLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -50,7 +82,8 @@ export default function LoginPage({
     const targetUser = users.find((u) => {
       const userUsername = (u.username || u.email.split('@')[0]).toLowerCase();
       const userEmail = u.email.toLowerCase();
-      return userUsername === normalized || userEmail === normalized;
+      const userCode = (u.employeeCode || '').toLowerCase();
+      return userUsername === normalized || userEmail === normalized || userCode === normalized;
     });
 
     if (!targetUser) {
@@ -73,7 +106,7 @@ export default function LoginPage({
     setTimeout(() => {
       setIsLoading(false);
       onLogin(targetUser);
-    }, 400);
+    }, 300);
   };
 
   return (
@@ -83,7 +116,7 @@ export default function LoginPage({
     >
       {/* Background ambient lighting accents */}
       <div className="absolute top-0 -left-20 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 -right-20 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 -right-20 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Top Header bar: App identity and Language switcher */}
       <div className="w-full max-w-6xl mx-auto flex items-center justify-between z-10">
@@ -132,127 +165,205 @@ export default function LoginPage({
       </div>
 
       {/* Main Center Section */}
-      <div className="w-full max-w-lg mx-auto my-auto py-6 z-10">
+      <div className="w-full max-w-2xl mx-auto my-auto py-6 z-10">
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5"
+          className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-6"
         >
-          {/* Form Header */}
-          <div className="text-center space-y-1.5">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto mb-2">
-              <Lock className="w-6 h-6" />
+          {/* Direct Access Guarantee Banner */}
+          <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200 rounded-2xl flex items-start gap-3 shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs shadow-emerald-500/20">
+              <CheckCircle className="w-5 h-5" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-              {t.loginTitle}
-            </h2>
-            <p className="text-xs text-gray-500 max-w-sm mx-auto">
-              {t.loginSubtitle}
+            <div className="text-xs space-y-0.5 min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-emerald-900 text-sm">
+                  {t.noGoogleAccountNotice}
+                </span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                  Direct Mode
+                </span>
+              </div>
+              <p className="text-emerald-800 text-xs">
+                {t.noGoogleAccountSubtitle}
+              </p>
+            </div>
+          </div>
+
+          {/* Big Primary Direct Entry Button */}
+          <div>
+            <button
+              id="btn-direct-access-primary"
+              type="button"
+              onClick={handleDirectAccessClick}
+              disabled={isLoading}
+              className="w-full py-3.5 px-6 bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-700 active:scale-[0.99] text-white rounded-2xl text-sm font-bold transition-all shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-3 cursor-pointer group"
+            >
+              <Zap className="w-5 h-5 text-amber-300 animate-bounce group-hover:scale-110 transition-transform" />
+              <span>{t.directAccessBtn}</span>
+              <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+            </button>
+            <p className="text-[11px] text-center text-slate-500 mt-2">
+              {language === 'th'
+                ? `เข้าสู่ระบบทันทีในฐานะ ${defaultUser?.name || 'ผู้ดูแลระบบ'} (สามารถสลับสิทธิ์ได้ตลอดเวลา)`
+                : `Instant entry as ${defaultUser?.name || 'Administrator'} (Switch roles anytime)`}
             </p>
           </div>
 
-          {/* Dual Login Mode Guide Notice */}
-          <div className="p-3 bg-indigo-50/80 border border-indigo-100 rounded-xl flex items-start gap-2.5 text-xs text-indigo-900">
-            <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-            <div className="leading-relaxed text-[11px] space-y-0.5">
-              <span className="font-semibold block">{t.loginHint}</span>
-              <span className="text-indigo-700 block">
-                {language === 'th'
-                  ? '• เข้าด้วย Username + Password หรือ Email + Password'
-                  : '• Sign in with Username + Password or Email + Password'}
+          <div className="relative flex items-center justify-center">
+            <div className="border-t border-gray-200 w-full" />
+            <span className="bg-white px-3 text-xs text-gray-400 font-semibold uppercase tracking-wider shrink-0">
+              {language === 'th' ? 'หรือเลือกเข้าใช้งานด้วยโปรไฟล์พนักงาน' : 'Or Select Employee Profile'}
+            </span>
+            <div className="border-t border-gray-200 w-full" />
+          </div>
+
+          {/* 1-Click Fast Profile Login Cards */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-indigo-600" />
+                {t.oneClickLogin}
               </span>
+              <span className="text-[10px] text-gray-400">
+                {language === 'th' ? 'คลิกที่ชื่อเพื่อเข้าสู่ระบบทันที' : 'Click to sign in instantly'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
+              {users.map((u) => {
+                const roles = getUserRoles(u);
+                return (
+                  <div
+                    key={u.id}
+                    id={`quick-login-card-${u.id}`}
+                    onClick={() => handleQuickUserSelect(u)}
+                    className="p-3 rounded-xl border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/40 bg-slate-50/70 transition-all cursor-pointer flex items-center gap-3 group text-left"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-indigo-600 group-hover:bg-indigo-700 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                      {u.name.substring(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-gray-900 text-xs truncate group-hover:text-indigo-700">
+                          {u.name}
+                        </span>
+                        {u.employeeCode && (
+                          <span className="text-[10px] font-mono text-gray-400 shrink-0">
+                            {u.employeeCode}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-gray-500 block truncate">
+                        {u.department} {u.division ? `• ${u.division}` : ''}
+                      </span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {roles.map((r) => {
+                          const badge = getRoleBadgeInfo(r, language === 'en');
+                          return (
+                            <span
+                              key={r}
+                              className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${badge.bg} ${badge.text} ${badge.border}`}
+                            >
+                              {badge.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Error Message */}
-          {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-4">
-            {/* Username or Email input */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-gray-700">
-                {t.usernameOrEmail} <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <AtSign className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  id="login-identifier-input"
-                  type="text"
-                  value={identifierInput}
-                  onChange={(e) => setIdentifierInput(e.target.value)}
-                  placeholder={t.usernameOrEmailPlaceholder}
-                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors"
-                />
-              </div>
-              <p className="text-[10px] text-gray-500">
-                {language === 'th'
-                  ? 'พิมพ์ Username (เช่น somchai) หรือ Email (เช่น somchai.j@company.com)'
-                  : 'Type Username (e.g. somchai) or Email (e.g. somchai.j@company.com)'}
-              </p>
-            </div>
-
-            {/* Password input */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-gray-700">
-                  {t.password} <span className="text-red-500">*</span>
-                </label>
-                <span className="text-[10px] text-indigo-600 font-medium">
-                  {language === 'th' ? 'กำหนดได้ที่หน้ารายชื่อผู้ใช้งาน' : 'Configured in user directory'}
+          {/* Toggle Accordion for Manual Username/Password Form */}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+            <button
+              type="button"
+              onClick={() => setShowManualForm(!showManualForm)}
+              className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-slate-500" />
+                <span>
+                  {language === 'th'
+                    ? 'เข้าสู่ระบบด้วย Username / Password (แบบระบุรหัสผ่าน)'
+                    : 'Sign in with Username & Password (Traditional)'}
                 </span>
               </div>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  id="login-password-input"
-                  type={showPassword ? 'text' : 'password'}
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder={t.passwordPlaceholder}
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                  title={showPassword ? 'Hide Password' : 'Show Password'}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Submit button */}
-            <button
-              id="btn-login-submit"
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer mt-2"
-            >
-              {isLoading ? (
-                <span>{t.loggingIn}</span>
+              {showManualForm ? (
+                <ChevronUp className="w-4 h-4 text-slate-400" />
               ) : (
-                <>
-                  <span>{t.loginBtn}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
+                <ChevronDown className="w-4 h-4 text-slate-400" />
               )}
             </button>
-          </form>
 
-          {/* Subtle test credentials note */}
-          <div className="pt-3 border-t border-gray-100 text-center text-[11px] text-gray-400">
-            {language === 'th' ? (
-              <span>💡 บัญชีสำหรับทดสอบ: <strong className="text-gray-600 font-mono">somchai</strong> / <strong className="text-gray-600 font-mono">password123</strong> (หรือดูที่เมนูรายชื่อผู้ใช้งาน)</span>
-            ) : (
-              <span>💡 Demo account: <strong className="text-gray-600 font-mono">somchai</strong> / <strong className="text-gray-600 font-mono">password123</strong> (or check User Directory)</span>
+            {showManualForm && (
+              <div className="p-4 sm:p-5 space-y-4 border-t border-slate-200 bg-white">
+                {/* Error Message */}
+                {error && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-700">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleManualLogin} className="space-y-3.5">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-700">
+                      {t.usernameOrEmail}
+                    </label>
+                    <div className="relative">
+                      <AtSign className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                      <input
+                        id="login-identifier-input"
+                        type="text"
+                        value={identifierInput}
+                        onChange={(e) => setIdentifierInput(e.target.value)}
+                        placeholder={t.usernameOrEmailPlaceholder}
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-700">
+                      {t.password}
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                      <input
+                        id="login-password-input"
+                        type={showPassword ? 'text' : 'password'}
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        placeholder={t.passwordPlaceholder}
+                        className="w-full pl-9 pr-9 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    id="btn-login-submit"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>{t.loginBtn}</span>
+                  </button>
+                </form>
+              </div>
             )}
           </div>
         </motion.div>

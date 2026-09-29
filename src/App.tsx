@@ -24,8 +24,9 @@ import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
+import UserSwitcherModal from './components/UserSwitcherModal';
 import { translations, Language } from './utils/translations';
-import { isUserAdmin } from './utils/userHelpers';
+import { isUserAdmin, getUserRoles, getRoleBadgeInfo } from './utils/userHelpers';
 
 import {
   CalendarDays,
@@ -41,6 +42,8 @@ import {
   LogOut,
   Globe,
   FileText,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -93,7 +96,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
   });
 
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+  const [currentUser, setCurrentUser] = useState<User>(() => {
     const saved = localStorage.getItem('car_booking_current_user');
     if (saved) {
       try {
@@ -109,20 +112,24 @@ export default function App() {
           };
         }
       } catch {
-        return null;
+        // fallback
       }
     }
-    return null;
+    // Default to the first user (Admin/Approve/User) so anyone opening the app enters directly without Google account or login
+    return INITIAL_USERS[0];
   });
+
+  const [isLoginPageOpen, setIsLoginPageOpen] = useState(false);
+  const [isUserSwitcherOpen, setIsUserSwitcherOpen] = useState(false);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('car_booking_current_user', JSON.stringify(user));
+    setIsLoginPageOpen(false);
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('car_booking_current_user');
+    setIsLoginPageOpen(true);
   };
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report'>('calendar');
@@ -453,12 +460,13 @@ export default function App() {
     }
   };
 
-  // If user is not authenticated, show the Login Page
-  if (!currentUser) {
+  // If login page was explicitly opened, show the Login Page
+  if (isLoginPageOpen) {
     return (
       <LoginPage
         users={users}
         onLogin={handleLogin}
+        onDirectAccess={() => setIsLoginPageOpen(false)}
         language={language}
         onToggleLanguage={handleToggleLanguage}
       />
@@ -506,12 +514,17 @@ export default function App() {
 
           {/* Current Profile Summary inside Sidebar */}
           {currentUser && (
-            <div className="p-3 mx-3 my-3 bg-slate-800/50 border border-slate-800 rounded-xl">
-              <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider block mb-1">
-                {language === 'th' ? 'ผู้ใช้จองที่ใช้งานอยู่' : 'Active Account'}
-              </span>
+            <div className="p-3 mx-3 my-3 bg-slate-800/60 border border-slate-800 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider block">
+                  {language === 'th' ? 'ผู้ใช้จองที่ใช้งานอยู่' : 'Active Account'}
+                </span>
+                <span className="text-[9px] text-emerald-400 bg-emerald-950/70 px-1.5 py-0.2 rounded border border-emerald-800/50 font-bold">
+                  {language === 'th' ? 'ตรง 100%' : 'Direct'}
+                </span>
+              </div>
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white">
+                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shrink-0">
                   {currentUser.name.substring(0, 2)}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -521,16 +534,38 @@ export default function App() {
                   <span className="text-[10px] text-indigo-400 block truncate font-medium">
                     {currentUser.department}
                   </span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {getUserRoles(currentUser).map((r) => {
+                      const b = getRoleBadgeInfo(r, language === 'en');
+                      return (
+                        <span key={r} className="text-[8px] font-semibold px-1 py-0.2 rounded bg-slate-700/80 text-slate-300">
+                          {b.label}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-              <button
-                id="sidebar-logout-btn"
-                onClick={handleLogout}
-                className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg border border-red-900/30 transition-colors cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>{t.logout}</span>
-              </button>
+              <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-800">
+                <button
+                  id="sidebar-switch-user-btn"
+                  onClick={() => setIsUserSwitcherOpen(true)}
+                  className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-indigo-300 hover:text-white hover:bg-indigo-900/40 rounded-lg border border-indigo-800/40 transition-colors cursor-pointer"
+                  title="สลับบทบาทหรือผู้ใช้งาน"
+                >
+                  <Users className="w-3 h-3" />
+                  <span>{language === 'th' ? 'สลับผู้ใช้' : 'Switch'}</span>
+                </button>
+                <button
+                  id="sidebar-logout-btn"
+                  onClick={handleLogout}
+                  className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg border border-slate-800 hover:border-red-900/40 transition-colors cursor-pointer"
+                  title="หน้าเข้าสู่ระบบ"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>{language === 'th' ? 'หน้าล็อกอิน' : 'Sign In'}</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -706,20 +741,35 @@ export default function App() {
 
             <div className="h-8 w-[1px] bg-gray-200 hidden lg:block" />
 
+            {/* Quick Switch User Button in Header */}
+            <button
+              id="header-switch-user-btn"
+              onClick={() => setIsUserSwitcherOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+              title={language === 'th' ? 'สลับบัญชีผู้ใช้งาน / เปลี่ยนสิทธิ์' : 'Switch Active Account'}
+            >
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">{language === 'th' ? 'สลับผู้ใช้' : 'Switch User'}</span>
+            </button>
+
             {currentUser && (
               <div
                 id="header-profile-box"
-                onClick={() => setActiveTab('users')}
+                onClick={() => setIsUserSwitcherOpen(true)}
                 className="flex items-center gap-2 px-2.5 py-1 hover:bg-slate-50 border border-slate-100 rounded-lg transition-colors cursor-pointer"
-                title={language === 'th' ? 'คลิกเพื่อดูโปรไฟล์และรายชื่อผู้ใช้' : 'View Authorized Users'}
+                title={language === 'th' ? 'คลิกเพื่อสลับผู้ใช้หรือดูสิทธิ์' : 'Click to switch user or view roles'}
               >
                 <div className="text-right hidden sm:block">
                   <span className="text-xs font-bold block text-gray-900 leading-tight">
                     {currentUser.name}
                   </span>
-                  <span className="text-[10px] text-gray-500 block">
-                    {currentUser.department}
-                  </span>
+                  <div className="flex items-center justify-end gap-1 mt-0.5">
+                    {getUserRoles(currentUser).slice(0, 2).map((r) => (
+                      <span key={r} className="text-[9px] font-semibold px-1 py-0 rounded bg-slate-100 text-slate-700">
+                        {r}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white">
                   {currentUser.name.substring(0, 2)}
@@ -732,18 +782,42 @@ export default function App() {
               </div>
             )}
 
-            {/* Logout button in header */}
+            {/* Logout / Login page button in header */}
             <button
               id="header-logout-btn"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-xl transition-colors cursor-pointer"
-              title={t.logout}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+              title={language === 'th' ? 'หน้าเข้าสู่ระบบ' : 'Sign In Page'}
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{t.logout}</span>
+              <span className="hidden md:inline">{language === 'th' ? 'หน้าล็อกอิน' : 'Sign In'}</span>
             </button>
           </div>
         </header>
+
+        {/* Direct Access & No Google Account Notice Banner */}
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border-b border-emerald-200/70 px-4 sm:px-6 py-2 flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800 text-[11px] sm:text-xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              {language === 'th'
+                ? 'เข้าใช้งานระบบได้โดยตรง 100% — ไม่ต้องมี Google Account'
+                : '100% Direct Access • No Google Account Required'}
+            </span>
+            <span className="hidden sm:inline text-emerald-400">•</span>
+            <span className="text-[11px] text-emerald-700 hidden md:inline">
+              {language === 'th'
+                ? 'บันทึกและซิงค์ข้อมูลลง Firebase Firestore (fleet-fefc5) อัตโนมัติ'
+                : 'Live Sync with Firebase Firestore (fleet-fefc5)'}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsUserSwitcherOpen(true)}
+            className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 underline flex items-center gap-1 cursor-pointer shrink-0"
+          >
+            <span>{language === 'th' ? 'สลับบทบาท/สิทธิ์' : 'Switch Role'}</span>
+          </button>
+        </div>
 
         {/* Main dynamic container with responsive padding and animation */}
         <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full flex-1">
@@ -868,6 +942,17 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* User & Role Switcher Modal */}
+      <UserSwitcherModal
+        isOpen={isUserSwitcherOpen}
+        onClose={() => setIsUserSwitcherOpen(false)}
+        users={users}
+        currentUser={currentUser}
+        onSelectUser={handleSelectUser}
+        onOpenLoginPage={() => setIsLoginPageOpen(true)}
+        language={language}
+      />
     </div>
   );
 }

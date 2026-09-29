@@ -99,6 +99,9 @@ export async function getUsers(): Promise<User[]> {
       );
       users.push({
         ...data,
+        employeeCode: data.employeeCode || initialMatch?.employeeCode || `EMP-${data.id.substring(data.id.length - 3)}`,
+        division: data.division || initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
+        roles: data.roles || initialMatch?.roles || (data.role === 'Admin' ? ['Admin', 'User'] : ['User']),
         username: data.username || initialMatch?.username || data.email.split('@')[0],
         password: data.password || initialMatch?.password || 'password123',
       });
