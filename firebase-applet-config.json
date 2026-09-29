@@ -1,12 +1,12 @@
 {
-  "projectId": "ot-systems-19912",
-  "appId": "1:427453083574:web:ff28f30ee377e3b406db17",
-  "apiKey": "AIzaSyA-QKXZm4-v2VCP24REXkoquvO9vwztgVA",
-  "authDomain": "ot-systems-19912.firebaseapp.com",
+  "projectId": "fleet-fefc5",
+  "appId": "1:90802279312:web:8d5e1d3f14fffd0ad09915",
+  "apiKey": "AIzaSyB_Hnim69j-c_488WjTsIz5KPbiwYJRDg0",
+  "authDomain": "fleet-fefc5.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-adb955cc-9afb-4a36-a3d2-db66137197bf",
-  "storageBucket": "ot-systems-19912.firebasestorage.app",
-  "messagingSenderId": "427453083574",
+  "storageBucket": "fleet-fefc5.firebasestorage.app",
+  "messagingSenderId": "90802279312",
   "measurementId": "",
-  "oAuthClientId": "427453083574-v6uccudvv8dohs7km8e3eofac3fdq0rt.apps.googleusercontent.com",
+  "oAuthClientId": "90802279312-dosfhuveijrp5876163s7pt0qt2aqnn4.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

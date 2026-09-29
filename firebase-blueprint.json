@@ -13,7 +13,15 @@
         "capacity": { "type": "integer" },
         "status": { "type": "string", "enum": ["Available", "In Use", "Maintenance"] },
         "imageUrl": { "type": "string" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "currentMileage": { "type": "number" },
+        "mileageAlertThreshold": { "type": "number" },
+        "taxExpiryDate": { "type": "string" },
+        "taxAlertDaysBefore": { "type": "number" },
+        "tireAlertMileage": { "type": "number" },
+        "tireAlertDate": { "type": "string" },
+        "tireInfo": { "type": "string" },
+        "tireChangeDate": { "type": "string" }
       },
       "required": ["id", "brand", "model", "plateNumber", "type", "capacity", "status", "imageUrl"]
     },
@@ -23,13 +31,18 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "employeeCode": { "type": "string" },
         "name": { "type": "string" },
         "department": { "type": "string" },
+        "division": { "type": "string" },
         "phone": { "type": "string" },
         "email": { "type": "string" },
-        "role": { "type": "string", "enum": ["User", "Admin"] }
+        "roles": { "type": "array" },
+        "role": { "type": "string", "enum": ["User", "Admin"] },
+        "username": { "type": "string" },
+        "password": { "type": "string" }
       },
-      "required": ["id", "name", "department", "phone", "email", "role"]
+      "required": ["id", "name", "department", "phone", "email"]
     },
     "Booking": {
       "title": "Booking",
@@ -41,14 +54,19 @@
         "userId": { "type": "string" },
         "userName": { "type": "string" },
         "userPhone": { "type": "string" },
+        "userDepartment": { "type": "string" },
+        "userDivision": { "type": "string" },
         "vehicleName": { "type": "string" },
+        "plateNumber": { "type": "string" },
         "startDate": { "type": "string" },
         "endDate": { "type": "string" },
         "purpose": { "type": "string" },
         "destination": { "type": "string" },
         "passengersCount": { "type": "integer" },
         "status": { "type": "string", "enum": ["Pending", "Approved", "Cancelled", "Completed"] },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "approverName": { "type": "string" },
+        "approvedAt": { "type": "string" }
       },
       "required": ["id", "vehicleId", "userId", "userName", "vehicleName", "startDate", "endDate", "purpose", "destination", "passengersCount", "status", "createdAt"]
     }
