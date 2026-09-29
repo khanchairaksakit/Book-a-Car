@@ -93,7 +93,15 @@ export async function getUsers(): Promise<User[]> {
     
     const users: User[] = [];
     snapshot.forEach((doc) => {
-      users.push(doc.data() as User);
+      const data = doc.data() as User;
+      const initialMatch = INITIAL_USERS.find(
+        (u) => u.id === data.id || u.email.toLowerCase() === data.email.toLowerCase()
+      );
+      users.push({
+        ...data,
+        username: data.username || initialMatch?.username || data.email.split('@')[0],
+        password: data.password || initialMatch?.password || 'password123',
+      });
     });
     return users;
   } catch (error) {

@@ -1,15 +1,51 @@
-import React, { useState } from 'react';
-import { User } from '../types';
-import { Plus, UserCheck, Shield, Trash2, Edit2, X, AlertCircle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { User, UserRole } from '../types';
+import { Language } from '../utils/translations';
+import {
+  getUserRoles,
+  hasRole,
+  getRoleBadgeInfo,
+} from '../utils/userHelpers';
+import {
+  downloadUserExcelTemplate,
+  parseUserExcelFile,
+  ParsedUserRow,
+} from '../utils/excelUserUtils';
+import {
+  UserCheck,
+  Shield,
+  Trash2,
+  Edit2,
+  X,
+  AlertCircle,
+  Lock,
+  Eye,
+  EyeOff,
+  UserPlus,
+  KeyRound,
+  Mail,
+  Phone,
+  AtSign,
+  Download,
+  Upload,
+  FileSpreadsheet,
+  Check,
+  CheckCircle2,
+  Building2,
+  BadgeAlert,
+  Search,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface UserRegistrationProps {
   users: User[];
   currentUser: User | null;
   onSelectUser: (user: User) => void;
-  onAddUser: (user: Omit<User, 'id'>) => void;
+  onAddUser?: (user: Omit<User, 'id'>) => void;
+  onAddMultipleUsers?: (newUsers: Omit<User, 'id'>[]) => void;
   onEditUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
+  language?: Language;
 }
 
 export default function UserRegistration({
@@ -17,68 +53,253 @@ export default function UserRegistration({
   currentUser,
   onSelectUser,
   onAddUser,
+  onAddMultipleUsers,
   onEditUser,
   onDeleteUser,
+  language = 'th',
 }: UserRegistrationProps) {
-  const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState<User | null>(null);
+  const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // Form Fields
+  const [employeeCode, setEmployeeCode] = useState('');
   const [name, setName] = useState('');
   const [department, setDepartment] = useState('');
+  const [division, setDivision] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'User' | 'Admin'>('User');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('password123');
+  const [showFormPassword, setShowFormPassword] = useState(false);
+  const [roles, setRoles] = useState<UserRole[]>(['User']);
   const [error, setError] = useState('');
+
+  // UI States
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('All');
+
+  // Excel Upload States
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importingFileName, setImportingFileName] = useState('');
+  const [parsedRows, setParsedRows] = useState<ParsedUserRow[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importSuccessMsg, setImportSuccessMsg] = useState('');
+
+  const isEn = language === 'en';
 
   const resetForm = () => {
+    setEmployeeCode('');
     setName('');
     setDepartment('');
+    setDivision('');
     setPhone('');
     setEmail('');
-    setRole('User');
+    setUsername('');
+    setPassword('password123');
+    setRoles(['User']);
     setError('');
+    setShowFormPassword(false);
+    setIsAddingNew(false);
+    setIsEditing(null);
+  };
+
+  const togglePasswordVisibility = (userId: string) => {
+    setVisiblePasswords((prev) => ({
+      ...prev,
+      [userId]: !prev[userId],
+    }));
+  };
+
+  // Toggle role checkbox (1 user can have multiple roles)
+  const handleToggleRole = (roleToToggle: UserRole) => {
+    setRoles((prev) => {
+      let next: UserRole[];
+      if (prev.includes(roleToToggle)) {
+        next = prev.filter((r) => r !== roleToToggle);
+      } else {
+        next = [...prev, roleToToggle];
+      }
+      // Ensure at least one role is selected
+      if (next.length === 0) {
+        return [roleToToggle];
+      }
+      return next;
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !department.trim() || !phone.trim() || !email.trim()) {
-      setError('กรุณากรอกข้อมูลให้ครบถ้วนทุกช่อง');
+      setError(isEn ? 'Please fill in all required fields' : 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่องที่มีดอกจัน (*)');
       return;
     }
+
+    const cleanUsername = (username.trim() || email.split('@')[0]).toLowerCase();
+    const cleanPassword = password.trim() || 'password123';
+    const effectiveRoles = roles.length > 0 ? roles : (['User'] as UserRole[]);
+
+    // Validate unique username and email
+    const duplicateUser = users.find(
+      (u) =>
+        (u.username?.toLowerCase() === cleanUsername || u.email.toLowerCase() === email.trim().toLowerCase()) &&
+        (isEditing ? u.id !== isEditing.id : true)
+    );
+
+    if (duplicateUser) {
+      setError(
+        isEn
+          ? 'Username or Email is already used by another account'
+          : 'ชื่อผู้ใช้ (Username) หรือ อีเมล นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น'
+      );
+      return;
+    }
+
+    const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
 
     if (isEditing) {
       onEditUser({
         ...isEditing,
-        name,
-        department,
-        phone,
-        email,
-        role,
+        employeeCode: employeeCode.trim(),
+        name: name.trim(),
+        department: department.trim(),
+        division: division.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        username: cleanUsername,
+        password: cleanPassword,
+        roles: effectiveRoles,
+        role: legacyRole,
       });
-      setIsEditing(null);
-    } else {
+      resetForm();
+    } else if (isAddingNew && onAddUser) {
       onAddUser({
-        name,
-        department,
-        phone,
-        email,
-        role,
+        employeeCode: employeeCode.trim() || `EMP${String(users.length + 1).padStart(3, '0')}`,
+        name: name.trim(),
+        department: department.trim(),
+        division: division.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        username: cleanUsername,
+        password: cleanPassword,
+        roles: effectiveRoles,
+        role: legacyRole,
       });
+      resetForm();
     }
-
-    setIsAdding(false);
-    resetForm();
   };
 
   const startEdit = (user: User) => {
+    setIsAddingNew(false);
     setIsEditing(user);
+    setEmployeeCode(user.employeeCode || '');
     setName(user.name);
     setDepartment(user.department);
+    setDivision(user.division || '');
     setPhone(user.phone);
     setEmail(user.email);
-    setRole(user.role);
-    setIsAdding(true);
+    setUsername(user.username || user.email.split('@')[0]);
+    setPassword(user.password || 'password123');
+    setRoles(getUserRoles(user));
+    setError('');
   };
+
+  const startAddNew = () => {
+    setIsEditing(null);
+    setIsAddingNew(true);
+    setEmployeeCode(`EMP${String(users.length + 1).padStart(3, '0')}`);
+    setName('');
+    setDepartment('');
+    setDivision('');
+    setPhone('');
+    setEmail('');
+    setUsername('');
+    setPassword('password123');
+    setRoles(['User']);
+    setError('');
+  };
+
+  // Handle Excel File Selection
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportLoading(true);
+    setImportingFileName(file.name);
+    setError('');
+
+    try {
+      const rows = await parseUserExcelFile(file, users);
+      setParsedRows(rows);
+      setIsImportModalOpen(true);
+    } catch (err) {
+      console.error('Error reading Excel file:', err);
+      setError(isEn ? 'Failed to read Excel file. Please use the official template.' : 'ไม่สามารถอ่านไฟล์ Excel ได้ กรุณาใช้ไฟล์ Template ที่ระบบสร้างให้');
+    } finally {
+      setImportLoading(false);
+      // Reset input value so same file can be re-selected if needed
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Confirm Excel Import
+  const handleConfirmImport = () => {
+    const validRows = parsedRows.filter((r) => r.isValid);
+    if (validRows.length === 0) return;
+
+    const newUsersToCreate: Omit<User, 'id'>[] = validRows.map((r, i) => ({
+      employeeCode: r.employeeCode || `EMP${String(users.length + i + 1).padStart(3, '0')}`,
+      name: r.name,
+      department: r.department,
+      division: r.division,
+      phone: r.phone,
+      email: r.email,
+      username: r.username,
+      password: r.password || 'password123',
+      roles: r.roles.length > 0 ? r.roles : ['User'],
+      role: r.roles.includes('Admin') ? 'Admin' : 'User',
+    }));
+
+    if (onAddMultipleUsers) {
+      onAddMultipleUsers(newUsersToCreate);
+    } else if (onAddUser) {
+      newUsersToCreate.forEach((u) => onAddUser(u));
+    }
+
+    setImportSuccessMsg(
+      isEn
+        ? `Successfully imported ${validRows.length} users!`
+        : `นำเข้าข้อมูลผู้ใช้งานเรียบร้อยแล้ว จำนวน ${validRows.length} ท่าน`
+    );
+    setIsImportModalOpen(false);
+    setParsedRows([]);
+
+    setTimeout(() => {
+      setImportSuccessMsg('');
+    }, 4000);
+  };
+
+  // Filtered Users List
+  const filteredUsers = users.filter((u) => {
+    if (roleFilter !== 'All') {
+      if (!hasRole(u, roleFilter as UserRole)) return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchName = u.name.toLowerCase().includes(q);
+      const matchCode = (u.employeeCode || '').toLowerCase().includes(q);
+      const matchDept = u.department.toLowerCase().includes(q);
+      const matchDiv = (u.division || '').toLowerCase().includes(q);
+      const matchEmail = u.email.toLowerCase().includes(q);
+      const matchUser = (u.username || '').toLowerCase().includes(q);
+      return matchName || matchCode || matchDept || matchDiv || matchEmail || matchUser;
+    }
+    return true;
+  });
 
   const departmentsList = [
     'ฝ่ายขาย (Sales)',
@@ -89,116 +310,318 @@ export default function UserRegistration({
     'ฝ่ายบัญชีและการเงิน (Accounting)',
     'ฝ่ายการตลาด (Marketing)',
     'ฝ่ายปฏิบัติการ (Operations)',
+    'ฝ่ายวิศวกรรม (Engineering)',
+    'ฝ่ายบริการลูกค้า (Customer Support)',
+  ];
+
+  const divisionsList = [
+    'ฝ่ายพัฒนาธุรกิจและการตลาด',
+    'ฝ่ายทรัพยากรบุคคลและการจัดการ',
+    'ฝ่ายเทคโนโลยีสารสนเทศและดิจิทัล',
+    'ฝ่ายปฏิบัติการและการผลิต',
+    'ฝ่ายการเงินและบัญชีกลาง',
+    'ฝ่ายบริหารจัดการอาคารและยานพาหนะ',
   ];
 
   return (
     <div className="space-y-6" id="user-registration-section">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Top Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 tracking-tight">ลงทะเบียนและจัดการผู้ใช้งาน</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            ลงทะเบียนพนักงานเพื่อรับสิทธิ์ในการจองรถยนต์ส่วนกลาง และเลือกผู้ใช้งานปัจจุบันเพื่อจำลองการทำรายการ
+          <h2 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+            <span>{isEn ? 'User Directory & Role Management' : 'กำหนดผู้ใช้งานและบทบาทหน้าที่ (User Management)'}</span>
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+              {users.length} {isEn ? 'Users' : 'บัญชี'}
+            </span>
+          </h2>
+          <p className="text-xs text-gray-500 mt-1">
+            {isEn
+              ? 'Configure employee details, department, division, and multi-roles (User, Approve, Admin). Supports Excel template download & bulk upload.'
+              : 'กำหนดข้อมูลพนักงาน แผนก ฝ่าย และบทบาทการใช้งาน (User, Approve, Admin โดย 1 คนสามารถมีได้หลายบทบาท) พร้อมระบบนำเข้าผ่าน Excel'}
           </p>
         </div>
-        <button
-          id="btn-add-new-user"
-          onClick={() => {
-            setIsEditing(null);
-            resetForm();
-            setIsAdding(true);
-          }}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>ลงทะเบียนพนักงานใหม่</span>
-        </button>
+
+        {/* Action Buttons: Add, Download Template, Upload Excel */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Download Template Button */}
+          <button
+            id="btn-download-excel-template"
+            type="button"
+            onClick={downloadUserExcelTemplate}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200 shadow-2xs"
+            title="ดาวน์โหลดไฟล์แบบฟอร์ม Excel (.xlsx) สำหรับกรอกข้อมูลผู้ใช้งาน"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-600" />
+            <span>{isEn ? 'Excel Template' : 'ดาวน์โหลด Template Excel'}</span>
+          </button>
+
+          {/* Upload Excel Button */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx, .xls, .csv"
+            onChange={handleExcelFileChange}
+            className="hidden"
+            id="excel-file-uploader-input"
+          />
+          <button
+            id="btn-upload-user-excel"
+            type="button"
+            disabled={importLoading}
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+            title="อัปโหลดไฟล์ Excel เพื่อนำเข้ารายชื่อผู้ใช้งานหลายคนพร้อมกัน"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
+          </button>
+
+          {/* Add Manual User Button */}
+          {onAddUser && (
+            <button
+              id="btn-add-user-modal"
+              onClick={startAddNew}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>{isEn ? 'Add User' : 'เพิ่มผู้ใช้งาน'}</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Success Notification Banner */}
+      {importSuccessMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="font-semibold">{importSuccessMsg}</span>
+        </div>
+      )}
 
       {/* Active User Banner */}
       {currentUser && (
-        <div id="active-user-banner" className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div id="active-user-banner" className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-2xs">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+            <div className="w-11 h-11 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0">
               {currentUser.name.substring(0, 2)}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-900 text-base">{currentUser.name}</span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-800 text-xs font-medium rounded-full">
-                  {currentUser.role === 'Admin' ? (
-                    <>
-                      <Shield className="w-3 h-3" /> ผู้ดูแลระบบ
-                    </>
-                  ) : (
-                    'พนักงานทั่วไป'
-                  )}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-gray-900 text-sm">{currentUser.name}</span>
+                {currentUser.employeeCode && (
+                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 bg-slate-200/80 text-slate-800 rounded-md">
+                    {currentUser.employeeCode}
+                  </span>
+                )}
+                {/* Display All Roles */}
+                <div className="flex items-center gap-1">
+                  {getUserRoles(currentUser).map((r) => {
+                    const badge = getRoleBadgeInfo(r, isEn);
+                    return (
+                      <span
+                        key={r}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badge.bg} ${badge.text} ${badge.border}`}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })}
+                </div>
+                <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 font-mono font-semibold rounded-md border border-indigo-200">
+                  @{currentUser.username || currentUser.email.split('@')[0]}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mt-0.5">
-                {currentUser.department} • โทร: {currentUser.phone} • อีเมล: {currentUser.email}
+              <p className="text-xs text-gray-600 mt-0.5">
+                <span className="font-medium text-gray-800">{currentUser.department}</span>
+                {currentUser.division && <span> • ฝ่าย: {currentUser.division}</span>}
+                <span> • {isEn ? 'Email:' : 'อีเมล:'} {currentUser.email}</span>
+                <span> • {isEn ? 'Tel:' : 'โทร:'} {currentUser.phone}</span>
               </p>
             </div>
           </div>
-          <div className="bg-white/80 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-indigo-100/50 text-xs font-medium text-indigo-700">
-            🟢 โปรไฟล์ที่ใช้งานอยู่ขณะนี้ (สามารถเลือกเปลี่ยนได้ด้านล่าง)
+          <div className="bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-indigo-100 text-xs font-semibold text-indigo-700 shadow-2xs">
+            🟢 {isEn ? 'Currently Logged In' : 'โปรไฟล์ที่กำลังเข้าสู่ระบบ'}
           </div>
         </div>
       )}
 
-      {/* Grid containing registration form and users list */}
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={isEn ? 'Search name, emp ID, department, division...' : 'ค้นหาชื่อ, รหัสพนักงาน, แผนก, ฝ่าย...'}
+            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-gray-300 rounded-lg text-xs text-gray-900 focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-xs font-semibold text-gray-600 shrink-0">
+            {isEn ? 'Filter by Role:' : 'กรองตามบทบาท:'}
+          </span>
+          <div className="flex items-center gap-1">
+            {['All', 'Admin', 'Approve', 'User'].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRoleFilter(r)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  roleFilter === r
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                {r === 'All' ? (isEn ? 'All' : 'ทั้งหมด') : r}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Grid containing users list and edit/add form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* User Selection and Management List */}
-        <div className="lg:col-span-2 space-y-4">
-          <h3 className="font-medium text-gray-900 text-md">รายชื่อผู้ใช้งานทั้งหมด ({users.length} คน)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {users.map((user) => {
+        <div className={`space-y-4 ${isEditing || isAddingNew ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredUsers.map((user) => {
               const isActive = currentUser?.id === user.id;
+              const userPass = user.password || 'password123';
+              const userHandle = user.username || user.email.split('@')[0];
+              const isPasswordVisible = visiblePasswords[user.id];
+              const userRoleList = getUserRoles(user);
+
               return (
                 <div
                   key={user.id}
                   id={`user-card-${user.id}`}
-                  className={`relative p-5 rounded-xl border transition-all duration-200 ${
+                  className={`relative p-5 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
                     isActive
-                      ? 'bg-indigo-50/40 border-indigo-400 ring-2 ring-indigo-400/20'
+                      ? 'bg-indigo-50/40 border-indigo-400 ring-2 ring-indigo-400/20 shadow-xs'
                       : 'bg-white border-gray-200 hover:border-gray-300 shadow-xs'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white ${
-                        user.role === 'Admin' ? 'bg-purple-600' : 'bg-slate-500'
-                      }`}>
-                        {user.name.substring(0, 2)}
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{user.name}</h4>
-                        <span className="text-xs text-gray-500 font-medium">{user.department}</span>
+                  <div>
+                    {/* Header with Avatar, Name, Employee Code */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 ${
+                            userRoleList.includes('Admin')
+                              ? 'bg-purple-600'
+                              : userRoleList.includes('Approve')
+                              ? 'bg-blue-600'
+                              : 'bg-indigo-600'
+                          }`}
+                        >
+                          {user.name.substring(0, 2)}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-gray-900 text-sm leading-snug truncate" title={user.name}>
+                            {user.name}
+                          </h4>
+                          <span className="text-[11px] font-mono text-gray-500 font-semibold">
+                            {user.employeeCode ? `[${user.employeeCode}]` : '-'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    {user.role === 'Admin' && (
-                      <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-sm border border-purple-100 uppercase tracking-wider">
-                        Admin
-                      </span>
-                    )}
+
+                    {/* Department & Division Badges */}
+                    <div className="mb-3 space-y-1 text-xs">
+                      <div className="flex items-center gap-1 text-gray-700">
+                        <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                        <span className="font-medium text-gray-900 truncate">
+                          {isEn ? 'Dept:' : 'แผนก:'} {user.department}
+                        </span>
+                      </div>
+                      {user.division && (
+                        <div className="text-[11px] text-gray-500 pl-4.5 truncate">
+                          <span>{isEn ? 'Div:' : 'ฝ่าย:'} {user.division}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Multi-Roles Badges (User, Approve, Admin) */}
+                    <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                      <span className="text-[10px] text-gray-400 font-bold uppercase mr-1">บทบาท:</span>
+                      {userRoleList.map((r) => {
+                        const badge = getRoleBadgeInfo(r, isEn);
+                        return (
+                          <span
+                            key={r}
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${badge.bg} ${badge.text} ${badge.border}`}
+                          >
+                            {badge.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Dedicated Credentials Box for this User */}
+                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80 mb-3 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 font-medium flex items-center gap-1">
+                          <AtSign className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Username:</span>
+                        </span>
+                        <span className="font-mono font-bold text-indigo-900 bg-white px-2 py-0.5 rounded border border-indigo-100 text-[11px]">
+                          {userHandle}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 font-medium flex items-center gap-1">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+                          <span>Password:</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-gray-800 bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
+                            {isPasswordVisible ? userPass : '••••••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => togglePasswordVisibility(user.id)}
+                            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors cursor-pointer"
+                            title={isPasswordVisible ? 'Hide' : 'Show'}
+                          >
+                            {isPasswordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px]">
+                        <span className="text-gray-500 flex items-center gap-1">
+                          <Mail className="w-3 h-3 text-gray-400" />
+                          <span>{isEn ? 'Email:' : 'อีเมล:'}</span>
+                        </span>
+                        <span className="text-gray-700 truncate max-w-[140px] font-medium" title={user.email}>
+                          {user.email}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-gray-500 mb-3 flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-gray-400" />
+                      <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
+                    </div>
                   </div>
 
-                  <div className="space-y-1 text-xs text-gray-600 mb-4 border-t border-gray-100 pt-3">
-                    <p><span className="text-gray-400 font-medium">เบอร์โทร:</span> {user.phone}</p>
-                    <p><span className="text-gray-400 font-medium">อีเมล:</span> {user.email}</p>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 border-t border-gray-50 pt-3">
+                  {/* Actions footer */}
+                  <div className="flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
                     <button
                       id={`btn-use-profile-${user.id}`}
                       onClick={() => onSelectUser(user)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                         isActive
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
                           : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                       }`}
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      <span>{isActive ? 'กำลังใช้งาน' : 'เลือกโปรไฟล์นี้'}</span>
+                      <span>{isActive ? (isEn ? 'Active' : 'กำลังใช้งาน') : (isEn ? 'Switch To' : 'สลับโปรไฟล์')}</span>
                     </button>
 
                     <div className="flex items-center gap-1">
@@ -206,7 +629,7 @@ export default function UserRegistration({
                         id={`btn-edit-user-${user.id}`}
                         onClick={() => startEdit(user)}
                         className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
-                        title="แก้ไขข้อมูล"
+                        title={isEn ? 'Edit Info & Roles' : 'แก้ไขข้อมูลและบทบาท'}
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
@@ -214,7 +637,7 @@ export default function UserRegistration({
                         id={`btn-delete-user-${user.id}`}
                         onClick={() => setDeletingUser(user)}
                         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                        title="ลบผู้ใช้"
+                        title={isEn ? 'Delete Account' : 'ลบผู้ใช้'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -226,26 +649,33 @@ export default function UserRegistration({
           </div>
         </div>
 
-        {/* Floating Modal-like sidebar for Add/Edit form */}
+        {/* Edit / Add User Form Panel */}
         <AnimatePresence>
-          {isAdding && (
+          {(isEditing || isAddingNew) && (
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4 h-fit"
+              className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4 h-fit lg:col-span-1"
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                <h3 className="font-semibold text-gray-900 text-md">
-                  {isEditing ? 'แก้ไขข้อมูลพนักงาน' : 'ลงทะเบียนพนักงานใหม่'}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                    {isEditing ? <Edit2 className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-sm">
+                    {isEditing
+                      ? isEn
+                        ? 'Edit User & Roles'
+                        : 'แก้ไขข้อมูลและบทบาทหน้าที่'
+                      : isEn
+                      ? 'Add New User Account'
+                      : 'เพิ่มผู้ใช้งานใหม่'}
+                  </h3>
+                </div>
                 <button
                   id="btn-close-user-form"
-                  onClick={() => {
-                    setIsAdding(false);
-                    setIsEditing(null);
-                    resetForm();
-                  }}
+                  onClick={resetForm}
                   className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -259,105 +689,271 @@ export default function UserRegistration({
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3.5">
+                {/* Employee ID */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">ชื่อ-นามสกุล <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Employee ID' : 'รหัสพนักงาน'}
+                  </label>
+                  <input
+                    id="user-input-emp-code"
+                    type="text"
+                    value={employeeCode}
+                    onChange={(e) => setEmployeeCode(e.target.value)}
+                    placeholder="เช่น EMP001"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+
+                {/* Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Full Name' : 'ชื่อ-นามสกุล'} <span className="text-red-500">*</span>
+                  </label>
                   <input
                     id="user-input-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="เช่น สมชาย สุขสบาย"
-                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden"
+                    placeholder={isEn ? 'e.g. Somchai Jaidee' : 'เช่น สมชาย ใจดี'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                     required
                   />
                 </div>
 
+                {/* Department (แผนก) */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">แผนก / ฝ่ายงาน <span className="text-red-500">*</span></label>
-                  <select
-                    id="user-input-dept"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden bg-white"
-                    required
-                  >
-                    <option value="">เลือกแผนก...</option>
-                    {departmentsList.map((dept) => (
-                      <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Department' : 'แผนก'} <span className="text-red-500">*</span>
+                  </label>
+                  <div className="space-y-1.5">
+                    <input
+                      id="user-input-dept"
+                      type="text"
+                      list="dept-options-list"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      placeholder={isEn ? 'Select or type department...' : 'เลือกหรือพิมพ์ชื่อแผนก...'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white"
+                      required
+                    />
+                    <datalist id="dept-options-list">
+                      {departmentsList.map((dept) => (
+                        <option key={dept} value={dept} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
 
+                {/* Division (ฝ่าย) */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">เบอร์โทรศัพท์ <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Division / Section' : 'ฝ่าย'}
+                  </label>
                   <input
-                    id="user-input-phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="เช่น 081-234-5678"
-                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden"
-                    required
+                    id="user-input-division"
+                    type="text"
+                    list="division-options-list"
+                    value={division}
+                    onChange={(e) => setDivision(e.target.value)}
+                    placeholder={isEn ? 'Select or type division...' : 'เช่น ฝ่ายพัฒนาธุรกิจและการตลาด'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white"
                   />
+                  <datalist id="division-options-list">
+                    {divisionsList.map((div) => (
+                      <option key={div} value={div} />
+                    ))}
+                  </datalist>
                 </div>
 
+                {/* Multi-Roles Selection: User, Approve, Admin */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-gray-800">
+                      {isEn ? 'User Roles (Multi-Select)' : 'บทบาทการใช้งาน (เลือกได้มากกว่า 1 บทบาท)'} <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-gray-500">เลือกอย่างน้อย 1 บทบาท</span>
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    {/* Role 1: User */}
+                    <label
+                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                        roles.includes('User')
+                          ? 'bg-white border-slate-400 shadow-2xs'
+                          : 'border-transparent hover:bg-slate-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={roles.includes('User')}
+                        onChange={() => handleToggleRole('User')}
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">
+                          User (ผู้ใช้งานทั่วไป)
+                        </span>
+                        <span className="text-[10px] text-slate-500 block">
+                          ขอยื่นจองรถยนต์ และดูสถานะคำขอของตนเอง
+                        </span>
+                      </div>
+                    </label>
+
+                    {/* Role 2: Approve */}
+                    <label
+                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                        roles.includes('Approve')
+                          ? 'bg-blue-50/70 border-blue-400 shadow-2xs'
+                          : 'border-transparent hover:bg-slate-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={roles.includes('Approve')}
+                        onChange={() => handleToggleRole('Approve')}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-blue-900 block">
+                          Approve (ผู้อนุมัติ)
+                        </span>
+                        <span className="text-[10px] text-blue-600 block">
+                          มีสิทธิ์อนุมัติหรือไม่อนุมัติคำขอจองรถยนต์
+                        </span>
+                      </div>
+                    </label>
+
+                    {/* Role 3: Admin */}
+                    <label
+                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                        roles.includes('Admin')
+                          ? 'bg-purple-50/70 border-purple-400 shadow-2xs'
+                          : 'border-transparent hover:bg-slate-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={roles.includes('Admin')}
+                        onChange={() => handleToggleRole('Admin')}
+                        className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-purple-900 block">
+                          Admin (ผู้ดูแลระบบ)
+                        </span>
+                        <span className="text-[10px] text-purple-600 block">
+                          จัดการรถ ยานพาหนะ ผู้ใช้งาน และดูรายงานทั้งหมด
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Username Input */}
+                <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100/80 space-y-1.5">
+                  <label className="block text-xs font-bold text-indigo-900">
+                    <span className="flex items-center gap-1.5">
+                      <AtSign className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Username สำหรับเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
+                    </span>
+                  </label>
+                  <input
+                    id="user-input-username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="เช่น somchai"
+                    className="w-full px-3 py-1.5 border border-indigo-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                    required
+                  />
+                  <p className="text-[10px] text-indigo-600">
+                    ใช้เข้าสู่ระบบด้วย Username คู่กับ Password
+                  </p>
+                </div>
+
+                {/* Password Input */}
+                <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/80 space-y-1.5">
+                  <label className="block text-xs font-bold text-amber-900">
+                    <span className="flex items-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Password รหัสผ่านเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="user-input-password"
+                      type={showFormPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="password123"
+                      className="w-full pl-3 pr-10 py-1.5 border border-amber-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFormPassword(!showFormPassword)}
+                      className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Work Email */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">อีเมลหน่วยงาน <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Work Email' : 'อีเมลองค์กร (ล็อกอินด้วยเมลนี้ได้)'} <span className="text-red-500">*</span>
+                  </label>
                   <input
                     id="user-input-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="เช่น somchai.j@company.com"
-                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden"
+                    placeholder="user@company.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                     required
                   />
                 </div>
 
+                {/* Phone */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">บทบาทการใช้งาน</label>
-                  <div className="flex gap-4 mt-1.5">
-                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={role === 'User'}
-                        onChange={() => setRole('User')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>พนักงานทั่วไป (User)</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={role === 'Admin'}
-                        onChange={() => setRole('Admin')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>ผู้ดูแลระบบ (Admin)</span>
-                    </label>
-                  </div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    {isEn ? 'Phone Number' : 'เบอร์โทรศัพท์'} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="user-input-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="081-xxx-xxxx"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                    required
+                  />
                 </div>
 
+                {/* Buttons */}
                 <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
                   <button
                     id="btn-cancel-user-form"
                     type="button"
-                    onClick={() => {
-                      setIsAdding(false);
-                      setIsEditing(null);
-                      resetForm();
-                    }}
-                    className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold rounded-lg transition-colors cursor-pointer text-center"
+                    onClick={resetForm}
+                    className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer text-center"
                   >
-                    ยกเลิก
+                    {isEn ? 'Cancel' : 'ยกเลิก'}
                   </button>
                   <button
                     id="btn-submit-user-form"
                     type="submit"
-                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-xs cursor-pointer text-center"
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer text-center"
                   >
-                    {isEditing ? 'บันทึกการแก้ไข' : 'ลงทะเบียน'}
+                    {isEditing
+                      ? isEn
+                        ? 'Save Changes'
+                        : 'บันทึกการแก้ไข'
+                      : isEn
+                      ? 'Create User'
+                      : 'สร้างบัญชีผู้ใช้'}
                   </button>
                 </div>
               </form>
@@ -365,6 +961,147 @@ export default function UserRegistration({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Excel Import Preview Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <FileSpreadsheet className="w-5 h-5" />
+                <h3 className="font-bold text-gray-900 text-base">
+                  {isEn ? 'Preview Users from Excel File' : 'ตรวจสอบข้อมูลผู้ใช้งานจากไฟล์ Excel ก่อนนำเข้า'}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setParsedRows([]);
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-gray-600 flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div>
+                <p>
+                  <strong>ไฟล์:</strong> {importingFileName}
+                </p>
+                <p className="text-[11px] text-gray-500">
+                  พบข้อมูลทั้งหมด <strong>{parsedRows.length}</strong> แถว (พร้อมนำเข้า{' '}
+                  <strong className="text-emerald-600">{parsedRows.filter((r) => r.isValid).length}</strong> คน,
+                  ข้อผิดพลาด{' '}
+                  <strong className="text-red-500">{parsedRows.filter((r) => !r.isValid).length}</strong> แถว)
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadUserExcelTemplate}
+                  className="px-2.5 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-medium cursor-pointer"
+                >
+                  {isEn ? 'Re-download Template' : 'ดาวน์โหลด Template อีกครั้ง'}
+                </button>
+              </div>
+            </div>
+
+            {/* Table of Parsed Rows */}
+            <div className="flex-1 overflow-y-auto border border-gray-200 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-gray-800 font-bold sticky top-0 border-b border-gray-200">
+                  <tr>
+                    <th className="p-2.5">สถานะ</th>
+                    <th className="p-2.5">รหัสพนักงาน</th>
+                    <th className="p-2.5">ชื่อ-นามสกุล</th>
+                    <th className="p-2.5">แผนก</th>
+                    <th className="p-2.5">ฝ่าย</th>
+                    <th className="p-2.5">เบอร์โทร</th>
+                    <th className="p-2.5">อีเมล</th>
+                    <th className="p-2.5">บทบาท</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {parsedRows.map((row, idx) => (
+                    <tr
+                      key={idx}
+                      className={row.isValid ? 'hover:bg-slate-50' : 'bg-red-50/50 hover:bg-red-50'}
+                    >
+                      <td className="p-2.5 whitespace-nowrap">
+                        {row.isValid ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            <Check className="w-3 h-3" /> พร้อมนำเข้า
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full"
+                            title={row.errors.join(', ')}
+                          >
+                            <AlertCircle className="w-3 h-3" /> {row.errors[0] || 'ข้อผิดพลาด'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-2.5 font-mono text-[11px]">{row.employeeCode || '-'}</td>
+                      <td className="p-2.5 font-bold text-gray-900">{row.name}</td>
+                      <td className="p-2.5 text-gray-700">{row.department}</td>
+                      <td className="p-2.5 text-gray-700">{row.division}</td>
+                      <td className="p-2.5 text-gray-700">{row.phone}</td>
+                      <td className="p-2.5 text-gray-700">{row.email}</td>
+                      <td className="p-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          {row.roles.map((r) => (
+                            <span
+                              key={r}
+                              className="px-1.5 py-0.5 text-[10px] font-semibold bg-slate-200 text-slate-800 rounded"
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <span className="text-xs text-gray-500">
+                ระบบจะนำเข้าเฉพาะแถวที่สถานะเป็น <strong className="text-emerald-600">พร้อมนำเข้า</strong>
+              </span>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsImportModalOpen(false);
+                    setParsedRows([]);
+                  }}
+                  className="px-4 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl cursor-pointer"
+                >
+                  {isEn ? 'Cancel' : 'ยกเลิก'}
+                </button>
+                <button
+                  type="button"
+                  disabled={parsedRows.filter((r) => r.isValid).length === 0}
+                  onClick={handleConfirmImport}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {isEn
+                      ? `Confirm Import (${parsedRows.filter((r) => r.isValid).length} Users)`
+                      : `ยืนยันนำเข้า (${parsedRows.filter((r) => r.isValid).length} ท่าน)`}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete User Custom Modal */}
       {deletingUser && (
@@ -375,14 +1112,21 @@ export default function UserRegistration({
                 🗑️
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 text-base">ยืนยันลบผู้ใช้งาน</h3>
-                <p className="text-xs text-gray-500">คุณต้องการลบรายชื่อผู้ใช้งานนี้ออกจากระบบใช่หรือไม่?</p>
+                <h3 className="font-bold text-gray-900 text-base">
+                  {isEn ? 'Confirm Delete User' : 'ยืนยันลบผู้ใช้งาน'}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {isEn
+                    ? 'Are you sure you want to remove this account from the directory?'
+                    : 'คุณต้องการลบรายชื่อผู้ใช้งานนี้ออกจากระบบใช่หรือไม่?'}
+                </p>
               </div>
             </div>
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
-              <p><strong className="font-semibold text-gray-900">ชื่อ-นามสกุล:</strong> {deletingUser.name}</p>
-              <p><strong className="font-semibold text-gray-900">แผนก:</strong> {deletingUser.department}</p>
-              <p><strong className="font-semibold text-gray-900">อีเมล:</strong> {deletingUser.email}</p>
+              <p><strong className="font-semibold text-gray-900">{isEn ? 'Name:' : 'ชื่อ-นามสกุล:'}</strong> {deletingUser.name}</p>
+              <p><strong className="font-semibold text-gray-900">Username:</strong> @{deletingUser.username || deletingUser.email.split('@')[0]}</p>
+              <p><strong className="font-semibold text-gray-900">{isEn ? 'Department:' : 'แผนก:'}</strong> {deletingUser.department}</p>
+              <p><strong className="font-semibold text-gray-900">{isEn ? 'Email:' : 'อีเมล:'}</strong> {deletingUser.email}</p>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button
@@ -390,7 +1134,7 @@ export default function UserRegistration({
                 onClick={() => setDeletingUser(null)}
                 className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
               >
-                ยกเลิก
+                {isEn ? 'Cancel' : 'ยกเลิก'}
               </button>
               <button
                 id="btn-confirm-delete-user"
@@ -400,7 +1144,7 @@ export default function UserRegistration({
                 }}
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
               >
-                ยืนยันลบผู้ใช้
+                {isEn ? 'Confirm Delete' : 'ยืนยันลบผู้ใช้'}
               </button>
             </div>
           </div>

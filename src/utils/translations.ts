@@ -1,0 +1,106 @@
+export type Language = 'th' | 'en';
+
+export const translations = {
+  th: {
+    // App Brand & Headers
+    appTitle: 'ระบบจองรถส่วนกลาง',
+    appSubtitle: 'ระบบบริหารและจองยานพาหนะส่วนกลางสำหรับองค์กร',
+    fleetStatusToday: 'สถานะกองรถวันนี้',
+    availableCount: 'ว่าง {count} คัน',
+    cloudSyncActive: 'เชื่อมต่อคลาวด์เรียบร้อย',
+    cloudSyncing: 'กำลังเชื่อมต่อคลาวด์...',
+    simulatedTime: 'เวลาจำลองระบบ',
+    simulatedDate: 'วันจันทร์ที่ 20 กรกฎาคม 2569',
+    
+    // Navigation Menu
+    navCalendar: 'ปฏิทินการจองรถยนต์',
+    navStatus: 'ตรวจสอบสถานะ',
+    navVehicles: 'จัดการข้อมูลรถยนต์',
+    navUsers: 'กำหนดผู้ใช้งาน',
+    navReport: 'รายงานสำหรับผู้ดูแลระบบ',
+    
+    // Auth & Login
+    loginTitle: 'เข้าสู่ระบบ',
+    loginSubtitle: 'เข้าใช้งานด้วย Username หรือ Email และ Password ที่กำหนดไว้',
+    usernameOrEmail: 'ชื่อผู้ใช้ (Username) หรือ อีเมลองค์กร',
+    usernameOrEmailPlaceholder: 'เช่น somchai หรือ somchai.j@company.com',
+    workEmail: 'อีเมลองค์กร',
+    workEmailPlaceholder: 'เช่น somchai.j@company.com',
+    username: 'ชื่อผู้ใช้ (Username)',
+    usernamePlaceholder: 'เช่น somchai',
+    selectAccount: 'หรือเลือกจากรายชื่อพนักงานในระบบ',
+    chooseAccountPlaceholder: '-- เลือกบัญชีผู้ใช้เพื่อเข้าสู่ระบบ --',
+    password: 'รหัสผ่าน (Password)',
+    passwordPlaceholder: 'กรอกรหัสผ่านของคุณ (เช่น password123)',
+    rememberMe: 'จดจำการเข้าสู่ระบบในอุปกรณ์นี้',
+    loginBtn: 'เข้าสู่ระบบ',
+    loggingIn: 'กำลังเข้าสู่ระบบ...',
+    noRegistrationNotice: 'ระบบจำกัดการเข้าถึงเฉพาะพนักงานภายในองค์กร (ไม่มีการเปิดรับลงทะเบียนใหม่)',
+    quickLoginTitle: 'เลือกเข้าสู่ระบบด่วนด้วยบัญชีที่มีในระบบ',
+    logout: 'ออกจากระบบ',
+    logoutConfirm: 'คุณต้องการออกจากระบบใช่หรือไม่?',
+    adminBadge: 'ผู้ดูแลระบบ (Admin)',
+    userBadge: 'พนักงานทั่วไป (Staff)',
+    errorUserNotFound: 'ไม่พบบัญชีผู้ใช้หรืออีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้ง',
+    errorEmptyIdentifier: 'กรุณากรอก Username หรือ Email',
+    errorEmptyPassword: 'กรุณากรอกรหัสผ่าน (Password)',
+    errorIncorrectPassword: 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง',
+    loginHint: 'สามารถเข้าสู่ระบบด้วย Username หรือ Email ที่ผูกไว้ พร้อมรหัสผ่าน',
+    
+    // Language Toggle
+    switchLang: 'Language / ภาษา',
+    langTh: 'ไทย',
+    langEn: 'English',
+  },
+  en: {
+    // App Brand & Headers
+    appTitle: 'Fleet Booking System',
+    appSubtitle: 'Enterprise Corporate Vehicle Reservation & Fleet Management',
+    fleetStatusToday: 'Fleet Status Today',
+    availableCount: '{count} available',
+    cloudSyncActive: 'Cloud Sync Active',
+    cloudSyncing: 'Syncing...',
+    simulatedTime: 'Simulated System Time',
+    simulatedDate: 'Monday, July 20, 2026',
+    
+    // Navigation Menu
+    navCalendar: 'Booking Calendar',
+    navStatus: 'Check Status',
+    navVehicles: 'Fleet Management',
+    navUsers: 'User Management',
+    navReport: 'Fleet Usage Report',
+    
+    // Auth & Login
+    loginTitle: 'Sign In',
+    loginSubtitle: 'Sign in with your configured Username or Email and Password',
+    usernameOrEmail: 'Username or Work Email',
+    usernameOrEmailPlaceholder: 'e.g. somchai or somchai.j@company.com',
+    workEmail: 'Work Email',
+    workEmailPlaceholder: 'e.g. somchai.j@company.com',
+    username: 'Username',
+    usernamePlaceholder: 'e.g. somchai',
+    selectAccount: 'Or select from authorized employees',
+    chooseAccountPlaceholder: '-- Select employee profile to sign in --',
+    password: 'Password',
+    passwordPlaceholder: 'Enter your password (e.g. password123)',
+    rememberMe: 'Remember me on this device',
+    loginBtn: 'Sign In',
+    loggingIn: 'Signing in...',
+    noRegistrationNotice: 'Access restricted to authorized corporate staff only (No new registration)',
+    quickLoginTitle: 'Quick Sign-In with Pre-Configured Accounts',
+    logout: 'Sign Out',
+    logoutConfirm: 'Are you sure you want to sign out?',
+    adminBadge: 'Administrator',
+    userBadge: 'Employee',
+    errorUserNotFound: 'Account with this username or email not found. Please verify and try again.',
+    errorEmptyIdentifier: 'Please enter your username or email.',
+    errorEmptyPassword: 'Please enter your password.',
+    errorIncorrectPassword: 'Incorrect password. Please verify and try again.',
+    loginHint: 'You can sign in using either your assigned Username or Email, along with your password.',
+    
+    // Language Toggle
+    switchLang: 'Language / ภาษา',
+    langTh: 'Thai',
+    langEn: 'English',
+  },
+};
