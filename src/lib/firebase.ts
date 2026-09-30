@@ -142,7 +142,16 @@ export async function getBookings(): Promise<Booking[]> {
     
     const bookings: Booking[] = [];
     snapshot.forEach((doc) => {
-      bookings.push(doc.data() as Booking);
+      const data = doc.data() as Booking;
+      const initialMatch = INITIAL_BOOKINGS.find((b) => b.id === data.id);
+      const userMatch = INITIAL_USERS.find((u) => u.id === data.userId);
+      bookings.push({
+        ...data,
+        userDepartment: data.userDepartment || initialMatch?.userDepartment || userMatch?.department || '',
+        userDivision: data.userDivision || initialMatch?.userDivision || userMatch?.division || '',
+        assignedApproverId: data.assignedApproverId || initialMatch?.assignedApproverId,
+        assignedApproverName: data.assignedApproverName || initialMatch?.assignedApproverName,
+      });
     });
     return bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (error) {

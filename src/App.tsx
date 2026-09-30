@@ -15,7 +15,6 @@ import {
   getBookings,
   saveBooking,
   deleteBooking,
-  resetFirestoreData,
 } from './lib/firebase';
 
 import BookingSystem from './components/BookingSystem';
@@ -26,7 +25,7 @@ import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
 import UserSwitcherModal from './components/UserSwitcherModal';
 import { translations, Language } from './utils/translations';
-import { isUserAdmin, getUserRoles, getRoleBadgeInfo } from './utils/userHelpers';
+import { isUserAdmin, getUserRoles, getRoleBadgeInfo, canUserViewBooking, hasRole } from './utils/userHelpers';
 
 import {
   CalendarDays,
@@ -362,7 +361,7 @@ export default function App() {
     const approverName =
       status === 'Approved' || status === 'Completed'
         ? currentUser
-          ? `${currentUser.name} (${currentUser.role || 'Admin'})`
+          ? `${currentUser.name} (${hasRole(currentUser, 'Admin') ? 'Admin' : 'ผู้อนุมัติ'})`
           : 'ผู้ดูแลระบบ'
         : undefined;
 
@@ -433,32 +432,7 @@ export default function App() {
     }
   };
 
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Helper to reset database back to original defaults inside cloud too
-  const handleResetData = () => {
-    setShowResetConfirm(true);
-  };
-
-  const executeResetData = async () => {
-    try {
-      setIsLoading(true);
-      const defaults = await resetFirestoreData();
-      setVehicles(defaults.vehicles);
-      setUsers(defaults.users);
-      setBookings(defaults.bookings);
-      const admin = defaults.users.find((u) => u.role === 'Admin');
-      setCurrentUser(admin || defaults.users[0]);
-      setActiveTab('calendar');
-      setToastMessage('รีเซ็ตข้อมูลในระบบคลาวด์เรียบร้อยแล้ว');
-    } catch (error) {
-      console.error('Error resetting cloud data:', error);
-      setToastMessage('เกิดข้อผิดพลาดในการรีเซ็ตข้อมูล');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // If login page was explicitly opened, show the Login Page
   if (isLoginPageOpen) {
@@ -517,10 +491,7 @@ export default function App() {
             <div className="p-3 mx-3 my-3 bg-slate-800/60 border border-slate-800 rounded-xl space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider block">
-                  {language === 'th' ? 'ผู้ใช้จองที่ใช้งานอยู่' : 'Active Account'}
-                </span>
-                <span className="text-[9px] text-emerald-400 bg-emerald-950/70 px-1.5 py-0.2 rounded border border-emerald-800/50 font-bold">
-                  {language === 'th' ? 'ตรง 100%' : 'Direct'}
+                  {language === 'th' ? 'ผู้ใช้งานปัจจุบัน' : 'Active Account'}
                 </span>
               </div>
               <div className="flex items-center gap-2.5">
@@ -551,7 +522,7 @@ export default function App() {
                   id="sidebar-switch-user-btn"
                   onClick={() => setIsUserSwitcherOpen(true)}
                   className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-indigo-300 hover:text-white hover:bg-indigo-900/40 rounded-lg border border-indigo-800/40 transition-colors cursor-pointer"
-                  title="สลับบทบาทหรือผู้ใช้งาน"
+                  title="สลับบัญชีผู้ใช้งาน"
                 >
                   <Users className="w-3 h-3" />
                   <span>{language === 'th' ? 'สลับผู้ใช้' : 'Switch'}</span>
@@ -560,10 +531,10 @@ export default function App() {
                   id="sidebar-logout-btn"
                   onClick={handleLogout}
                   className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg border border-slate-800 hover:border-red-900/40 transition-colors cursor-pointer"
-                  title="หน้าเข้าสู่ระบบ"
+                  title={t.logout}
                 >
                   <LogOut className="w-3 h-3" />
-                  <span>{language === 'th' ? 'หน้าล็อกอิน' : 'Sign In'}</span>
+                  <span>{t.logout}</span>
                 </button>
               </div>
             </div>
@@ -601,9 +572,9 @@ export default function App() {
             >
               <ClipboardList className="w-4 h-4 shrink-0" />
               <span className="flex-1 text-left">{t.navStatus}</span>
-              {bookings.filter((b) => b.status === 'Pending').length > 0 && (
+              {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length > 0 && (
                 <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {bookings.filter((b) => b.status === 'Pending').length}
+                  {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length}
                 </span>
               )}
             </button>
@@ -658,18 +629,14 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Footer Area with Reset option */}
-        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 text-center space-y-2">
-          <p className="text-[10px] text-slate-500 font-medium">
-            2026 • Corporate Fleet v1.2
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 text-center">
+          <p className="text-[10px] text-slate-400 font-semibold tracking-wide">
+            Corporate Fleet Management
           </p>
-          <button
-            id="btn-reset-data-all"
-            onClick={handleResetData}
-            className="w-full py-1 text-[10px] font-bold text-slate-400 hover:text-red-400 hover:bg-red-950/20 rounded-md border border-slate-800 hover:border-red-900/40 transition-colors cursor-pointer"
-          >
-            🔄 {language === 'th' ? 'รีเซ็ตข้อมูลเป็นค่าเริ่มต้น' : 'Reset System Data'}
-          </button>
+          <p className="text-[9px] text-slate-500 mt-0.5">
+            ระบบจองรถยนต์ส่วนกลาง
+          </p>
         </div>
       </aside>
 
@@ -712,8 +679,17 @@ export default function App() {
           {/* Quick Header Profile Display & Language & Logout */}
           <div className="flex items-center gap-3 sm:gap-4">
             <div className="text-right hidden xl:block">
-              <span className="text-[10px] text-gray-400 block font-medium">{t.simulatedTime}</span>
-              <span className="text-xs text-gray-600 font-bold">{t.simulatedDate}</span>
+              <span className="text-[10px] text-gray-400 block font-medium">
+                {language === 'th' ? 'วันที่' : 'Date'}
+              </span>
+              <span className="text-xs text-gray-700 font-bold">
+                {new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-US', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                }).format(new Date())}
+              </span>
             </div>
 
             {/* Language Switcher in Top Header */}
@@ -782,42 +758,18 @@ export default function App() {
               </div>
             )}
 
-            {/* Logout / Login page button in header */}
+            {/* Logout button in header */}
             <button
               id="header-logout-btn"
               onClick={handleLogout}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer"
-              title={language === 'th' ? 'หน้าเข้าสู่ระบบ' : 'Sign In Page'}
+              title={t.logout}
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{language === 'th' ? 'หน้าล็อกอิน' : 'Sign In'}</span>
+              <span className="hidden md:inline">{t.logout}</span>
             </button>
           </div>
         </header>
-
-        {/* Direct Access & No Google Account Notice Banner */}
-        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border-b border-emerald-200/70 px-4 sm:px-6 py-2 flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800 text-[11px] sm:text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              {language === 'th'
-                ? 'เข้าใช้งานระบบได้โดยตรง 100% — ไม่ต้องมี Google Account'
-                : '100% Direct Access • No Google Account Required'}
-            </span>
-            <span className="hidden sm:inline text-emerald-400">•</span>
-            <span className="text-[11px] text-emerald-700 hidden md:inline">
-              {language === 'th'
-                ? 'บันทึกและซิงค์ข้อมูลลง Firebase Firestore (fleet-fefc5) อัตโนมัติ'
-                : 'Live Sync with Firebase Firestore (fleet-fefc5)'}
-            </span>
-          </div>
-          <button
-            onClick={() => setIsUserSwitcherOpen(true)}
-            className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 underline flex items-center gap-1 cursor-pointer shrink-0"
-          >
-            <span>{language === 'th' ? 'สลับบทบาท/สิทธิ์' : 'Switch Role'}</span>
-          </button>
-        </div>
 
         {/* Main dynamic container with responsive padding and animation */}
         <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full flex-1">
@@ -846,6 +798,7 @@ export default function App() {
                 <BookingSystem
                   vehicles={vehicles}
                   bookings={bookings}
+                  users={users}
                   currentUser={currentUser}
                   onAddBooking={handleAddBooking}
                   onUpdateBookingStatus={handleUpdateBookingStatus}
@@ -891,44 +844,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* Custom Reset Confirmation Modal */}
-      {showResetConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex items-center gap-3 text-amber-600">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-lg font-bold shrink-0">
-                ⚠️
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900 text-base">ยืนยันการรีเซ็ตข้อมูล</h3>
-                <p className="text-xs text-gray-500">คุณต้องการรีเซ็ตข้อมูลคลาวด์กลับสู่ค่าเริ่มต้นใช่หรือไม่?</p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-600 bg-slate-50 p-3 rounded-lg border border-slate-100">
-              ข้อมูลการจอง รายชื่อพนักงาน และรถยนต์ที่เพิ่มใหม่ทั้งหมดจะถูกลบและแทนที่ด้วยข้อมูลตัวอย่างเริ่มต้นสำหรับทดสอบระบบ
-            </p>
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                id="btn-cancel-reset"
-                onClick={() => setShowResetConfirm(false)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                id="btn-confirm-reset"
-                onClick={async () => {
-                  setShowResetConfirm(false);
-                  await executeResetData();
-                }}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
-              >
-                ยืนยันรีเซ็ตข้อมูล
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Floating Toast Message */}
       {toastMessage && (

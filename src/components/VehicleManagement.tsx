@@ -312,10 +312,7 @@ export default function VehicleManagement({
         <div id="role-admin-warning" className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-800">
-            <span className="font-bold">จำลองสิทธิ์แอดมิน:</span> ปัจจุบันคุณไม่ได้เข้าสู่ระบบด้วยสิทธิ์ <span className="underline font-semibold">แอดมิน (Admin)</span> ระบบอนุญาตให้แอดมินเท่านั้นเป็นผู้ลงทะเบียน ลบ หรือแก้ไขข้อมูลยานพาหนะ
-            <div className="mt-1">
-              💡 คุณสามารถเปลี่ยนโปรไฟล์จำลองเป็นแอดมิน (เช่น <span className="font-semibold">คุณสมชาย ใจดี</span>) ได้อย่างสะดวกที่เมนู <span className="font-semibold">"ลงทะเบียนผู้ใช้งาน"</span>
-            </div>
+            <span className="font-bold">สิทธิ์การจัดการข้อมูล:</span> บัญชีปัจจุบันไม่มีสิทธิ์ <span className="underline font-semibold">ผู้ดูแลระบบ (Admin)</span> ระบบอนุญาตให้ผู้ดูแลระบบเท่านั้นเป็นผู้ลงทะเบียน ลบ หรือแก้ไขข้อมูลยานพาหนะ
           </div>
         </div>
       )}
@@ -930,7 +927,7 @@ export default function VehicleManagement({
                         type="url"
                         value={imageUrl}
                         onChange={(e) => setImageUrl(e.target.value)}
-                        placeholder="ปล่อยว่างเพื่อสุ่มรูปตัวอย่างให้อัตโนมัติ"
+                        placeholder="ปล่อยว่างเพื่อเลือกภาพมาตรฐานให้อัตโนมัติ"
                         className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
                       />
                       <span className="text-[10px] text-gray-400 mt-1 block">

@@ -9,8 +9,7 @@ export const translations = {
     availableCount: 'ว่าง {count} คัน',
     cloudSyncActive: 'เชื่อมต่อคลาวด์เรียบร้อย',
     cloudSyncing: 'กำลังเชื่อมต่อคลาวด์...',
-    simulatedTime: 'เวลาจำลองระบบ',
-    simulatedDate: 'วันจันทร์ที่ 20 กรกฎาคม 2569',
+    currentDate: 'วันที่ปัจจุบัน',
     
     // Navigation Menu
     navCalendar: 'ปฏิทินการจองรถยนต์',
@@ -21,14 +20,12 @@ export const translations = {
     
     // Auth & Login
     loginTitle: 'เข้าสู่ระบบ',
-    loginSubtitle: 'เข้าใช้งานด้วย Username หรือ Email และ Password ที่กำหนดไว้',
-    directAccessBtn: '🚀 เข้าใช้งานระบบโดยตรง (Direct Access - ไม่ต้องล็อกอิน)',
-    noGoogleAccountNotice: '🟢 เข้าใช้งานได้โดยตรง 100% — ไม่จำเป็นต้องมี Google Account',
-    noGoogleAccountSubtitle: 'สามารถใช้งานระบบได้ทันที หรือเลือกรหัส/ชื่อผู้ใช้ในองค์กรเพื่อเริ่มจองรถ',
+    loginSubtitle: 'เข้าใช้งานด้วย Username หรือ Email และ Password',
+    directAccessBtn: 'เข้าสู่ระบบใช้งาน',
     switchUser: 'สลับผู้ใช้งาน',
     activeRole: 'สิทธิ์ปัจจุบัน',
-    selectUserToSwitch: 'เลือกผู้ใช้งานที่ต้องการสลับบทบาท',
-    oneClickLogin: 'เลือกผู้ใช้งานเพื่อเข้าสู่ระบบทันที (1-Click Login)',
+    selectUserToSwitch: 'เลือกบัญชีพนักงานเพื่อสลับการใช้งาน',
+    oneClickLogin: 'เลือกบัญชีผู้ใช้งาน',
     usernameOrEmail: 'ชื่อผู้ใช้ (Username) หรือ อีเมลองค์กร',
     usernameOrEmailPlaceholder: 'เช่น somchai หรือ somchai.j@company.com',
     workEmail: 'อีเมลองค์กร',
@@ -67,8 +64,7 @@ export const translations = {
     availableCount: '{count} available',
     cloudSyncActive: 'Cloud Sync Active',
     cloudSyncing: 'Syncing...',
-    simulatedTime: 'Simulated System Time',
-    simulatedDate: 'Monday, July 20, 2026',
+    currentDate: 'Current Date',
     
     // Navigation Menu
     navCalendar: 'Booking Calendar',
@@ -80,13 +76,11 @@ export const translations = {
     // Auth & Login
     loginTitle: 'Sign In',
     loginSubtitle: 'Sign in with your configured Username or Email and Password',
-    directAccessBtn: '🚀 Direct Access (Enter without Login)',
-    noGoogleAccountNotice: '🟢 100% Direct Access — No Google Account Required',
-    noGoogleAccountSubtitle: 'Use the system immediately or choose any employee profile to start booking',
+    directAccessBtn: 'Sign In',
     switchUser: 'Switch User',
     activeRole: 'Current Roles',
     selectUserToSwitch: 'Select Employee Account to Switch',
-    oneClickLogin: 'Select Profile to Sign In Instantly (1-Click Login)',
+    oneClickLogin: 'Select Account to Sign In',
     usernameOrEmail: 'Username or Work Email',
     usernameOrEmailPlaceholder: 'e.g. somchai or somchai.j@company.com',
     workEmail: 'Work Email',

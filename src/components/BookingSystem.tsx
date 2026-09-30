@@ -1,6 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { Vehicle, Booking, User, BookingStatus } from '../types';
-import { isUserAdmin, isUserApprover } from '../utils/userHelpers';
+import {
+  isUserAdmin,
+  isUserApprover,
+  hasRole,
+  filterBookingsForUser,
+  getBookingDepartment,
+  canUserApproveBooking,
+} from '../utils/userHelpers';
 import {
   Clock,
   MapPin,
@@ -14,11 +21,14 @@ import {
   X,
   Shield,
   Phone,
+  Building2,
+  Lock,
 } from 'lucide-react';
 
 interface BookingSystemProps {
   vehicles: Vehicle[];
   bookings: Booking[];
+  users?: User[];
   currentUser: User | null;
   onAddBooking?: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
   onUpdateBookingStatus: (bookingId: string, status: BookingStatus) => void;
@@ -28,6 +38,7 @@ interface BookingSystemProps {
 export default function BookingSystem({
   vehicles,
   bookings,
+  users = [],
   currentUser,
   onUpdateBookingStatus,
   onDeleteBooking,
@@ -38,31 +49,41 @@ export default function BookingSystem({
   const [deletingBooking, setDeletingBooking] = useState<Booking | null>(null);
 
   const isAdmin = isUserAdmin(currentUser);
-  const canApprove = isAdmin || isUserApprover(currentUser);
+  const isApprover = hasRole(currentUser, 'Approve');
 
-  // Counts for quick badges
-  const pendingCount = useMemo(() => bookings.filter((b) => b.status === 'Pending').length, [bookings]);
-  const approvedCount = useMemo(() => bookings.filter((b) => b.status === 'Approved').length, [bookings]);
-  const completedCount = useMemo(() => bookings.filter((b) => b.status === 'Completed').length, [bookings]);
-  const cancelledCount = useMemo(() => bookings.filter((b) => b.status === 'Cancelled').length, [bookings]);
+  // Filter bookings strictly according to role visibility:
+  // - Admin: All bookings across all departments
+  // - Approver: Only bookings from their own department (and their own bookings)
+  // - User: Only their own bookings
+  const visibleBookings = useMemo(() => {
+    return filterBookingsForUser(bookings, currentUser, users);
+  }, [bookings, currentUser, users]);
+
+  // Counts for quick badges calculated exclusively from visible bookings
+  const pendingCount = useMemo(() => visibleBookings.filter((b) => b.status === 'Pending').length, [visibleBookings]);
+  const approvedCount = useMemo(() => visibleBookings.filter((b) => b.status === 'Approved').length, [visibleBookings]);
+  const completedCount = useMemo(() => visibleBookings.filter((b) => b.status === 'Completed').length, [visibleBookings]);
+  const cancelledCount = useMemo(() => visibleBookings.filter((b) => b.status === 'Cancelled').length, [visibleBookings]);
 
   // Filtered booking records for the list view
   const filteredBookings = useMemo(() => {
-    return bookings.filter((b) => {
+    return visibleBookings.filter((b) => {
       const q = searchQuery.toLowerCase().trim();
+      const dept = getBookingDepartment(b, users).toLowerCase();
       const matchSearch =
         !q ||
         b.userName.toLowerCase().includes(q) ||
         b.destination.toLowerCase().includes(q) ||
         b.vehicleName.toLowerCase().includes(q) ||
         b.purpose.toLowerCase().includes(q) ||
+        dept.includes(q) ||
         (b.userPhone && b.userPhone.includes(q));
 
       const matchStatus = statusFilter === 'All' || b.status === statusFilter;
 
       return matchSearch && matchStatus;
     });
-  }, [bookings, searchQuery, statusFilter]);
+  }, [visibleBookings, searchQuery, statusFilter, users]);
 
   const getBookingStatusBadge = (st: BookingStatus) => {
     switch (st) {
@@ -113,18 +134,51 @@ export default function BookingSystem({
     }
   };
 
+  // Header Title & Scope description
+  const headerInfo = useMemo(() => {
+    if (isAdmin) {
+      return {
+        title: 'รายการจองรถยนต์ทั้งหมด',
+        subtitle: 'ตรวจสอบสถานะและจัดการคำขอใช้รถยนต์ส่วนกลางของทุกแผนก (สิทธิ์ผู้ดูแลระบบ Admin)',
+        badge: `👑 ผู้ดูแลระบบ: แสดงทุกแผนก (${visibleBookings.length} รายการ)`,
+        badgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+      };
+    }
+    if (isApprover) {
+      return {
+        title: `รายการจองรถยนต์ — ${currentUser?.department || 'แผนกของคุณ'}`,
+        subtitle: `ตรวจสอบและพิจารณาอนุมัติคำขอใช้รถยนต์ของพนักงานใน${currentUser?.department || 'แผนกของคุณ'}`,
+        badge: `🛡️ สิทธิ์ผู้อนุมัติ: เฉพาะแผนก ${currentUser?.department || '-'} (${visibleBookings.length} รายการ)`,
+        badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+      };
+    }
+    return {
+      title: 'รายการจองรถยนต์ของฉัน',
+      subtitle: `ตรวจสอบสถานะและประวัติการขอใช้รถยนต์ส่วนกลางของคุณ (${currentUser?.name || '-'})`,
+      badge: `👤 พนักงาน: แสดงเฉพาะรายการจองของคุณ (${visibleBookings.length} รายการ)`,
+      badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    };
+  }, [isAdmin, isApprover, currentUser, visibleBookings.length]);
+
   return (
     <div className="space-y-5" id="booking-status-system-section">
       {/* 1. Header & Summary Stats */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="font-bold text-gray-900 text-xl flex items-center gap-2">
-              <ClipboardList className="w-6 h-6 text-indigo-600" />
-              <span>รายการจองทั้งหมด</span>
-            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                <ClipboardList className="w-6 h-6 text-indigo-600" />
+                <span>{headerInfo.title}</span>
+              </h2>
+              <span
+                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${headerInfo.badgeColor} inline-flex items-center gap-1`}
+              >
+                {headerInfo.badge}
+              </span>
+            </div>
             <p className="text-xs text-gray-500 mt-1">
-              ตรวจสอบสถานะการจอง อนุมัติหรือยกเลิกคำขอใช้รถยนต์ส่วนกลาง
+              {headerInfo.subtitle}
             </p>
           </div>
 
@@ -139,7 +193,7 @@ export default function BookingSystem({
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
               }`}
             >
-              ทั้งหมด ({bookings.length})
+              ทั้งหมด ({visibleBookings.length})
             </button>
             <button
               type="button"
@@ -203,7 +257,7 @@ export default function BookingSystem({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ค้นหาชื่อผู้จอง, ทะเบียน/ยี่ห้อรถ, จุดหมายปลายทาง หรือจุดประสงค์..."
+              placeholder="ค้นหาชื่อผู้จอง, แผนก, ทะเบียน/ยี่ห้อรถ, จุดหมายปลายทาง หรือจุดประสงค์..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500 transition-colors"
             />
           </div>
@@ -216,7 +270,7 @@ export default function BookingSystem({
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-xl text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500 w-full sm:w-auto"
             >
-              <option value="All">แสดงทุกสถานะ</option>
+              <option value="All">แสดงทุกสถานะ ({visibleBookings.length})</option>
               <option value="Pending">⏳ รออนุมัติ ({pendingCount})</option>
               <option value="Approved">✅ อนุมัติแล้ว ({approvedCount})</option>
               <option value="Completed">🏁 เดินทางเสร็จสิ้น ({completedCount})</option>
@@ -231,15 +285,31 @@ export default function BookingSystem({
         {filteredBookings.length === 0 ? (
           <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-12 text-center space-y-2">
             <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto" />
-            <h4 className="font-semibold text-gray-700 text-sm">ไม่พบรายการขอจองรถยนต์ส่วนกลาง</h4>
+            <h4 className="font-semibold text-gray-700 text-sm">
+              {!isAdmin && !isApprover
+                ? 'คุณยังไม่มีประวัติการขอจองรถยนต์ส่วนกลาง'
+                : isApprover && !isAdmin
+                ? `ไม่พบรายการขอจองรถยนต์ของ ${currentUser?.department || 'แผนกของคุณ'}`
+                : 'ไม่พบรายการขอจองรถยนต์ส่วนกลาง'}
+            </h4>
             <p className="text-xs text-gray-400 max-w-sm mx-auto">
-              ไม่พบข้อมูลใดๆ ตามเงื่อนไขการค้นหาข้างต้น สามารถเลือกดูสถานะอื่นๆ หรือล้างคำค้นหาได้
+              {!isAdmin && !isApprover
+                ? 'คุณสามารถตรวจสอบรถยนต์ที่ว่างและกดส่งคำขอจองรถได้ที่แท็บปฏิทิน'
+                : 'ไม่พบข้อมูลตามเงื่อนไขการค้นหาข้างต้น สามารถเลือกดูสถานะอื่นๆ หรือล้างคำค้นหาได้'}
             </p>
           </div>
         ) : (
           filteredBookings.map((booking) => {
-            const canApproveReject = canApprove && (booking.status === 'Pending' || booking.status === 'Approved');
-            const canUserCancel = currentUser?.id === booking.userId && booking.status === 'Pending';
+            const bookingDept = getBookingDepartment(booking, users);
+            const isOwnBooking = currentUser?.id === booking.userId;
+            const isSoleApprover = Boolean(booking.assignedApproverId && currentUser?.id === booking.assignedApproverId);
+
+            // Only the designated approver (or Admin) can approve/reject
+            const canApproveReject =
+              canUserApproveBooking(booking, currentUser, users) &&
+              (booking.status === 'Pending' || booking.status === 'Approved');
+            // Regular user can only cancel their own pending booking
+            const canUserCancel = isOwnBooking && booking.status === 'Pending';
 
             return (
               <div
@@ -255,12 +325,37 @@ export default function BookingSystem({
                         {booking.userName.substring(0, 1)}
                       </span>
                       <span>{booking.userName}</span>
+                      {isOwnBooking && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded">
+                          ของฉัน
+                        </span>
+                      )}
                     </span>
+
+                    {bookingDept && (
+                      <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                        <Building2 className="w-3 h-3 text-slate-400" />
+                        <span>{bookingDept}</span>
+                      </span>
+                    )}
 
                     {booking.userPhone && (
                       <span className="text-xs text-gray-500 inline-flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md">
                         <Phone className="w-3 h-3 text-gray-400" />
                         <span>{booking.userPhone}</span>
+                      </span>
+                    )}
+
+                    {booking.assignedApproverName && (
+                      <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                        <Shield className="w-3 h-3 text-indigo-500" />
+                        <span>ผู้อนุมัติ: {booking.assignedApproverName}</span>
+                      </span>
+                    )}
+
+                    {isSoleApprover && booking.status === 'Pending' && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                        ⭐ คุณคือผู้อนุมัติคำขอนี้
                       </span>
                     )}
 
@@ -303,6 +398,16 @@ export default function BookingSystem({
                       <span className="font-semibold text-gray-700 block mb-0.5">วัตถุประสงค์ในการเดินทาง:</span>
                       <span className="text-gray-600 leading-relaxed">{booking.purpose}</span>
                     </div>
+
+                    {booking.approverName && (
+                      <p className="text-[11px] text-gray-500 pt-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                        <span>อนุมัติโดย: <strong className="text-gray-700">{booking.approverName}</strong></span>
+                        {booking.approvedAt && (
+                          <span className="text-gray-400">({new Date(booking.approvedAt).toLocaleDateString('th-TH')})</span>
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -316,7 +421,7 @@ export default function BookingSystem({
                   </div>
 
                   <div className="flex items-center gap-1.5 w-full md:w-auto">
-                    {/* Admin Approvals */}
+                    {/* Approver / Admin Approvals */}
                     {canApproveReject && (
                       <>
                         {booking.status === 'Pending' && (
@@ -359,9 +464,9 @@ export default function BookingSystem({
                         id={`btn-user-cancel-booking-${booking.id}`}
                         type="button"
                         onClick={() => onUpdateBookingStatus(booking.id, 'Cancelled')}
-                        className="w-full md:w-auto text-center px-4 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                        className="w-full md:w-auto text-center px-4 py-1.5 border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                       >
-                        ยกเลิกใบจอง
+                        ยกเลิกคำขอจอง
                       </button>
                     )}
 
@@ -379,11 +484,15 @@ export default function BookingSystem({
                     )}
                   </div>
 
-                  {/* Helper hint for non-admin on pending */}
-                  {!isAdmin && booking.status === 'Pending' && !canUserCancel && (
+                  {/* Helper hint for user waiting for approver */}
+                  {!canApproveReject && booking.status === 'Pending' && (
                     <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
                       <Shield className="w-3 h-3" />
-                      <span>กำลังรอการอนุมัติโดยเจ้าหน้าที่</span>
+                      <span>
+                        {booking.assignedApproverName
+                          ? `รอคุณ ${booking.assignedApproverName} พิจารณาอนุมัติ`
+                          : 'รอผู้อนุมัติพิจารณา'}
+                      </span>
                     </span>
                   )}
                 </div>
@@ -408,6 +517,7 @@ export default function BookingSystem({
             </div>
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
               <p><strong className="font-semibold text-gray-900">ผู้ขอจอง:</strong> {deletingBooking.userName}</p>
+              <p><strong className="font-semibold text-gray-900">แผนก:</strong> {getBookingDepartment(deletingBooking, users) || '-'}</p>
               <p><strong className="font-semibold text-gray-900">รถยนต์:</strong> {deletingBooking.vehicleName}</p>
               <p><strong className="font-semibold text-gray-900">ปลายทาง:</strong> {deletingBooking.destination}</p>
             </div>

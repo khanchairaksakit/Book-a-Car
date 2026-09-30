@@ -65,6 +65,8 @@
         "passengersCount": { "type": "integer" },
         "status": { "type": "string", "enum": ["Pending", "Approved", "Cancelled", "Completed"] },
         "createdAt": { "type": "string" },
+        "assignedApproverId": { "type": "string" },
+        "assignedApproverName": { "type": "string" },
         "approverName": { "type": "string" },
         "approvedAt": { "type": "string" }
       },

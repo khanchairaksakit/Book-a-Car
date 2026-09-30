@@ -148,7 +148,7 @@ export const INITIAL_USERS: User[] = [
   },
 ];
 
-export const INITIAL_BOOKINGS: Booking[] = [
+const RAW_INITIAL_BOOKINGS: Booking[] = [
   // January 2026 Bookings
   {
     id: 'b-1',
@@ -427,3 +427,21 @@ export const INITIAL_BOOKINGS: Booking[] = [
     createdAt: '2026-07-20T11:00',
   },
 ];
+
+export const INITIAL_BOOKINGS: Booking[] = RAW_INITIAL_BOOKINGS.map((b) => {
+  const user = INITIAL_USERS.find((u) => u.id === b.userId);
+  let defaultApprover = INITIAL_USERS.find((u) => u.id === 'user-1'); // Somchai (Admin)
+  if (b.userId === 'user-1') {
+    defaultApprover = INITIAL_USERS.find((u) => u.id === 'user-2'); // Somsri (Approver)
+  } else if (b.userId === 'user-3') {
+    defaultApprover = INITIAL_USERS.find((u) => u.id === 'user-2'); // Somsri (Approver)
+  }
+
+  return {
+    ...b,
+    userDepartment: b.userDepartment || user?.department || 'แผนกทั่วไป',
+    userDivision: b.userDivision || user?.division || 'ฝ่ายบริหารทั่วไป',
+    assignedApproverId: b.assignedApproverId || defaultApprover?.id,
+    assignedApproverName: b.assignedApproverName || defaultApprover?.name,
+  };
+});

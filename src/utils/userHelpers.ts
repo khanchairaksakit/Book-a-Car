@@ -1,4 +1,4 @@
-import { User, UserRole } from '../types';
+import { User, UserRole, Booking } from '../types';
 
 export function getUserRoles(user?: User | null): UserRole[] {
   if (!user) return [];
@@ -21,6 +21,108 @@ export function isUserAdmin(user: User | null | undefined): boolean {
 
 export function isUserApprover(user: User | null | undefined): boolean {
   return hasRole(user, 'Approve') || hasRole(user, 'Admin');
+}
+
+/**
+ * Resolves the department of a booking, falling back to looking up the booking's user.
+ */
+export function getBookingDepartment(booking: Booking, allUsers?: User[]): string {
+  if (booking.userDepartment && booking.userDepartment.trim()) {
+    return booking.userDepartment.trim();
+  }
+  if (allUsers && booking.userId) {
+    const matched = allUsers.find((u) => u.id === booking.userId);
+    if (matched?.department) {
+      return matched.department.trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Retrieves all users who possess the 'Approve' permission (or Admin with approve rights).
+ */
+export function getEligibleApprovers(users: User[]): User[] {
+  return users.filter((u) => hasRole(u, 'Approve') || isUserAdmin(u));
+}
+
+/**
+ * Checks whether the current user is permitted to approve/reject the given booking:
+ * - If booking specifies `assignedApproverId`: ONLY that designated user (or Admin) can approve.
+ * - Otherwise: Department-level approver (or Admin).
+ */
+export function canUserApproveBooking(
+  booking: Booking,
+  currentUser: User | null | undefined,
+  allUsers?: User[]
+): boolean {
+  if (!currentUser) return false;
+  if (isUserAdmin(currentUser)) return true;
+
+  if (booking.assignedApproverId) {
+    return currentUser.id === booking.assignedApproverId;
+  }
+
+  if (hasRole(currentUser, 'Approve')) {
+    const currentDept = (currentUser.department || '').trim().toLowerCase();
+    const bookingDept = getBookingDepartment(booking, allUsers).toLowerCase();
+    return Boolean(currentDept && bookingDept && currentDept === bookingDept);
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether a booking is visible to the given user based on strict role policy:
+ * - Admin: Sees all bookings across all departments
+ * - Requester: Always sees their own bookings
+ * - Assigned Approver: When an approver is chosen, ONLY that designated user can see and approve it
+ * - Approver (legacy bookings): Sees bookings within their own department
+ * - User (regular staff): Sees ONLY their own bookings (cannot view other users' bookings)
+ */
+export function canUserViewBooking(
+  booking: Booking,
+  currentUser: User | null | undefined,
+  allUsers?: User[]
+): boolean {
+  if (!currentUser) return false;
+
+  // 1. Admin has global visibility
+  if (isUserAdmin(currentUser)) {
+    return true;
+  }
+
+  // 2. The requester always sees their own booking
+  if (booking.userId === currentUser.id) {
+    return true;
+  }
+
+  // 3. If an approver is explicitly designated: ONLY that chosen user can view it as the sole approver
+  if (booking.assignedApproverId) {
+    return currentUser.id === booking.assignedApproverId;
+  }
+
+  // 4. Legacy fallback: Approver strictly limited to their own department
+  if (hasRole(currentUser, 'Approve')) {
+    const currentDept = (currentUser.department || '').trim().toLowerCase();
+    const bookingDept = getBookingDepartment(booking, allUsers).toLowerCase();
+    return Boolean(currentDept && bookingDept && currentDept === bookingDept);
+  }
+
+  // 5. Regular user: strictly limited to their own bookings
+  return false;
+}
+
+/**
+ * Filters a list of bookings based on the logged-in user's role and department.
+ */
+export function filterBookingsForUser(
+  bookings: Booking[],
+  currentUser: User | null | undefined,
+  allUsers?: User[]
+): Booking[] {
+  if (!currentUser) return [];
+  return bookings.filter((b) => canUserViewBooking(b, currentUser, allUsers));
 }
 
 export function getRoleBadgeInfo(role: UserRole, isEn: boolean = false): {

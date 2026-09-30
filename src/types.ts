@@ -62,6 +62,8 @@ export interface Booking {
   passengersCount: number;
   status: BookingStatus;
   createdAt: string; // วันที่เอกสาร
-  approverName?: string; // ผู้อนุมัติ
+  assignedApproverId?: string; // ID ของผู้อนุมัติที่ถูกเลือก (สิทธิ Approve)
+  assignedApproverName?: string; // ชื่อของผู้อนุมัติที่ถูกเลือก
+  approverName?: string; // ผู้ทำการอนุมัติจริง
   approvedAt?: string; // วันที่อนุมัติ
 }

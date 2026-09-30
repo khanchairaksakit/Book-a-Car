@@ -88,8 +88,8 @@ export default function UserSwitcherModal({
                 </h3>
                 <p className="text-xs text-gray-500">
                   {language === 'th'
-                    ? 'เลือกบัญชีพนักงานเพื่อทดสอบบทบาทการใช้งานได้ทันที (ไม่ต้องมี Google Account)'
-                    : 'Select staff account to test permissions instantly (No Google account needed)'}
+                    ? 'เลือกบัญชีพนักงานเพื่อสลับการใช้งานในระบบ'
+                    : 'Select staff account to switch profile'}
                 </p>
               </div>
             </div>
@@ -99,16 +99,6 @@ export default function UserSwitcherModal({
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-
-          {/* Guarantee Pill */}
-          <div className="px-5 py-2.5 bg-emerald-50/80 border-b border-emerald-100 flex items-center gap-2 text-xs text-emerald-800">
-            <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>
-              {language === 'th'
-                ? 'เข้าใช้งานโดยตรงได้ 100% • บันทึกและซิงค์ข้อมูลผ่าน Firebase โดยอัตโนมัติ'
-                : 'Direct access 100% • Automatically synced to Firebase without Google login'}
-            </span>
           </div>
 
           {/* Search & Filters */}

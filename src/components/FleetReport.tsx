@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Booking, Vehicle, User } from '../types';
 import { Language } from '../utils/translations';
 import { formatThaiDate } from '../utils/vehicleAlerts';
+import { canUserViewBooking } from '../utils/userHelpers';
 import {
   Printer,
   Download,
@@ -73,16 +74,13 @@ export default function FleetReport({
 
   const getApprover = (b: Booking): string => {
     if (b.approverName) return b.approverName;
-    if (b.status === 'Approved' || b.status === 'Completed') {
-      return 'สมชาย ใจดี (Admin)';
-    }
     if (b.status === 'Pending') {
-      return isEn ? 'Pending Approval' : 'รอการอนุมัติ';
+      return b.assignedApproverName ? `รอ ${b.assignedApproverName}` : (isEn ? 'Pending Approval' : 'รอการอนุมัติ');
     }
     if (b.status === 'Cancelled') {
       return isEn ? 'Rejected / Cancelled' : 'ไม่อนุมัติ / ยกเลิก';
     }
-    return '-';
+    return b.assignedApproverName || '-';
   };
 
   const extractTime = (dateStr?: string, defaultTime: string = '08:30'): string => {
@@ -114,6 +112,9 @@ export default function FleetReport({
   // Filtered rows
   const filteredBookings = useMemo(() => {
     return bookings.filter((b) => {
+      // Role-based visibility check: User sees only own, Approver sees only department, Admin sees all
+      if (!canUserViewBooking(b, currentUser, users)) return false;
+
       // Status filter
       if (statusFilter !== 'All' && b.status !== statusFilter) return false;
 

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Vehicle, Booking, User, VehicleType } from '../types';
 import { formatMileage, formatThaiDate } from '../utils/vehicleAlerts';
+import { canUserViewBooking } from '../utils/userHelpers';
 
 interface VehicleOverviewProps {
   vehicles: Vehicle[];
@@ -163,7 +164,7 @@ export default function VehicleOverview({
                   className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md transition-colors cursor-pointer ml-1"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  <span>กลับไปดูวันปัจจุบัน (20 ก.ค. 2569)</span>
+                  <span>กลับไปดูวันปัจจุบัน</span>
                 </button>
               )}
             </p>
@@ -401,23 +402,26 @@ export default function VehicleOverview({
                   </div>
 
                   {/* Booking Details if In Use */}
-                  {isBooked && booking && (
-                    <div className="mt-2.5 p-2 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs space-y-1">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-semibold text-indigo-900 flex items-center gap-1">
-                          <UserCheck className="w-3 h-3 text-indigo-600" />
-                          <span>คุณ {booking.userName}</span>
-                        </span>
-                        <span className="text-[10px] text-indigo-700 font-mono">
-                          {booking.startDate.substring(11, 16)} - {booking.endDate.substring(11, 16)} น.
-                        </span>
+                  {isBooked && booking && (() => {
+                    const isAllowed = canUserViewBooking(booking, currentUser);
+                    return (
+                      <div className="mt-2.5 p-2 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-indigo-900 flex items-center gap-1">
+                            <UserCheck className="w-3 h-3 text-indigo-600" />
+                            <span>{isAllowed ? `คุณ ${booking.userName}` : 'ติดภารกิจการใช้งาน'}</span>
+                          </span>
+                          <span className="text-[10px] text-indigo-700 font-mono">
+                            {booking.startDate.substring(11, 16)} - {booking.endDate.substring(11, 16)} น.
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-gray-600 flex items-center gap-1 truncate">
+                          <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
+                          <span className="truncate">{isAllowed ? booking.destination : 'ติดภารกิจเดินทาง'}</span>
+                        </div>
                       </div>
-                      <div className="text-[11px] text-gray-600 flex items-center gap-1 truncate">
-                        <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
-                        <span className="truncate">{booking.destination}</span>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Maintenance notice */}
                   {isMaint && (

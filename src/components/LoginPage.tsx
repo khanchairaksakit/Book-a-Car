@@ -172,63 +172,34 @@ export default function LoginPage({
           transition={{ duration: 0.3 }}
           className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-6"
         >
-          {/* Direct Access Guarantee Banner */}
-          <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200 rounded-2xl flex items-start gap-3 shadow-xs">
-            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs shadow-emerald-500/20">
-              <CheckCircle className="w-5 h-5" />
-            </div>
-            <div className="text-xs space-y-0.5 min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-emerald-900 text-sm">
-                  {t.noGoogleAccountNotice}
-                </span>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-                  Direct Mode
-                </span>
-              </div>
-              <p className="text-emerald-800 text-xs">
-                {t.noGoogleAccountSubtitle}
-              </p>
-            </div>
-          </div>
-
-          {/* Big Primary Direct Entry Button */}
+          {/* Primary Quick Login Button */}
           <div>
             <button
               id="btn-direct-access-primary"
               type="button"
               onClick={handleDirectAccessClick}
               disabled={isLoading}
-              className="w-full py-3.5 px-6 bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-700 active:scale-[0.99] text-white rounded-2xl text-sm font-bold transition-all shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-3 cursor-pointer group"
+              className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 cursor-pointer"
             >
-              <Zap className="w-5 h-5 text-amber-300 animate-bounce group-hover:scale-110 transition-transform" />
-              <span>{t.directAccessBtn}</span>
-              <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+              <span>{language === 'th' ? `เข้าสู่ระบบในฐานะ ${defaultUser?.name || 'ผู้ดูแลระบบ'}` : `Continue as ${defaultUser?.name || 'Administrator'}`}</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
             </button>
-            <p className="text-[11px] text-center text-slate-500 mt-2">
-              {language === 'th'
-                ? `เข้าสู่ระบบทันทีในฐานะ ${defaultUser?.name || 'ผู้ดูแลระบบ'} (สามารถสลับสิทธิ์ได้ตลอดเวลา)`
-                : `Instant entry as ${defaultUser?.name || 'Administrator'} (Switch roles anytime)`}
-            </p>
           </div>
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-gray-200 w-full" />
             <span className="bg-white px-3 text-xs text-gray-400 font-semibold uppercase tracking-wider shrink-0">
-              {language === 'th' ? 'หรือเลือกเข้าใช้งานด้วยโปรไฟล์พนักงาน' : 'Or Select Employee Profile'}
+              {language === 'th' ? 'หรือเลือกบัญชีพนักงาน' : 'Or Select Employee Account'}
             </span>
             <div className="border-t border-gray-200 w-full" />
           </div>
 
-          {/* 1-Click Fast Profile Login Cards */}
+          {/* User Account Selection */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-indigo-600" />
-                {t.oneClickLogin}
-              </span>
-              <span className="text-[10px] text-gray-400">
-                {language === 'th' ? 'คลิกที่ชื่อเพื่อเข้าสู่ระบบทันที' : 'Click to sign in instantly'}
+                {language === 'th' ? 'เลือกบัญชีผู้ใช้งานเพื่อเข้าสู่ระบบ' : 'Select Account to Sign In'}
               </span>
             </div>
 
