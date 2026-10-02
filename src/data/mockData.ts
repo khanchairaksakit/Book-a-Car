@@ -102,7 +102,7 @@ export const INITIAL_USERS: User[] = [
     division: 'ฝ่ายการตลาดและการขาย',
     phone: '081-234-5678',
     email: 'somchai.j@company.com',
-    roles: ['User', 'Approve', 'Admin'],
+    roles: ['User', 'Approve 1', 'Approve 2', 'Admin'],
     role: 'Admin',
     username: 'somchai',
     password: 'password123',
@@ -115,7 +115,7 @@ export const INITIAL_USERS: User[] = [
     division: 'ฝ่ายทรัพยากรบุคคล',
     phone: '089-876-5432',
     email: 'somsri.r@company.com',
-    roles: ['User', 'Approve'],
+    roles: ['User', 'Approve 1'],
     role: 'User',
     username: 'somsri',
     password: 'password123',
@@ -141,9 +141,35 @@ export const INITIAL_USERS: User[] = [
     division: 'ฝ่ายจัดซื้อและคลังสินค้า',
     phone: '082-111-2222',
     email: 'nattapong.s@company.com',
-    roles: ['Approve'],
+    roles: ['User', 'Approve 1'],
     role: 'User',
     username: 'nattapong',
+    password: 'password123',
+  },
+  {
+    id: 'user-5',
+    employeeCode: 'EMP-005',
+    name: 'กิตติศักดิ์ พรหมมินทร์',
+    department: 'ฝ่ายอำนวยการและบริหารทั่วไป',
+    division: 'ฝ่ายอำนวยการและบริหารทั่วไป',
+    phone: '081-999-8877',
+    email: 'kittisak.p@company.com',
+    roles: ['User', 'Approve 2'],
+    role: 'User',
+    username: 'kittisak',
+    password: 'password123',
+  },
+  {
+    id: 'user-6',
+    employeeCode: 'EMP-006',
+    name: 'พิมพ์ชนก สว่างจิต',
+    department: 'แผนกพัฒนาระบบ',
+    division: 'ฝ่ายเทคโนโลยีสารสนเทศ',
+    phone: '086-333-7788',
+    email: 'pimchanok.s@company.com',
+    roles: ['User', 'Approve 1'],
+    role: 'User',
+    username: 'pimchanok',
     password: 'password123',
   },
 ];
@@ -380,52 +406,64 @@ const RAW_INITIAL_BOOKINGS: Booking[] = [
     status: 'Completed',
     createdAt: '2026-06-20T14:00',
   },
-  // July 2026 Bookings (Current Month)
-  {
-    id: 'b-16',
-    vehicleId: 'car-5',
-    userId: 'user-3',
-    userName: 'วิชัย ขยันยิ่ง',
-    userPhone: '085-555-4433',
-    vehicleName: 'Toyota Yaris Cross (ฎย 2468 ขอนแก่น)',
-    startDate: '2026-07-20T09:00',
-    endDate: '2026-07-21T18:00', // active right now
-    purpose: 'ตรวจสอบคอมพิวเตอร์และลงระบบวินโดวส์ใหม่ประจำไตรมาส',
-    destination: 'สาขาชลบุรี บางแสน',
-    passengersCount: 2,
-    status: 'Approved',
-    createdAt: '2026-07-18T10:00',
-  },
-  {
-    id: 'b-17',
-    vehicleId: 'car-1',
-    userId: 'user-1',
-    userName: 'สมชาย ใจดี',
-    userPhone: '081-234-5678',
-    vehicleName: 'Toyota Camry (กข 1234 กรุงเทพฯ)',
-    startDate: '2026-07-22T09:00',
-    endDate: '2026-07-22T16:00', // future booking
-    purpose: 'เซ็นสัญญากับฝ่ายจัดซื้อของทางเทศบาล',
-    destination: 'เทศบาลนนทบุรี',
-    passengersCount: 2,
-    status: 'Approved',
-    createdAt: '2026-07-19T15:30',
-  },
-  {
-    id: 'b-18',
-    vehicleId: 'car-3',
-    userId: 'user-2',
-    userName: 'สมศรี รักเรียน',
-    userPhone: '089-876-5432',
-    vehicleName: 'Toyota Majesty (นร 9999 นนทบุรี)',
-    startDate: '2026-07-25T08:00',
-    endDate: '2026-07-25T18:00', // future booking
-    purpose: 'จัดสัมมนากลุ่มงานวางแผนทรัพยากรบุคคลระยะยาว',
-    destination: 'โรงแรมพัทยากลาง',
-    passengersCount: 9,
-    status: 'Pending',
-    createdAt: '2026-07-20T11:00',
-  },
+  // Dynamic bookings relative to today for real-time testing
+  ...(() => {
+    const _now = new Date();
+    const _pad = (n: number) => String(n).padStart(2, '0');
+    const _fmt = (d: Date) => `${d.getFullYear()}-${_pad(d.getMonth() + 1)}-${_pad(d.getDate())}`;
+    const _t0 = _fmt(_now);
+    const _t1 = _fmt(new Date(_now.getTime() + 86400000));
+    const _t2 = _fmt(new Date(_now.getTime() + 86400000 * 2));
+    const _t4 = _fmt(new Date(_now.getTime() + 86400000 * 4));
+
+    return [
+      {
+        id: 'b-16',
+        vehicleId: 'car-5',
+        userId: 'user-3',
+        userName: 'วิชัย ขยันยิ่ง',
+        userPhone: '085-555-4433',
+        vehicleName: 'Toyota Yaris Cross (ฎย 2468 ขอนแก่น)',
+        startDate: `${_t0}T09:00`,
+        endDate: `${_t1}T18:00`, // active right now
+        purpose: 'ตรวจสอบคอมพิวเตอร์และลงระบบวินโดวส์ใหม่ประจำไตรมาส',
+        destination: 'สาขาชลบุรี บางแสน',
+        passengersCount: 2,
+        status: 'Approved' as const,
+        createdAt: `${_t0}T08:00`,
+      },
+      {
+        id: 'b-17',
+        vehicleId: 'car-1',
+        userId: 'user-1',
+        userName: 'สมชาย ใจดี',
+        userPhone: '081-234-5678',
+        vehicleName: 'Toyota Camry (กข 1234 กรุงเทพฯ)',
+        startDate: `${_t1}T09:00`,
+        endDate: `${_t2}T16:00`, // future booking
+        purpose: 'เซ็นสัญญากับฝ่ายจัดซื้อของทางเทศบาล',
+        destination: 'เทศบาลนนทบุรี',
+        passengersCount: 2,
+        status: 'Approved' as const,
+        createdAt: `${_t0}T09:30`,
+      },
+      {
+        id: 'b-18',
+        vehicleId: 'car-3',
+        userId: 'user-2',
+        userName: 'สมศรี รักเรียน',
+        userPhone: '089-876-5432',
+        vehicleName: 'Toyota Majesty (นร 9999 นนทบุรี)',
+        startDate: `${_t4}T08:00`,
+        endDate: `${_t4}T18:00`, // future booking
+        purpose: 'จัดสัมมนากลุ่มงานวางแผนทรัพยากรบุคคลระยะยาว',
+        destination: 'โรงแรมพัทยากลาง',
+        passengersCount: 9,
+        status: 'Pending' as const,
+        createdAt: `${_t0}T10:00`,
+      },
+    ];
+  })(),
 ];
 
 export const INITIAL_BOOKINGS: Booking[] = RAW_INITIAL_BOOKINGS.map((b) => {

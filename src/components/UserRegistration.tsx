@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { Language } from '../utils/translations';
 import {
@@ -11,6 +11,15 @@ import {
   parseUserExcelFile,
   ParsedUserRow,
 } from '../utils/excelUserUtils';
+import {
+  getStoredDepartments,
+  saveStoredDepartments,
+  getStoredDivisions,
+  saveStoredDivisions,
+  addCustomDepartment,
+  addCustomDivision,
+} from '../utils/organizationUtils';
+import DepartmentDivisionModal from './DepartmentDivisionModal';
 import {
   UserCheck,
   Shield,
@@ -34,6 +43,9 @@ import {
   Building2,
   BadgeAlert,
   Search,
+  FolderTree,
+  Plus,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -79,6 +91,41 @@ export default function UserRegistration({
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('All');
+  const [deptFilter, setDeptFilter] = useState<string>('All');
+  const [divFilter, setDivFilter] = useState<string>('All');
+
+  // Custom Departments & Divisions States
+  const [departments, setDepartments] = useState<string[]>(() => getStoredDepartments(users));
+  const [divisions, setDivisions] = useState<string[]>(() => getStoredDivisions(users));
+  const [isDeptDivModalOpen, setIsDeptDivModalOpen] = useState(false);
+
+  // Inline Quick Add States in User Modal
+  const [isQuickAddingDept, setIsQuickAddingDept] = useState(false);
+  const [quickDeptInput, setQuickDeptInput] = useState('');
+  const [isQuickAddingDiv, setIsQuickAddingDiv] = useState(false);
+  const [quickDivInput, setQuickDivInput] = useState('');
+
+  // Keep departments and divisions up to date if new users are passed
+  useEffect(() => {
+    setDepartments((prev) => {
+      const merged = getStoredDepartments(users);
+      const combined = Array.from(new Set([...prev, ...merged]));
+      if (combined.length !== prev.length) {
+        saveStoredDepartments(combined);
+        return combined;
+      }
+      return prev;
+    });
+    setDivisions((prev) => {
+      const merged = getStoredDivisions(users);
+      const combined = Array.from(new Set([...prev, ...merged]));
+      if (combined.length !== prev.length) {
+        saveStoredDivisions(combined);
+        return combined;
+      }
+      return prev;
+    });
+  }, [users]);
 
   // Excel Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +151,10 @@ export default function UserRegistration({
     setShowFormPassword(false);
     setIsAddingNew(false);
     setIsEditing(null);
+    setIsQuickAddingDept(false);
+    setQuickDeptInput('');
+    setIsQuickAddingDiv(false);
+    setQuickDivInput('');
   };
 
   const togglePasswordVisibility = (userId: string) => {
@@ -130,22 +181,32 @@ export default function UserRegistration({
     });
   };
 
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    // If username is empty or matches previous email prefix, auto update username
+    if (!username || username === email.split('@')[0]) {
+      const derived = val.split('@')[0].toLowerCase();
+      setUsername(derived);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !department.trim() || !phone.trim() || !email.trim()) {
-      setError(isEn ? 'Please fill in all required fields' : 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่องที่มีดอกจัน (*)');
+      setError(isEn ? 'Please fill in all required fields (*)' : 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่องที่มีดอกจัน (*)');
       return;
     }
 
-    const cleanUsername = (username.trim() || email.split('@')[0]).toLowerCase();
+    const cleanUsername = (username.trim() || email.split('@')[0] || `user${Date.now() % 10000}`).toLowerCase();
     const cleanPassword = password.trim() || 'password123';
     const effectiveRoles = roles.length > 0 ? roles : (['User'] as UserRole[]);
 
     // Validate unique username and email
     const duplicateUser = users.find(
       (u) =>
-        (u.username?.toLowerCase() === cleanUsername || u.email.toLowerCase() === email.trim().toLowerCase()) &&
-        (isEditing ? u.id !== isEditing.id : true)
+        (((u.username && u.username.toLowerCase() === cleanUsername) ||
+          (u.email && u.email.toLowerCase() === email.trim().toLowerCase())) &&
+          (isEditing ? u.id !== isEditing.id : true))
     );
 
     if (duplicateUser) {
@@ -159,10 +220,20 @@ export default function UserRegistration({
 
     const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
 
+    // Auto-register department & division if custom
+    if (department.trim()) {
+      const nextDepts = addCustomDepartment(department.trim(), departments);
+      setDepartments(nextDepts);
+    }
+    if (division.trim()) {
+      const nextDivs = addCustomDivision(division.trim(), divisions);
+      setDivisions(nextDivs);
+    }
+
     if (isEditing) {
       onEditUser({
         ...isEditing,
-        employeeCode: employeeCode.trim(),
+        employeeCode: employeeCode.trim() || isEditing.employeeCode || `EMP-${String(users.length).padStart(3, '0')}`,
         name: name.trim(),
         department: department.trim(),
         division: division.trim(),
@@ -173,10 +244,12 @@ export default function UserRegistration({
         roles: effectiveRoles,
         role: legacyRole,
       });
+      setImportSuccessMsg(isEn ? `Updated "${name.trim()}" successfully!` : `บันทึกการแก้ไข "${name.trim()}" เรียบร้อยแล้ว`);
+      setTimeout(() => setImportSuccessMsg(''), 4000);
       resetForm();
     } else if (isAddingNew && onAddUser) {
       onAddUser({
-        employeeCode: employeeCode.trim() || `EMP${String(users.length + 1).padStart(3, '0')}`,
+        employeeCode: employeeCode.trim() || `EMP-${String(users.length + 1).padStart(3, '0')}`,
         name: name.trim(),
         department: department.trim(),
         division: division.trim(),
@@ -187,6 +260,12 @@ export default function UserRegistration({
         roles: effectiveRoles,
         role: legacyRole,
       });
+      setImportSuccessMsg(
+        isEn
+          ? `User "${name.trim()}" added successfully!`
+          : `เพิ่มผู้ใช้งาน "${name.trim()}" สำเร็จแล้ว! (Username: ${cleanUsername})`
+      );
+      setTimeout(() => setImportSuccessMsg(''), 5000);
       resetForm();
     }
   };
@@ -209,7 +288,7 @@ export default function UserRegistration({
   const startAddNew = () => {
     setIsEditing(null);
     setIsAddingNew(true);
-    setEmployeeCode(`EMP${String(users.length + 1).padStart(3, '0')}`);
+    setEmployeeCode(`EMP-${String(users.length + 1).padStart(3, '0')}`);
     setName('');
     setDepartment('');
     setDivision('');
@@ -270,6 +349,26 @@ export default function UserRegistration({
       newUsersToCreate.forEach((u) => onAddUser(u));
     }
 
+    // Register any custom departments and divisions from imported rows
+    const importedDepts = validRows.map((r) => r.department?.trim()).filter(Boolean);
+    const importedDivs = validRows.map((r) => r.division?.trim()).filter(Boolean);
+    let nextDepts = [...departments];
+    importedDepts.forEach((d) => {
+      if (!nextDepts.some((curr) => curr.toLowerCase() === d.toLowerCase())) {
+        nextDepts.push(d);
+      }
+    });
+    let nextDivs = [...divisions];
+    importedDivs.forEach((div) => {
+      if (div && div !== '-' && !nextDivs.some((curr) => curr.toLowerCase() === div.toLowerCase())) {
+        nextDivs.push(div);
+      }
+    });
+    setDepartments(nextDepts);
+    saveStoredDepartments(nextDepts);
+    setDivisions(nextDivs);
+    saveStoredDivisions(nextDivs);
+
     setImportSuccessMsg(
       isEn
         ? `Successfully imported ${validRows.length} users!`
@@ -288,6 +387,12 @@ export default function UserRegistration({
     if (roleFilter !== 'All') {
       if (!hasRole(u, roleFilter as UserRole)) return false;
     }
+    if (deptFilter !== 'All') {
+      if ((u.department || '').trim().toLowerCase() !== deptFilter.trim().toLowerCase()) return false;
+    }
+    if (divFilter !== 'All') {
+      if ((u.division || '').trim().toLowerCase() !== divFilter.trim().toLowerCase()) return false;
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchName = u.name.toLowerCase().includes(q);
@@ -301,27 +406,29 @@ export default function UserRegistration({
     return true;
   });
 
-  const departmentsList = [
-    'ฝ่ายขาย (Sales)',
-    'ฝ่ายบุคคล (HR)',
-    'ฝ่ายไอที (IT Support)',
-    'ฝ่ายจัดซื้อ (Procurement)',
-    'ฝ่ายบริหาร (Management)',
-    'ฝ่ายบัญชีและการเงิน (Accounting)',
-    'ฝ่ายการตลาด (Marketing)',
-    'ฝ่ายปฏิบัติการ (Operations)',
-    'ฝ่ายวิศวกรรม (Engineering)',
-    'ฝ่ายบริการลูกค้า (Customer Support)',
-  ];
+  const handleRenameDepartment = (oldName: string, newName: string) => {
+    if (!onEditUser) return;
+    users.forEach((u) => {
+      if ((u.department || '').trim().toLowerCase() === oldName.trim().toLowerCase()) {
+        onEditUser({
+          ...u,
+          department: newName,
+        });
+      }
+    });
+  };
 
-  const divisionsList = [
-    'ฝ่ายพัฒนาธุรกิจและการตลาด',
-    'ฝ่ายทรัพยากรบุคคลและการจัดการ',
-    'ฝ่ายเทคโนโลยีสารสนเทศและดิจิทัล',
-    'ฝ่ายปฏิบัติการและการผลิต',
-    'ฝ่ายการเงินและบัญชีกลาง',
-    'ฝ่ายบริหารจัดการอาคารและยานพาหนะ',
-  ];
+  const handleRenameDivision = (oldName: string, newName: string) => {
+    if (!onEditUser) return;
+    users.forEach((u) => {
+      if ((u.division || '').trim().toLowerCase() === oldName.trim().toLowerCase()) {
+        onEditUser({
+          ...u,
+          division: newName,
+        });
+      }
+    });
+  };
 
   return (
     <div className="space-y-6" id="user-registration-section">
@@ -374,6 +481,21 @@ export default function UserRegistration({
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
+          </button>
+
+          {/* Manage Departments and Divisions Button */}
+          <button
+            id="btn-manage-departments-divisions"
+            type="button"
+            onClick={() => setIsDeptDivModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-indigo-200 shadow-2xs"
+            title="กำหนดและจัดการรายชื่อแผนกและฝ่ายเอง"
+          >
+            <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+            <span>{isEn ? 'Manage Dept & Div' : '🏢 กำหนดแผนกและฝ่าย'}</span>
+            <span className="text-[10px] bg-indigo-200/80 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
+              {departments.length + divisions.length}
+            </span>
           </button>
 
           {/* Add Manual User Button */}
@@ -446,8 +568,8 @@ export default function UserRegistration({
       )}
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-80">
+      <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
           <input
             type="text"
@@ -458,17 +580,51 @@ export default function UserRegistration({
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-xs font-semibold text-gray-600 shrink-0">
-            {isEn ? 'Filter by Role:' : 'กรองตามบทบาท:'}
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Department Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500 font-medium shrink-0">{isEn ? 'Dept:' : 'แผนก:'}</span>
+            <select
+              id="filter-select-department"
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+              className="px-2.5 py-1 text-xs bg-slate-50 border border-gray-300 rounded-lg font-medium text-gray-800 focus:ring-1 focus:ring-indigo-500 outline-hidden max-w-[150px] truncate"
+            >
+              <option value="All">{isEn ? 'All Departments' : 'ทุกแผนก'}</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Division Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500 font-medium shrink-0">{isEn ? 'Div:' : 'ฝ่าย:'}</span>
+            <select
+              id="filter-select-division"
+              value={divFilter}
+              onChange={(e) => setDivFilter(e.target.value)}
+              className="px-2.5 py-1 text-xs bg-slate-50 border border-gray-300 rounded-lg font-medium text-gray-800 focus:ring-1 focus:ring-indigo-500 outline-hidden max-w-[150px] truncate"
+            >
+              <option value="All">{isEn ? 'All Divisions' : 'ทุกฝ่าย'}</option>
+              {divisions.map((div) => (
+                <option key={div} value={div}>
+                  {div}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Role Filter */}
           <div className="flex items-center gap-1">
-            {['All', 'Admin', 'Approve', 'User'].map((r) => (
+            {['All', 'Admin', 'Approve 1', 'Approve 2', 'User'].map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRoleFilter(r)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   roleFilter === r
                     ? 'bg-indigo-600 text-white'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -478,13 +634,58 @@ export default function UserRegistration({
               </button>
             ))}
           </div>
+
+          {/* Clear Filters Button if any active */}
+          {(roleFilter !== 'All' || deptFilter !== 'All' || divFilter !== 'All' || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => {
+                setRoleFilter('All');
+                setDeptFilter('All');
+                setDivFilter('All');
+                setSearchQuery('');
+              }}
+              className="px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 rounded-lg font-semibold transition-colors cursor-pointer"
+            >
+              {isEn ? 'Clear Filters' : 'ล้างตัวกรอง'}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Grid containing users list and edit/add form */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* User Selection and Management List */}
-        <div className={`space-y-4 ${isEditing || isAddingNew ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+      {/* User Selection and Management List */}
+      <div className="space-y-4">
+        {filteredUsers.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-4 shadow-xs">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
+              <UserPlus className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {isEn ? 'No users found' : 'ไม่พบรายชื่อผู้ใช้งานตามเงื่อนไขที่เลือก'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                {searchQuery || roleFilter !== 'All'
+                  ? isEn
+                    ? 'Try clearing the search or role filter'
+                    : 'ลองล้างคำค้นหาหรือเปลี่ยนตัวกรองบทบาท'
+                  : isEn
+                  ? 'Get started by creating a new user or importing from Excel'
+                  : 'เริ่มต้นโดยการเพิ่มผู้ใช้งานใหม่ หรือนำเข้าจากไฟล์ Excel'}
+              </p>
+            </div>
+            {onAddUser && (
+              <button
+                type="button"
+                onClick={startAddNew}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer hover:scale-[1.02]"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>{isEn ? 'Add First User' : 'เพิ่มผู้ใช้งานใหม่'}</span>
+              </button>
+            )}
+          </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredUsers.map((user) => {
               const isActive = currentUser?.id === user.id;
@@ -611,18 +812,16 @@ export default function UserRegistration({
 
                   {/* Actions footer */}
                   <div className="flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
-                    <button
-                      id={`btn-use-profile-${user.id}`}
-                      onClick={() => onSelectUser(user)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                        isActive
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                      }`}
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>{isActive ? (isEn ? 'Active' : 'กำลังใช้งาน') : (isEn ? 'Switch To' : 'สลับโปรไฟล์')}</span>
-                    </button>
+                    {isActive ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Current Logged-in' : 'บัญชีที่เข้าสู่ระบบอยู่'}</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-gray-400 font-mono">
+                        {user.employeeCode || user.username || ''}
+                      </span>
+                    )}
 
                     <div className="flex items-center gap-1">
                       <button
@@ -647,305 +846,482 @@ export default function UserRegistration({
               );
             })}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Edit / Add User Form Panel */}
-        <AnimatePresence>
-          {(isEditing || isAddingNew) && (
+      {/* Add / Edit User Modal Dialog */}
+      <AnimatePresence>
+        {(isEditing || isAddingNew) && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4 h-fit lg:col-span-1"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[90vh] flex flex-col z-10"
             >
-              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-                    {isEditing ? <Edit2 className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center font-bold shadow-xs">
+                    {isEditing ? <Edit2 className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
                   </div>
-                  <h3 className="font-bold text-gray-900 text-sm">
-                    {isEditing
-                      ? isEn
-                        ? 'Edit User & Roles'
-                        : 'แก้ไขข้อมูลและบทบาทหน้าที่'
-                      : isEn
-                      ? 'Add New User Account'
-                      : 'เพิ่มผู้ใช้งานใหม่'}
-                  </h3>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">
+                      {isEditing
+                        ? isEn
+                          ? 'Edit User & Roles'
+                          : 'แก้ไขข้อมูลและบทบาทหน้าที่'
+                        : isEn
+                        ? 'Add New User Account'
+                        : 'เพิ่มผู้ใช้งานใหม่'}
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {isEditing
+                        ? `รหัส: ${isEditing.employeeCode || isEditing.id} (${isEditing.name})`
+                        : 'กรอกรายละเอียดพนักงานและกำหนดบทบาทสิทธิ์การใช้งานในระบบ'}
+                    </p>
+                  </div>
                 </div>
                 <button
                   id="btn-close-user-form"
                   onClick={resetForm}
-                  className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{error}</span>
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-3.5">
-                {/* Employee ID */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Employee ID' : 'รหัสพนักงาน'}
-                  </label>
-                  <input
-                    id="user-input-emp-code"
-                    type="text"
-                    value={employeeCode}
-                    onChange={(e) => setEmployeeCode(e.target.value)}
-                    placeholder="เช่น EMP001"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-
-                {/* Name */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Full Name' : 'ชื่อ-นามสกุล'} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="user-input-name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={isEn ? 'e.g. Somchai Jaidee' : 'เช่น สมชาย ใจดี'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                    required
-                  />
-                </div>
-
-                {/* Department (แผนก) */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Department' : 'แผนก'} <span className="text-red-500">*</span>
-                  </label>
-                  <div className="space-y-1.5">
+              <form id="user-registration-form" onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 space-y-3.5">
+                <div className="flex-1 overflow-y-auto pr-1 space-y-3.5">
+                  {/* Employee ID */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      {isEn ? 'Employee ID' : 'รหัสพนักงาน'}
+                    </label>
                     <input
-                      id="user-input-dept"
+                      id="user-input-emp-code"
                       type="text"
-                      list="dept-options-list"
-                      value={department}
-                      onChange={(e) => setDepartment(e.target.value)}
-                      placeholder={isEn ? 'Select or type department...' : 'เลือกหรือพิมพ์ชื่อแผนก...'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white"
-                      required
+                      value={employeeCode}
+                      onChange={(e) => setEmployeeCode(e.target.value)}
+                      placeholder="เช่น EMP-001"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                     />
-                    <datalist id="dept-options-list">
-                      {departmentsList.map((dept) => (
-                        <option key={dept} value={dept} />
-                      ))}
-                    </datalist>
-                  </div>
-                </div>
-
-                {/* Division (ฝ่าย) */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Division / Section' : 'ฝ่าย'}
-                  </label>
-                  <input
-                    id="user-input-division"
-                    type="text"
-                    list="division-options-list"
-                    value={division}
-                    onChange={(e) => setDivision(e.target.value)}
-                    placeholder={isEn ? 'Select or type division...' : 'เช่น ฝ่ายพัฒนาธุรกิจและการตลาด'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white"
-                  />
-                  <datalist id="division-options-list">
-                    {divisionsList.map((div) => (
-                      <option key={div} value={div} />
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* Multi-Roles Selection: User, Approve, Admin */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-gray-800">
-                      {isEn ? 'User Roles (Multi-Select)' : 'บทบาทการใช้งาน (เลือกได้มากกว่า 1 บทบาท)'} <span className="text-red-500">*</span>
-                    </label>
-                    <span className="text-[10px] text-gray-500">เลือกอย่างน้อย 1 บทบาท</span>
                   </div>
 
-                  <div className="space-y-2 pt-1">
-                    {/* Role 1: User */}
-                    <label
-                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
-                        roles.includes('User')
-                          ? 'bg-white border-slate-400 shadow-2xs'
-                          : 'border-transparent hover:bg-slate-100'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={roles.includes('User')}
-                        onChange={() => handleToggleRole('User')}
-                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-slate-800 block">
-                          User (ผู้ใช้งานทั่วไป)
-                        </span>
-                        <span className="text-[10px] text-slate-500 block">
-                          ขอยื่นจองรถยนต์ และดูสถานะคำขอของตนเอง
-                        </span>
-                      </div>
+                  {/* Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      {isEn ? 'Full Name' : 'ชื่อ-นามสกุล'} <span className="text-red-500">*</span>
                     </label>
-
-                    {/* Role 2: Approve */}
-                    <label
-                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
-                        roles.includes('Approve')
-                          ? 'bg-blue-50/70 border-blue-400 shadow-2xs'
-                          : 'border-transparent hover:bg-slate-100'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={roles.includes('Approve')}
-                        onChange={() => handleToggleRole('Approve')}
-                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-blue-900 block">
-                          Approve (ผู้อนุมัติ)
-                        </span>
-                        <span className="text-[10px] text-blue-600 block">
-                          มีสิทธิ์อนุมัติหรือไม่อนุมัติคำขอจองรถยนต์
-                        </span>
-                      </div>
-                    </label>
-
-                    {/* Role 3: Admin */}
-                    <label
-                      className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
-                        roles.includes('Admin')
-                          ? 'bg-purple-50/70 border-purple-400 shadow-2xs'
-                          : 'border-transparent hover:bg-slate-100'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={roles.includes('Admin')}
-                        onChange={() => handleToggleRole('Admin')}
-                        className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-purple-900 block">
-                          Admin (ผู้ดูแลระบบ)
-                        </span>
-                        <span className="text-[10px] text-purple-600 block">
-                          จัดการรถ ยานพาหนะ ผู้ใช้งาน และดูรายงานทั้งหมด
-                        </span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Username Input */}
-                <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100/80 space-y-1.5">
-                  <label className="block text-xs font-bold text-indigo-900">
-                    <span className="flex items-center gap-1.5">
-                      <AtSign className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Username สำหรับเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
-                    </span>
-                  </label>
-                  <input
-                    id="user-input-username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="เช่น somchai"
-                    className="w-full px-3 py-1.5 border border-indigo-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                    required
-                  />
-                  <p className="text-[10px] text-indigo-600">
-                    ใช้เข้าสู่ระบบด้วย Username คู่กับ Password
-                  </p>
-                </div>
-
-                {/* Password Input */}
-                <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/80 space-y-1.5">
-                  <label className="block text-xs font-bold text-amber-900">
-                    <span className="flex items-center gap-1.5">
-                      <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Password รหัสผ่านเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
-                    </span>
-                  </label>
-                  <div className="relative">
                     <input
-                      id="user-input-password"
-                      type={showFormPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="password123"
-                      className="w-full pl-3 pr-10 py-1.5 border border-amber-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
+                      id="user-input-name"
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder={isEn ? 'e.g. Somchai Jaidee' : 'เช่น สมชาย ใจดี'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                       required
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowFormPassword(!showFormPassword)}
-                      className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                    >
-                      {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
+                  </div>
+
+                  {/* Department (แผนก) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        {isEn ? 'Department' : 'แผนก'} <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsDeptDivModalOpen(true)}
+                          className="text-[11px] text-gray-500 hover:text-indigo-600 cursor-pointer flex items-center gap-0.5"
+                          title="จัดการรายชื่อแผนกทั้งหมด"
+                        >
+                          <Building2 className="w-3 h-3 text-gray-400" />
+                          <span>{isEn ? 'Manage' : 'จัดการ'}</span>
+                        </button>
+                        <span className="text-gray-300">|</span>
+                        <button
+                          type="button"
+                          id="btn-quick-add-dept"
+                          onClick={() => {
+                            setIsQuickAddingDept(!isQuickAddingDept);
+                            setQuickDeptInput('');
+                          }}
+                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{isQuickAddingDept ? (isEn ? 'Choose Existing' : 'เลือกจากรายการ') : (isEn ? '+ Custom Dept' : '+ กำหนดแผนกใหม่')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {isQuickAddingDept ? (
+                      <div className="flex gap-1.5 animate-in fade-in duration-150">
+                        <input
+                          id="quick-add-dept-input"
+                          type="text"
+                          value={quickDeptInput}
+                          onChange={(e) => setQuickDeptInput(e.target.value)}
+                          placeholder={isEn ? 'Type new department name...' : 'พิมพ์ชื่อแผนกใหม่ที่ต้องการกำหนด...'}
+                          className="flex-1 px-3 py-2 border border-indigo-400 bg-indigo-50/20 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium text-gray-900"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = quickDeptInput.trim();
+                              if (trimmed) {
+                                const updated = addCustomDepartment(trimmed, departments);
+                                setDepartments(updated);
+                                setDepartment(trimmed);
+                                setQuickDeptInput('');
+                                setIsQuickAddingDept(false);
+                              }
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = quickDeptInput.trim();
+                            if (trimmed) {
+                              const updated = addCustomDepartment(trimmed, departments);
+                              setDepartments(updated);
+                              setDepartment(trimmed);
+                              setQuickDeptInput('');
+                              setIsQuickAddingDept(false);
+                            }
+                          }}
+                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          {isEn ? 'Add' : 'บันทึก'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <input
+                          id="user-input-dept"
+                          type="text"
+                          list="dept-options-list"
+                          value={department}
+                          onChange={(e) => setDepartment(e.target.value)}
+                          placeholder={isEn ? 'Select or type department...' : 'เลือกหรือพิมพ์ชื่อแผนก...'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900"
+                          required
+                        />
+                        <datalist id="dept-options-list">
+                          {departments.map((dept) => (
+                            <option key={dept} value={dept} />
+                          ))}
+                        </datalist>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Division (ฝ่าย) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        {isEn ? 'Division / Section' : 'ฝ่าย'}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsDeptDivModalOpen(true)}
+                          className="text-[11px] text-gray-500 hover:text-indigo-600 cursor-pointer flex items-center gap-0.5"
+                          title="จัดการรายชื่อฝ่ายทั้งหมด"
+                        >
+                          <Building2 className="w-3 h-3 text-gray-400" />
+                          <span>{isEn ? 'Manage' : 'จัดการ'}</span>
+                        </button>
+                        <span className="text-gray-300">|</span>
+                        <button
+                          type="button"
+                          id="btn-quick-add-div"
+                          onClick={() => {
+                            setIsQuickAddingDiv(!isQuickAddingDiv);
+                            setQuickDivInput('');
+                          }}
+                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{isQuickAddingDiv ? (isEn ? 'Choose Existing' : 'เลือกจากรายการ') : (isEn ? '+ Custom Div' : '+ กำหนดฝ่ายใหม่')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {isQuickAddingDiv ? (
+                      <div className="flex gap-1.5 animate-in fade-in duration-150">
+                        <input
+                          id="quick-add-div-input"
+                          type="text"
+                          value={quickDivInput}
+                          onChange={(e) => setQuickDivInput(e.target.value)}
+                          placeholder={isEn ? 'Type new division name...' : 'พิมพ์ชื่อฝ่ายใหม่ที่ต้องการกำหนด...'}
+                          className="flex-1 px-3 py-2 border border-indigo-400 bg-indigo-50/20 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium text-gray-900"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = quickDivInput.trim();
+                              if (trimmed) {
+                                const updated = addCustomDivision(trimmed, divisions);
+                                setDivisions(updated);
+                                setDivision(trimmed);
+                                setQuickDivInput('');
+                                setIsQuickAddingDiv(false);
+                              }
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = quickDivInput.trim();
+                            if (trimmed) {
+                              const updated = addCustomDivision(trimmed, divisions);
+                              setDivisions(updated);
+                              setDivision(trimmed);
+                              setQuickDivInput('');
+                              setIsQuickAddingDiv(false);
+                            }
+                          }}
+                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          {isEn ? 'Add' : 'บันทึก'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <input
+                          id="user-input-division"
+                          type="text"
+                          list="division-options-list"
+                          value={division}
+                          onChange={(e) => setDivision(e.target.value)}
+                          placeholder={isEn ? 'Select or type division...' : 'เช่น ฝ่ายพัฒนาธุรกิจและการตลาด'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900"
+                        />
+                        <datalist id="division-options-list">
+                          {divisions.map((div) => (
+                            <option key={div} value={div} />
+                          ))}
+                        </datalist>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Multi-Roles Selection: User, Approve 1, Approve 2, Admin */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-gray-800">
+                        {isEn ? 'User Roles (Multi-Select)' : 'กำหนดบทบาทผู้ใช้งาน (เลือกได้มากกว่า 1 บทบาท)'} <span className="text-red-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-gray-500">เลือกอย่างน้อย 1 บทบาท</span>
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      {/* Role 1: User */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                          roles.includes('User')
+                            ? 'bg-white border-slate-400 shadow-2xs'
+                            : 'border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roles.includes('User')}
+                          onChange={() => handleToggleRole('User')}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-800 block">
+                            User (ผู้ใช้งานทั่วไป)
+                          </span>
+                          <span className="text-[10px] text-slate-500 block">
+                            ขอยื่นจองรถยนต์ และดูสถานะคำขอของตนเอง
+                          </span>
+                        </div>
+                      </label>
+
+                      {/* Role 2: Approve 1 */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                          roles.includes('Approve 1') || roles.includes('Approve' as any)
+                            ? 'bg-blue-50/70 border-blue-400 shadow-2xs'
+                            : 'border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roles.includes('Approve 1') || roles.includes('Approve' as any)}
+                          onChange={() => handleToggleRole('Approve 1')}
+                          className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-blue-900 block">
+                            Approve 1 (ผู้อนุมัติขั้นที่ 1)
+                          </span>
+                          <span className="text-[10px] text-blue-600 block">
+                            อนุมัติคำขอจองรถยนต์ของพนักงานในฝ่ายเดียวกัน
+                          </span>
+                        </div>
+                      </label>
+
+                      {/* Role 3: Approve 2 */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                          roles.includes('Approve 2')
+                            ? 'bg-emerald-50/70 border-emerald-400 shadow-2xs'
+                            : 'border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roles.includes('Approve 2')}
+                          onChange={() => handleToggleRole('Approve 2')}
+                          className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-emerald-900 block">
+                            Approve 2 (ผู้อนุมัติขั้นที่ 2)
+                          </span>
+                          <span className="text-[10px] text-emerald-600 block">
+                            อนุมัติคำขอจองรถยนต์ในขั้นสุดท้ายต่อจาก Approve 1
+                          </span>
+                        </div>
+                      </label>
+
+                      {/* Role 4: Admin */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                          roles.includes('Admin')
+                            ? 'bg-purple-50/70 border-purple-400 shadow-2xs'
+                            : 'border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roles.includes('Admin')}
+                          onChange={() => handleToggleRole('Admin')}
+                          className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-purple-900 block">
+                            Admin (ผู้ดูแลระบบ)
+                          </span>
+                          <span className="text-[10px] text-purple-600 block">
+                            จัดการรถ ยานพาหนะ ผู้ใช้งาน และดูรายงานทั้งหมด
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Username Input */}
+                  <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100/80 space-y-1.5">
+                    <label className="block text-xs font-bold text-indigo-900">
+                      <span className="flex items-center gap-1.5">
+                        <AtSign className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Username สำหรับเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
+                      </span>
+                    </label>
+                    <input
+                      id="user-input-username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="เช่น somchai"
+                      className="w-full px-3 py-1.5 border border-indigo-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                      required
+                    />
+                    <p className="text-[10px] text-indigo-600">
+                      ใช้เข้าสู่ระบบด้วย Username คู่กับ Password
+                    </p>
+                  </div>
+
+                  {/* Password Input */}
+                  <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/80 space-y-1.5">
+                    <label className="block text-xs font-bold text-amber-900">
+                      <span className="flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Password รหัสผ่านเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="user-input-password"
+                        type={showFormPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="password123"
+                        className="w-full pl-3 pr-10 py-1.5 border border-amber-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFormPassword(!showFormPassword)}
+                        className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Work Email */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      {isEn ? 'Work Email' : 'อีเมลองค์กร (ล็อกอินด้วยเมลนี้ได้)'} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="user-input-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => handleEmailChange(e.target.value)}
+                      placeholder="user@company.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                      required
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      {isEn ? 'Phone Number' : 'เบอร์โทรศัพท์'} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="user-input-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="081-xxx-xxxx"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                      required
+                    />
                   </div>
                 </div>
 
-                {/* Work Email */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Work Email' : 'อีเมลองค์กร (ล็อกอินด้วยเมลนี้ได้)'} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="user-input-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="user@company.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                    required
-                  />
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    {isEn ? 'Phone Number' : 'เบอร์โทรศัพท์'} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="user-input-phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="081-xxx-xxxx"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                    required
-                  />
-                </div>
-
-                {/* Buttons */}
-                <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
+                {/* Modal Footer directly inside <form> so submit works natively across all browsers */}
+                <div className="flex items-center gap-3 pt-3 border-t border-gray-100 shrink-0">
                   <button
                     id="btn-cancel-user-form"
                     type="button"
                     onClick={resetForm}
-                    className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer text-center"
+                    className="flex-1 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer text-center"
                   >
                     {isEn ? 'Cancel' : 'ยกเลิก'}
                   </button>
                   <button
                     id="btn-submit-user-form"
                     type="submit"
-                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer text-center"
+                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all shadow-xs cursor-pointer text-center"
                   >
                     {isEditing
                       ? isEn
@@ -958,9 +1334,9 @@ export default function UserRegistration({
                 </div>
               </form>
             </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Excel Import Preview Modal */}
       {isImportModalOpen && (
@@ -1150,6 +1526,26 @@ export default function UserRegistration({
           </div>
         </div>
       )}
+
+      {/* Department & Division Customization Modal */}
+      <DepartmentDivisionModal
+        isOpen={isDeptDivModalOpen}
+        onClose={() => setIsDeptDivModalOpen(false)}
+        departments={departments}
+        divisions={divisions}
+        users={users}
+        onSaveDepartments={(newDepts) => {
+          setDepartments(newDepts);
+          saveStoredDepartments(newDepts);
+        }}
+        onSaveDivisions={(newDivs) => {
+          setDivisions(newDivs);
+          saveStoredDivisions(newDivs);
+        }}
+        onRenameDepartment={handleRenameDepartment}
+        onRenameDivision={handleRenameDivision}
+        language={language}
+      />
     </div>
   );
 }

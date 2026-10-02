@@ -5,7 +5,15 @@
 
 export type VehicleType = 'Sedan' | 'SUV' | 'Van' | 'Pickup';
 export type VehicleStatus = 'Available' | 'In Use' | 'Maintenance';
-export type BookingStatus = 'Pending' | 'Approved' | 'Cancelled' | 'Completed';
+
+export type FuelLevel = 'เต็มถัง' | '3/4' | '1/2' | '1/4';
+
+export type BookingStatus =
+  | 'Pending' // รออนุมัติขั้นที่ 1 (Approve 1)
+  | 'Pending_Approve2' // รออนุมัติขั้นที่ 2 (Approve 2)
+  | 'Approved' // อนุมัติเรียบร้อยแล้ว (พร้อมออกเดินทาง)
+  | 'Cancelled' // ยกเลิก / ไม่อนุมัติ
+  | 'Completed'; // เสร็จสิ้นภารกิจ (คืนรถและกุญแจแล้ว)
 
 export interface Vehicle {
   id: string;
@@ -29,7 +37,7 @@ export interface Vehicle {
   tireChangeDate?: string; // วันที่เปลี่ยนยางล่าสุด (YYYY-MM-DD)
 }
 
-export type UserRole = 'User' | 'Approve' | 'Admin';
+export type UserRole = 'User' | 'Approve 1' | 'Approve 2' | 'Admin' | 'Approve';
 
 export interface User {
   id: string;
@@ -39,7 +47,7 @@ export interface User {
   division?: string; // ฝ่าย
   phone: string; // เบอร์โทร
   email: string; // อีเมล
-  roles?: UserRole[]; // บทบาทการใช้งาน (User, Approve, Admin โดย 1 user เป็นได้มากกว่า 1 บทบาท)
+  roles?: UserRole[]; // บทบาทการใช้งาน (User, Approve 1, Approve 2, Admin)
   role?: 'User' | 'Admin'; // legacy fallback
   username?: string; // สำหรับล็อกอินด้วย user
   password?: string; // รหัสผ่านสำหรับล็อกอิน
@@ -62,8 +70,27 @@ export interface Booking {
   passengersCount: number;
   status: BookingStatus;
   createdAt: string; // วันที่เอกสาร
-  assignedApproverId?: string; // ID ของผู้อนุมัติที่ถูกเลือก (สิทธิ Approve)
-  assignedApproverName?: string; // ชื่อของผู้อนุมัติที่ถูกเลือก
-  approverName?: string; // ผู้ทำการอนุมัติจริง
-  approvedAt?: string; // วันที่อนุมัติ
+
+  // Approvals (2-Stage Approval Process)
+  assignedApproverId?: string; // ID ของผู้อนุมัติขั้นที่ 1 ที่ถูกเลือก (Approve 1 ในฝ่ายเดียวกัน)
+  assignedApproverName?: string; // ชื่อของผู้อนุมัติขั้นที่ 1 ที่ถูกเลือก
+  stage1ApprovedBy?: string; // ผู้ทำการอนุมัติขั้นที่ 1
+  stage1ApprovedAt?: string; // วันที่อนุมัติขั้นที่ 1
+  stage2ApprovedBy?: string; // ผู้ทำการอนุมัติขั้นที่ 2 (Approve 2)
+  stage2ApprovedAt?: string; // วันที่อนุมัติขั้นที่ 2
+  approverName?: string; // สรุปชื่อผู้อนุมัติ
+  approvedAt?: string; // วันที่อนุมัติเสร็จสิ้น
+
+  // Departure Checklist (ข้อมูลก่อนออกเดินทางหลังจากอนุมัติ)
+  startMileage?: number; // ไมล์เริ่มต้น (km.)
+  startMileagePhoto?: string; // แนบรูปถ่ายไมล์เริ่มต้น (Base64)
+  startFuelLevel?: FuelLevel; // น้ำมันเริ่มต้น: 'เต็มถัง' | '3/4' | '1/2' | '1/4'
+  startRecordedAt?: string; // เวลาบันทึกไมล์เริ่มต้น
+
+  // Return Checklist (ข้อมูลเมื่อกดปุ่ม "เสร็จสิ้นภารกิจ")
+  endMileage?: number; // ไมล์สิ้นสุด (km.)
+  endMileagePhoto?: string; // แนบรูปถ่ายไมล์สิ้นสุด (Base64)
+  endFuelLevel?: FuelLevel; // น้ำมันส่งคืน: 'เต็มถัง' | '3/4' | '1/2' | '1/4'
+  keyReturnPhoto?: string; // แนบรูปหลักฐานหย่อนกุญแจลงตู้ (Base64)
+  endRecordedAt?: string; // เวลาบันทึกเสร็จสิ้นภารกิจ
 }

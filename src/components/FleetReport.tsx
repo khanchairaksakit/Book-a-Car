@@ -15,6 +15,8 @@ import {
   FileSpreadsheet,
   FileText,
   RotateCcw,
+  X,
+  Camera,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -168,9 +170,18 @@ export default function FleetReport({
     vehicles,
   ]);
 
-  // Export to Excel with the exact 12 requested columns
+  // Photo preview modal state
+  const [viewingPhoto, setViewingPhoto] = useState<{ url: string; title: string } | null>(null);
+
+  // Export to Excel with requested columns including mileage, fuel and photos inserted after Department
   const handleExportExcel = () => {
     const exportData = filteredBookings.map((b, idx) => {
+      const photosList = [
+        b.startMileagePhoto ? 'มีรูปไมล์เริ่ม' : '',
+        b.endMileagePhoto ? 'มีรูปไมล์คืน' : '',
+        b.keyReturnPhoto ? 'มีรูปคืนกุญแจ' : '',
+      ].filter(Boolean);
+
       return {
         'ลำดับ': idx + 1,
         'วันที่เอกสาร': formatThaiDate(b.createdAt),
@@ -182,6 +193,12 @@ export default function FleetReport({
         'ผู้ยืมรถ': b.userName,
         'ฝ่าย': getUserDivision(b),
         'แผนก': getUserDepartment(b),
+        // Inserted strictly after department: ไมล์เริ่มต้น ระดับน้ำมันเริ่มต้น ไมล์สิ้นสุด ระดับน้ำมันสิ้นสุด และรูปถ่าย
+        'ไมล์เริ่มต้น': b.startMileage !== undefined ? `${b.startMileage.toLocaleString()} km.` : '-',
+        'ระดับน้ำมันเริ่มต้น': b.startFuelLevel || '-',
+        'ไมล์สิ้นสุด': b.endMileage !== undefined ? `${b.endMileage.toLocaleString()} km.` : '-',
+        'ระดับน้ำมันสิ้นสุด': b.endFuelLevel || '-',
+        'รูปภาพหลักฐาน': photosList.length > 0 ? photosList.join(', ') : 'ไม่มีรูป',
         'เหตุผลการใช้รถ': b.purpose,
         'สถานที่ปลายทาง': b.destination,
         'ผู้อนุมัติ': getApprover(b),
@@ -201,6 +218,11 @@ export default function FleetReport({
       { wch: 22 }, // ผู้ยืมรถ
       { wch: 25 }, // ฝ่าย
       { wch: 22 }, // แผนก
+      { wch: 16 }, // ไมล์เริ่มต้น
+      { wch: 18 }, // ระดับน้ำมันเริ่มต้น
+      { wch: 16 }, // ไมล์สิ้นสุด
+      { wch: 18 }, // ระดับน้ำมันสิ้นสุด
+      { wch: 24 }, // รูปภาพหลักฐาน
       { wch: 35 }, // เหตุผลการใช้รถ
       { wch: 30 }, // สถานที่ปลายทาง
       { wch: 24 }, // ผู้อนุมัติ
@@ -495,6 +517,11 @@ export default function FleetReport({
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">ผู้ยืมรถ</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">ฝ่าย</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">แผนก</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap text-center">ไมล์เริ่มต้น</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap text-center">น้ำมันเริ่มต้น</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap text-center">ไมล์สิ้นสุด</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap text-center">น้ำมันสิ้นสุด</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap text-center">รูปหลักฐาน</th>
                 <th className="p-2.5 border border-gray-300 min-w-40">เหตุผลการใช้รถ</th>
                 <th className="p-2.5 border border-gray-300 min-w-36">สถานที่ปลายทาง</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">ผู้อนุมัติ</th>
@@ -503,7 +530,7 @@ export default function FleetReport({
             <tbody>
               {filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="p-8 text-center text-gray-400 border border-gray-300">
+                  <td colSpan={18} className="p-8 text-center text-gray-400 border border-gray-300">
                     ไม่พบรายการบันทึกการใช้รถตามเงื่อนไขที่เลือก
                   </td>
                 </tr>
@@ -552,6 +579,76 @@ export default function FleetReport({
                       </td>
                       <td className="p-2 border border-gray-300 text-gray-700 text-[11px]">
                         {department}
+                      </td>
+                      {/* Mileage & Fuel Columns inserted strictly after Department */}
+                      <td className="p-2 border border-gray-300 text-center whitespace-nowrap font-mono text-[11px]">
+                        {b.startMileage !== undefined ? (
+                          <span className="font-bold text-indigo-700">{b.startMileage.toLocaleString()} km.</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="p-2 border border-gray-300 text-center whitespace-nowrap">
+                        {b.startFuelLevel ? (
+                          <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold text-[10px] border border-blue-200">
+                            {b.startFuelLevel}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="p-2 border border-gray-300 text-center whitespace-nowrap font-mono text-[11px]">
+                        {b.endMileage !== undefined ? (
+                          <span className="font-bold text-emerald-700">{b.endMileage.toLocaleString()} km.</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="p-2 border border-gray-300 text-center whitespace-nowrap">
+                        {b.endFuelLevel ? (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold text-[10px] border border-emerald-200">
+                            {b.endFuelLevel}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="p-2 border border-gray-300 text-center whitespace-nowrap print:hidden">
+                        <div className="flex items-center justify-center gap-1">
+                          {b.startMileagePhoto && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPhoto({ url: b.startMileagePhoto!, title: `รูปไมล์เริ่ม (${b.userName})` })}
+                              className="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[10px] font-semibold border border-blue-200 cursor-pointer"
+                              title="ดูรูปไมล์เริ่มต้น"
+                            >
+                              ไมล์เริ่ม
+                            </button>
+                          )}
+                          {b.endMileagePhoto && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPhoto({ url: b.endMileagePhoto!, title: `รูปไมล์คืน (${b.userName})` })}
+                              className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold border border-emerald-200 cursor-pointer"
+                              title="ดูรูปไมล์สิ้นสุด"
+                            >
+                              ไมล์คืน
+                            </button>
+                          )}
+                          {b.keyReturnPhoto && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingPhoto({ url: b.keyReturnPhoto!, title: `รูปหย่อนกุญแจ (${b.userName})` })}
+                              className="px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded text-[10px] font-semibold border border-amber-200 cursor-pointer"
+                              title="ดูรูปหลักฐานหย่อนกุญแจ"
+                            >
+                              กุญแจ
+                            </button>
+                          )}
+                          {!b.startMileagePhoto && !b.endMileagePhoto && !b.keyReturnPhoto && (
+                            <span className="text-gray-400 text-[10px]">-</span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-2 border border-gray-300 text-gray-800 leading-snug">
                         {b.purpose}
@@ -610,6 +707,34 @@ export default function FleetReport({
           </div>
         </div>
       </div>
+
+      {/* Photo Preview Modal */}
+      {viewingPhoto && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between border-b pb-2">
+              <span className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-indigo-600" />
+                <span>{viewingPhoto.title}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setViewingPhoto(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="max-h-[75vh] overflow-hidden rounded-xl bg-black flex items-center justify-center">
+              <img
+                src={viewingPhoto.url}
+                alt={viewingPhoto.title}
+                className="max-h-[75vh] w-auto object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,31 +1,23 @@
 import React, { useState } from 'react';
-import { User, UserRole } from '../types';
+import { User } from '../types';
 import { translations, Language } from '../utils/translations';
-import { getUserRoles, getRoleBadgeInfo } from '../utils/userHelpers';
 import {
   Car,
   Lock,
   Globe,
   AlertCircle,
-  ArrowRight,
-  Info,
   Eye,
   EyeOff,
-  AtSign,
+  User as UserIcon,
   KeyRound,
-  Zap,
-  CheckCircle,
-  Users,
   ShieldCheck,
-  ChevronDown,
-  ChevronUp,
+  CheckCircle,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LoginPageProps {
   users: User[];
   onLogin: (user: User) => void;
-  onDirectAccess?: () => void;
   language: Language;
   onToggleLanguage: (lang: Language) => void;
 }
@@ -33,7 +25,6 @@ interface LoginPageProps {
 export default function LoginPage({
   users,
   onLogin,
-  onDirectAccess,
   language,
   onToggleLanguage,
 }: LoginPageProps) {
@@ -42,63 +33,61 @@ export default function LoginPage({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showManualForm, setShowManualForm] = useState(false);
 
   const t = translations[language];
 
-  // Default primary user for quick direct access
-  const defaultUser = users.find((u) => {
-    const roles = getUserRoles(u);
-    return roles.includes('Admin');
-  }) || users[0];
-
-  const handleDirectAccessClick = () => {
-    if (onDirectAccess) {
-      onDirectAccess();
-    } else if (defaultUser) {
-      onLogin(defaultUser);
-    }
-  };
-
-  const handleQuickUserSelect = (targetUser: User) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      onLogin(targetUser);
-    }, 200);
-  };
-
-  // Handle manual login submit
-  const handleManualLogin = (e: React.FormEvent) => {
+  // Handle standard credential verification
+  const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!identifierInput.trim()) {
-      setError(t.errorEmptyIdentifier);
-      return;
-    }
-
-    const normalized = identifierInput.trim().toLowerCase();
-    const targetUser = users.find((u) => {
-      const userUsername = (u.username || u.email.split('@')[0]).toLowerCase();
-      const userEmail = u.email.toLowerCase();
-      const userCode = (u.employeeCode || '').toLowerCase();
-      return userUsername === normalized || userEmail === normalized || userCode === normalized;
-    });
-
-    if (!targetUser) {
-      setError(t.errorUserNotFound);
+    const trimmedIdentifier = identifierInput.trim();
+    if (!trimmedIdentifier) {
+      setError(
+        language === 'th'
+          ? 'กรุณาระบุชื่อผู้ใช้ (Username), รหัสพนักงาน หรืออีเมลองค์กร'
+          : 'Please enter your username, employee code, or work email'
+      );
       return;
     }
 
     if (!passwordInput) {
-      setError(t.errorEmptyPassword);
+      setError(
+        language === 'th'
+          ? 'กรุณากรอกรหัสผ่านของคุณ'
+          : 'Please enter your password'
+      );
+      return;
+    }
+
+    const normalized = trimmedIdentifier.toLowerCase();
+    const targetUser = users.find((u) => {
+      const userUsername = (u.username || u.email.split('@')[0] || '').toLowerCase();
+      const userEmail = (u.email || '').toLowerCase();
+      const userCode = (u.employeeCode || '').toLowerCase();
+      return (
+        userUsername === normalized ||
+        userEmail === normalized ||
+        userCode === normalized
+      );
+    });
+
+    if (!targetUser) {
+      setError(
+        language === 'th'
+          ? 'ไม่พบบัญชีผู้ใช้งานในระบบ กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสพนักงานอีกครั้ง'
+          : 'User account not found. Please verify your username or employee code.'
+      );
       return;
     }
 
     const expectedPassword = targetUser.password || 'password123';
     if (passwordInput.trim() !== expectedPassword) {
-      setError(t.errorIncorrectPassword);
+      setError(
+        language === 'th'
+          ? 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบรหัสผ่านแล้วลองอีกครั้ง'
+          : 'Incorrect password. Please verify and try again.'
+      );
       return;
     }
 
@@ -106,7 +95,7 @@ export default function LoginPage({
     setTimeout(() => {
       setIsLoading(false);
       onLogin(targetUser);
-    }, 300);
+    }, 250);
   };
 
   return (
@@ -119,7 +108,7 @@ export default function LoginPage({
       <div className="absolute bottom-0 -right-20 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Top Header bar: App identity and Language switcher */}
-      <div className="w-full max-w-6xl mx-auto flex items-center justify-between z-10">
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
             <Car className="w-6 h-6" />
@@ -164,178 +153,142 @@ export default function LoginPage({
         </div>
       </div>
 
-      {/* Main Center Section */}
-      <div className="w-full max-w-2xl mx-auto my-auto py-6 z-10">
+      {/* Main Center Section: Strict Production Login Form */}
+      <div className="w-full max-w-md mx-auto my-auto py-8 z-10">
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-6"
         >
-          {/* Primary Quick Login Button */}
-          <div>
-            <button
-              id="btn-direct-access-primary"
-              type="button"
-              onClick={handleDirectAccessClick}
-              disabled={isLoading}
-              className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 cursor-pointer"
-            >
-              <span>{language === 'th' ? `เข้าสู่ระบบในฐานะ ${defaultUser?.name || 'ผู้ดูแลระบบ'}` : `Continue as ${defaultUser?.name || 'Administrator'}`}</span>
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
-          </div>
-
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-gray-200 w-full" />
-            <span className="bg-white px-3 text-xs text-gray-400 font-semibold uppercase tracking-wider shrink-0">
-              {language === 'th' ? 'หรือเลือกบัญชีพนักงาน' : 'Or Select Employee Account'}
-            </span>
-            <div className="border-t border-gray-200 w-full" />
-          </div>
-
-          {/* User Account Selection */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-indigo-600" />
-                {language === 'th' ? 'เลือกบัญชีผู้ใช้งานเพื่อเข้าสู่ระบบ' : 'Select Account to Sign In'}
-              </span>
+          {/* Card Header */}
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto shadow-xs">
+              <Lock className="w-6 h-6" />
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
-              {users.map((u) => {
-                const roles = getUserRoles(u);
-                return (
-                  <div
-                    key={u.id}
-                    id={`quick-login-card-${u.id}`}
-                    onClick={() => handleQuickUserSelect(u)}
-                    className="p-3 rounded-xl border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/40 bg-slate-50/70 transition-all cursor-pointer flex items-center gap-3 group text-left"
-                  >
-                    <div className="w-9 h-9 rounded-full bg-indigo-600 group-hover:bg-indigo-700 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                      {u.name.substring(0, 2)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-gray-900 text-xs truncate group-hover:text-indigo-700">
-                          {u.name}
-                        </span>
-                        {u.employeeCode && (
-                          <span className="text-[10px] font-mono text-gray-400 shrink-0">
-                            {u.employeeCode}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-gray-500 block truncate">
-                        {u.department} {u.division ? `• ${u.division}` : ''}
-                      </span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {roles.map((r) => {
-                          const badge = getRoleBadgeInfo(r, language === 'en');
-                          return (
-                            <span
-                              key={r}
-                              className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${badge.bg} ${badge.text} ${badge.border}`}
-                            >
-                              {badge.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 tracking-tight">
+                {language === 'th' ? 'เข้าสู่ระบบเพื่อใช้งาน' : 'Sign In to Your Account'}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                {language === 'th'
+                  ? 'กรุณากรอก Username, รหัสพนักงาน หรืออีเมล พร้อมรหัสผ่าน'
+                  : 'Enter your username, employee ID or email and password'}
+              </p>
             </div>
           </div>
 
-          {/* Toggle Accordion for Manual Username/Password Form */}
-          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
-            <button
-              type="button"
-              onClick={() => setShowManualForm(!showManualForm)}
-              className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 transition-colors cursor-pointer"
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 leading-relaxed"
             >
-              <div className="flex items-center gap-2">
-                <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span>
-                  {language === 'th'
-                    ? 'เข้าสู่ระบบด้วย Username / Password (แบบระบุรหัสผ่าน)'
-                    : 'Sign in with Username & Password (Traditional)'}
-                </span>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+              <span>{error}</span>
+            </motion.div>
+          )}
+
+          {/* Secure Login Form */}
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            {/* Username / Employee Code / Email Field */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="login-identifier-input"
+                className="block text-xs font-bold text-gray-700"
+              >
+                {language === 'th'
+                  ? 'ชื่อผู้ใช้ / รหัสพนักงาน / อีเมลองค์กร'
+                  : 'Username / Employee Code / Work Email'}
+              </label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+                <input
+                  id="login-identifier-input"
+                  type="text"
+                  autoComplete="username"
+                  value={identifierInput}
+                  onChange={(e) => setIdentifierInput(e.target.value)}
+                  placeholder={
+                    language === 'th'
+                      ? 'เช่น somchai, EMP-001 หรือ somchai.j@company.com'
+                      : 'e.g. somchai, EMP-001 or somchai.j@company.com'
+                  }
+                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                />
               </div>
-              {showManualForm ? (
-                <ChevronUp className="w-4 h-4 text-slate-400" />
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="login-password-input"
+                  className="block text-xs font-bold text-gray-700"
+                >
+                  {language === 'th' ? 'รหัสผ่าน (Password)' : 'Password'}
+                </label>
+              </div>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+                <input
+                  id="login-password-input"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder={
+                    language === 'th'
+                      ? 'กรอกรหัสผ่านของคุณ'
+                      : 'Enter your password'
+                  }
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-2.5 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer transition-colors"
+                  title={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              id="btn-login-submit"
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>{language === 'th' ? 'กำลังตรวจสอบ...' : 'Verifying...'}</span>
+                </>
               ) : (
-                <ChevronDown className="w-4 h-4 text-slate-400" />
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>{language === 'th' ? 'เข้าสู่ระบบ' : 'Sign In'}</span>
+                </>
               )}
             </button>
+          </form>
 
-            {showManualForm && (
-              <div className="p-4 sm:p-5 space-y-4 border-t border-slate-200 bg-white">
-                {/* Error Message */}
-                {error && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-700">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{error}</span>
-                  </div>
-                )}
-
-                <form onSubmit={handleManualLogin} className="space-y-3.5">
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-700">
-                      {t.usernameOrEmail}
-                    </label>
-                    <div className="relative">
-                      <AtSign className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-                      <input
-                        id="login-identifier-input"
-                        type="text"
-                        value={identifierInput}
-                        onChange={(e) => setIdentifierInput(e.target.value)}
-                        placeholder={t.usernameOrEmailPlaceholder}
-                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-700">
-                      {t.password}
-                    </label>
-                    <div className="relative">
-                      <KeyRound className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-                      <input
-                        id="login-password-input"
-                        type={showPassword ? 'text' : 'password'}
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        placeholder={t.passwordPlaceholder}
-                        className="w-full pl-9 pr-9 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    id="btn-login-submit"
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>{t.loginBtn}</span>
-                  </button>
-                </form>
-              </div>
-            )}
+          {/* Production Security Notice */}
+          <div className="pt-2 border-t border-gray-100 flex items-center justify-center gap-2 text-[11px] text-gray-400 text-center">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              {language === 'th'
+                ? 'ระบบรักษาความปลอดภัย ยืนยันตัวตนก่อนเข้าใช้งานจริง'
+                : 'Enterprise secure authentication system'}
+            </span>
           </div>
         </motion.div>
       </div>

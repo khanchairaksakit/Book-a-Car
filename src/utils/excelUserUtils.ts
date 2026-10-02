@@ -47,7 +47,7 @@ export function downloadUserExcelTemplate(): void {
       'ฝ่าย': 'ฝ่ายบริหารและตรวจสอบ',
       'เบอร์โทร': '086-777-6655',
       'อีเมล': 'apisit.m@company.com',
-      'บทบาท (User, Approve, Admin)': 'Admin, Approve, User',
+      'บทบาท (User, Approve 1, Approve 2, Admin)': 'Admin, Approve 1, Approve 2, User',
       'รหัสผ่าน (Password)': 'password123',
     },
   ];
@@ -120,7 +120,13 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           ).trim();
 
           const rawRoles = String(
-            row['บทบาท (User, Approve, Admin)'] || row['บทบาท'] || row['roles'] || row['Roles'] || row['role'] || ''
+            row['บทบาท (User, Approve 1, Approve 2, Admin)'] ||
+            row['บทบาท (User, Approve, Admin)'] ||
+            row['บทบาท'] ||
+            row['roles'] ||
+            row['Roles'] ||
+            row['role'] ||
+            ''
           ).trim();
 
           const password = String(
@@ -131,7 +137,18 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           const roles: UserRole[] = [];
           const lowerRoles = rawRoles.toLowerCase();
           if (lowerRoles.includes('admin') || lowerRoles.includes('ผู้ดูแล')) roles.push('Admin');
-          if (lowerRoles.includes('approve') || lowerRoles.includes('อนุมัติ')) roles.push('Approve');
+          if (lowerRoles.includes('approve 2') || lowerRoles.includes('อนุมัติ 2') || lowerRoles.includes('approve2')) {
+            roles.push('Approve 2');
+          }
+          if (
+            lowerRoles.includes('approve 1') ||
+            lowerRoles.includes('อนุมัติ 1') ||
+            lowerRoles.includes('approve1') ||
+            (lowerRoles.includes('approve') && !lowerRoles.includes('approve 2') && !lowerRoles.includes('approve2')) ||
+            (lowerRoles.includes('อนุมัติ') && !lowerRoles.includes('อนุมัติ 2'))
+          ) {
+            roles.push('Approve 1');
+          }
           if (lowerRoles.includes('user') || lowerRoles.includes('ผู้ใช้') || roles.length === 0) roles.push('User');
 
           // Generate default username from email prefix or employee code

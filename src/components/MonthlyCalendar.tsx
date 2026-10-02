@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Vehicle, Booking, User, BookingStatus } from '../types';
-import { isUserAdmin, canUserViewBooking, getEligibleApprovers } from '../utils/userHelpers';
+import React, { useState, useMemo, useRef } from 'react';
+import { Vehicle, Booking, User, BookingStatus, FuelLevel } from '../types';
+import { isUserAdmin, canUserViewBooking, getEligibleStage1Approvers } from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
+import CameraCaptureModal from './CameraCaptureModal';
+import { getRealTodayStr, isDateInPast, isDateToday, validateBookingDates } from '../utils/dateHelpers';
 import {
   ChevronLeft,
   ChevronRight,
@@ -24,6 +26,10 @@ import {
   AlertTriangle,
   ArrowRight,
   Wrench,
+  Camera,
+  Gauge,
+  Key,
+  Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -38,11 +44,14 @@ interface MonthlyCalendarProps {
   bookings: Booking[];
   currentUser: User | null;
   users: User[];
-  onSelectUser: (user: User) => void;
+  onSelectUser?: (user: User) => void;
   onAddBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
+  onUpdateBookingStatus?: (bookingId: string, status: BookingStatus, extraData?: Partial<Booking>) => void;
   onNavigateToBookingList: () => void;
   onNavigateToVehicles: () => void;
 }
+
+const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
 
 export default function MonthlyCalendar({
   vehicles,
@@ -51,23 +60,161 @@ export default function MonthlyCalendar({
   users,
   onSelectUser,
   onAddBooking,
+  onUpdateBookingStatus,
   onNavigateToBookingList,
   onNavigateToVehicles,
 }: MonthlyCalendarProps) {
-  // Reference date: July 2026 has rich mock bookings, so default to July 2026 initially
-  const defaultYear = 2026;
-  const defaultMonth = 6; // 0-indexed: 6 = July
+  // Real-time current date
+  const realTodayStr = getRealTodayStr();
+  const todayDate = new Date();
+  const defaultYear = todayDate.getFullYear();
+  const defaultMonth = todayDate.getMonth();
 
   const [currentYear, setCurrentYear] = useState<number>(defaultYear);
   const [currentMonth, setCurrentMonth] = useState<number>(defaultMonth);
 
+  // Active approved trips for current user
+  const myActiveBookings = useMemo(() => {
+    if (!currentUser) return [];
+    return bookings.filter(
+      (b) => b.status === 'Approved' && (b.userId === currentUser.id || isUserAdmin(currentUser))
+    );
+  }, [bookings, currentUser]);
+
+  // Trip Checklist Modals for departure and return
+  const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
+  const [returnBooking, setReturnBooking] = useState<Booking | null>(null);
+  const [viewingPhoto, setViewingPhoto] = useState<{ url: string; title: string } | null>(null);
+
+  // Form states for Departure Checklist
+  const [startMileageInput, setStartMileageInput] = useState<string>('');
+  const [startFuelInput, setStartFuelInput] = useState<FuelLevel>('เต็มถัง');
+  const [startPhotoPreview, setStartPhotoPreview] = useState<string>('');
+  const [departureError, setDepartureError] = useState<string>('');
+  const startCameraInputRef = useRef<HTMLInputElement>(null);
+  const startFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form states for Return Checklist (Mission Complete)
+  const [endMileageInput, setEndMileageInput] = useState<string>('');
+  const [endFuelInput, setEndFuelInput] = useState<FuelLevel>('เต็มถัง');
+  const [endPhotoPreview, setEndPhotoPreview] = useState<string>('');
+  const [keyPhotoPreview, setKeyPhotoPreview] = useState<string>('');
+  const [returnError, setReturnError] = useState<string>('');
+  const endCameraInputRef = useRef<HTMLInputElement>(null);
+  const endFileInputRef = useRef<HTMLInputElement>(null);
+  const keyCameraInputRef = useRef<HTMLInputElement>(null);
+  const keyFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Open Departure Checklist
+  const handleOpenDeparture = (booking: Booking) => {
+    setDepartureBooking(booking);
+    setDepartureError('');
+    const v = vehicles.find((veh) => veh.id === booking.vehicleId);
+    setStartMileageInput(
+      booking.startMileage !== undefined
+        ? String(booking.startMileage)
+        : v?.currentMileage !== undefined
+        ? String(v.currentMileage)
+        : ''
+    );
+    setStartFuelInput(booking.startFuelLevel || 'เต็มถัง');
+    setStartPhotoPreview(booking.startMileagePhoto || '');
+  };
+
+  // Submit Departure Checklist
+  const handleSaveDeparture = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!departureBooking || !onUpdateBookingStatus) return;
+    setDepartureError('');
+
+    const mileageNum = parseInt(startMileageInput, 10);
+    if (isNaN(mileageNum) || mileageNum < 0) {
+      setDepartureError('กรุณากรอกเลขไมล์เริ่มต้นให้ถูกต้องเป็นตัวเลข (km.)');
+      return;
+    }
+
+    onUpdateBookingStatus(departureBooking.id, departureBooking.status, {
+      startMileage: mileageNum,
+      startMileagePhoto: startPhotoPreview || undefined,
+      startFuelLevel: startFuelInput,
+      startRecordedAt: new Date().toISOString(),
+    });
+
+    setDepartureBooking(null);
+  };
+
+  // Open Return Checklist (Mission Complete)
+  const handleOpenReturn = (booking: Booking) => {
+    setReturnBooking(booking);
+    setReturnError('');
+    const baseMileage = booking.startMileage || 0;
+    setEndMileageInput(
+      booking.endMileage !== undefined
+        ? String(booking.endMileage)
+        : baseMileage > 0
+        ? String(baseMileage + 10)
+        : ''
+    );
+    setEndFuelInput(booking.endFuelLevel || 'เต็มถัง');
+    setEndPhotoPreview(booking.endMileagePhoto || '');
+    setKeyPhotoPreview(booking.keyReturnPhoto || '');
+  };
+
+  // Submit Return Checklist (Mission Complete)
+  const handleConfirmReturn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnBooking || !onUpdateBookingStatus) return;
+    setReturnError('');
+
+    const endMileageNum = parseInt(endMileageInput, 10);
+    if (isNaN(endMileageNum) || endMileageNum < 0) {
+      setReturnError('กรุณากรอกเลขไมล์สิ้นสุดให้ถูกต้องเป็นตัวเลข (km.)');
+      return;
+    }
+
+    if (returnBooking.startMileage !== undefined && endMileageNum < returnBooking.startMileage) {
+      setReturnError(`เลขไมล์สิ้นสุด (${endMileageNum}) ต้องไม่น้อยกว่าไมล์เริ่มต้น (${returnBooking.startMileage})`);
+      return;
+    }
+
+    if (!keyPhotoPreview) {
+      setReturnError('จำเป็นต้องแนบรูปถ่ายขณะหย่อนกุญแจลงตู้เพื่อยืนยันการคืนรถ');
+      return;
+    }
+
+    onUpdateBookingStatus(returnBooking.id, 'Completed', {
+      endMileage: endMileageNum,
+      endMileagePhoto: endPhotoPreview || undefined,
+      endFuelLevel: endFuelInput,
+      keyReturnPhoto: keyPhotoPreview,
+      endRecordedAt: new Date().toISOString(),
+    });
+
+    setReturnBooking(null);
+  };
+
+  // Generic file to base64 helper
+  const handleFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (val: string) => void
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const res = event.target?.result as string;
+      setter(res);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Booking Modal States
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-07-20');
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(realTodayStr);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('08:30');
   const [endTime, setEndTime] = useState<string>('17:00');
-  const [endDateStr, setEndDateStr] = useState<string>('2026-07-20');
+  const [endDateStr, setEndDateStr] = useState<string>(realTodayStr);
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
   const [destination, setDestination] = useState<string>('');
   const [purpose, setPurpose] = useState<string>('');
@@ -75,8 +222,32 @@ export default function MonthlyCalendar({
   const [bookingError, setBookingError] = useState<string>('');
   const [bookingSuccess, setBookingSuccess] = useState<string>('');
 
-  // Eligible approvers (users with 'Approve' permission or Admin)
-  const eligibleApprovers = useMemo(() => getEligibleApprovers(users), [users]);
+  // Real-time Camera Capture Modal State
+  const [cameraModalConfig, setCameraModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    subtitle?: string;
+    onCapture: (base64: string) => void;
+  } | null>(null);
+
+  const openCamera = (
+    title: string,
+    subtitle: string,
+    onCapture: (base64: string) => void
+  ) => {
+    setCameraModalConfig({
+      isOpen: true,
+      title,
+      subtitle,
+      onCapture,
+    });
+  };
+
+  // Eligible approvers: users with 'Approve 1' permission in same division (or Admin)
+  const eligibleApprovers = useMemo(
+    () => getEligibleStage1Approvers(users, currentUser),
+    [users, currentUser]
+  );
 
   // Day View Modal (To view all bookings for a clicked day)
   const [viewingDayBookings, setViewingDayBookings] = useState<string | null>(null);
@@ -168,9 +339,10 @@ export default function MonthlyCalendar({
   };
 
   const handleGoToToday = () => {
-    // Navigate to July 2026 simulation month
-    setCurrentYear(2026);
-    setCurrentMonth(6);
+    const today = new Date();
+    setCurrentYear(today.getFullYear());
+    setCurrentMonth(today.getMonth());
+    setSelectedDateStr(getRealTodayStr());
   };
 
   // Pre-calculate calendar grid days
@@ -184,6 +356,7 @@ export default function MonthlyCalendar({
       dayNumber: number;
       isCurrentMonth: boolean;
       isToday: boolean;
+      isPast: boolean;
     }> = [];
 
     // Previous month padding days
@@ -196,7 +369,8 @@ export default function MonthlyCalendar({
         dateStr: dStr,
         dayNumber: dayNum,
         isCurrentMonth: false,
-        isToday: dStr === '2026-07-20',
+        isToday: isDateToday(dStr),
+        isPast: isDateInPast(dStr),
       });
     }
 
@@ -207,7 +381,8 @@ export default function MonthlyCalendar({
         dateStr: dStr,
         dayNumber: i,
         isCurrentMonth: true,
-        isToday: dStr === '2026-07-20',
+        isToday: isDateToday(dStr),
+        isPast: isDateInPast(dStr),
       });
     }
 
@@ -221,7 +396,8 @@ export default function MonthlyCalendar({
         dateStr: dStr,
         dayNumber: i,
         isCurrentMonth: false,
-        isToday: dStr === '2026-07-20',
+        isToday: isDateToday(dStr),
+        isPast: isDateInPast(dStr),
       });
     }
 
@@ -269,10 +445,16 @@ export default function MonthlyCalendar({
     }
   };
 
-  // Open booking modal for a specific date
-  const handleOpenBookingModal = (dateStr: string, vehicleId?: string) => {
-    setSelectedDateStr(dateStr);
-    setEndDateStr(dateStr);
+  // Open booking modal for a specific date (Strictly prevents booking in the past)
+  const handleOpenBookingModal = (dateStr?: string, vehicleId?: string) => {
+    const todayStr = getRealTodayStr();
+    let targetDate = dateStr || selectedDateStr || todayStr;
+    // Strict requirement: ห้ามจองย้อนหลัง! If user tries a past date, lock to today
+    if (isDateInPast(targetDate)) {
+      targetDate = todayStr;
+    }
+    setSelectedDateStr(targetDate);
+    setEndDateStr(targetDate);
     setStartTime('08:30');
     setEndTime('17:00');
     setBookingError('');
@@ -284,7 +466,7 @@ export default function MonthlyCalendar({
       // Pre-select first available vehicle on that date if none selected
       const available = vehicles.filter((v) => {
         if (v.status === 'Maintenance') return false;
-        const dateBookings = bookingsByDate[dateStr] || [];
+        const dateBookings = bookingsByDate[targetDate] || [];
         return !dateBookings.some((b) => b.vehicleId === v.id);
       });
 
@@ -295,13 +477,16 @@ export default function MonthlyCalendar({
       }
     }
 
-    // Pre-select appropriate approver (prefer same department approver)
-    const approvers = getEligibleApprovers(users);
-    const sameDept = approvers.find(
-      (a) => a.department === currentUser?.department && a.id !== currentUser?.id
+    // Pre-select appropriate approver (prefer same division Approve 1)
+    const approvers = getEligibleStage1Approvers(users, currentUser);
+    const sameDiv = approvers.find(
+      (a) =>
+        ((a.division && currentUser?.division && a.division === currentUser.division) ||
+         (a.department === currentUser?.department)) &&
+        a.id !== currentUser?.id
     );
-    if (sameDept) {
-      setSelectedApproverId(sameDept.id);
+    if (sameDiv) {
+      setSelectedApproverId(sameDiv.id);
     } else if (approvers.length > 0) {
       setSelectedApproverId(approvers[0].id);
     } else {
@@ -344,6 +529,13 @@ export default function MonthlyCalendar({
 
     if (!currentUser) {
       setBookingError('กรุณาเลือกหรือเข้าสู่ระบบผู้ใช้งานก่อนทำการจอง');
+      return;
+    }
+
+    // Strict requirement: "ห้ามจองย้อนหลัง" (prohibit booking in the past)
+    const dateValidation = validateBookingDates(selectedDateStr, endDateStr);
+    if (!dateValidation.isValid) {
+      setBookingError(dateValidation.errorMessage || 'ไม่อนุญาตให้จองย้อนหลัง');
       return;
     }
 
@@ -428,7 +620,7 @@ export default function MonthlyCalendar({
     setBookingSuccess(
       isSelfApproval
         ? 'จองรถสำเร็จและได้รับการอนุมัติทันทีในฐานะผู้ดูแลระบบ!'
-        : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว รอคุณ ${chosenApprover.name} (${chosenApprover.department}) พิจารณาอนุมัติ`
+        : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว รอคุณ ${chosenApprover.name} (${chosenApprover.division || chosenApprover.department}) พิจารณาอนุมัติขั้นที่ 1 ก่อนส่งต่อให้ Approve 2`
     );
 
     // Reset fields
@@ -496,7 +688,7 @@ export default function MonthlyCalendar({
 
             <button
               id="btn-quick-book-today"
-              onClick={() => handleOpenBookingModal('2026-07-20')}
+              onClick={() => handleOpenBookingModal(realTodayStr)}
               className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-900/30 flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
             >
               <Plus className="w-4 h-4" />
@@ -505,6 +697,109 @@ export default function MonthlyCalendar({
           </div>
         </div>
       </div>
+
+      {/* User Active Approved Missions Banner & Prominent "เสร็จสิ้นภารกิจ" button */}
+      {myActiveBookings.length > 0 && (
+        <div id="user-active-missions-section" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+              <span className="text-emerald-700">ภารกิจการใช้รถยนต์ของคุณในขณะนี้ (Active Trips)</span>
+            </h2>
+            <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+              {myActiveBookings.length} รายการพร้อมใช้งาน
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {myActiveBookings.map((b) => (
+              <div
+                key={b.id}
+                id={`active-trip-card-${b.id}`}
+                className="bg-gradient-to-br from-emerald-50/70 via-white to-white border-2 border-emerald-400/80 rounded-2xl p-5 shadow-sm space-y-3 relative overflow-hidden"
+              >
+                <div className="flex items-start justify-between gap-2 border-b border-emerald-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
+                      <Car className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 text-sm leading-snug">
+                        {b.vehicleName}
+                      </h4>
+                      <p className="text-xs text-gray-500 font-mono">
+                        {formatThaiDate(b.startDate)} → {formatThaiDate(b.endDate)}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <Check className="w-3.5 h-3.5" /> อนุมัติแล้ว
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs bg-white/80 p-3 rounded-xl border border-emerald-100/80">
+                  <div>
+                    <span className="text-gray-500 block text-[11px]">ปลายทาง:</span>
+                    <strong className="text-gray-900 font-semibold">{b.destination}</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block text-[11px]">วัตถุประสงค์:</span>
+                    <span className="text-gray-800 truncate block">{b.purpose}</span>
+                  </div>
+                </div>
+
+                {/* Departure checklist status indicator */}
+                <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <div>
+                    <span className="text-gray-500 block text-[10px]">ข้อมูลไมล์/น้ำมันเริ่มต้น:</span>
+                    {b.startMileage !== undefined ? (
+                      <span className="font-bold text-indigo-700 font-mono text-[11px]">
+                        ไมล์ {b.startMileage.toLocaleString()} km. • น้ำมัน {b.startFuelLevel || '-'}
+                      </span>
+                    ) : (
+                      <span className="text-amber-600 font-semibold text-[11px]">
+                        ⚠️ ยังไม่ได้บันทึกไมล์เริ่มต้น
+                      </span>
+                    )}
+                  </div>
+                  {b.startMileage === undefined ? (
+                    <button
+                      id={`btn-user-record-departure-${b.id}`}
+                      type="button"
+                      onClick={() => handleOpenDeparture(b)}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    >
+                      🚗 บันทึกไมล์เริ่ม
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDeparture(b)}
+                      className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                    >
+                      แก้ไขไมล์เริ่ม
+                    </button>
+                  )}
+                </div>
+
+                {/* The prominent GREEN "เสร็จสิ้นภารกิจ" Button (Requirement 3) */}
+                <div className="pt-1 flex items-center gap-2">
+                  <button
+                    id={`btn-user-complete-mission-${b.id}`}
+                    type="button"
+                    onClick={() => handleOpenReturn(b)}
+                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-emerald-700/25 flex items-center justify-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/40"
+                    title="กดปุ่มเพื่อบันทึกไมล์สิ้นสุด น้ำมัน และหลักฐานรูปถ่ายหย่อนกุญแจลงตู้เพื่อเสร็จสิ้นภารกิจ"
+                  >
+                    <Check className="w-5 h-5 stroke-[3]" />
+                    <span>เสร็จสิ้นภารกิจ (คืนรถและกุญแจ)</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 2. ภาพรวมระบบจองรถยนต์ส่วนกลาง (Vehicle Overview placed above the calendar) */}
       <VehicleOverview
@@ -610,14 +905,18 @@ export default function MonthlyCalendar({
                 key={day.dateStr}
                 id={`calendar-cell-${day.dateStr}`}
                 onClick={() => {
-                  if (isSelected) {
+                  if (isSelected && !day.isPast) {
                     handleOpenBookingModal(day.dateStr);
                   } else {
                     handleSelectDate(day.dateStr);
                   }
                 }}
                 className={`min-h-[100px] sm:min-h-[125px] p-1.5 sm:p-2.5 flex flex-col justify-between transition-all cursor-pointer relative group ${
-                  day.isCurrentMonth ? 'bg-white hover:bg-indigo-50/40' : 'bg-slate-50/60 opacity-60'
+                  day.isPast
+                    ? 'bg-slate-100/70 opacity-70'
+                    : day.isCurrentMonth
+                    ? 'bg-white hover:bg-indigo-50/40'
+                    : 'bg-slate-50/60 opacity-60'
                 } ${
                   isSelected
                     ? 'ring-2 ring-indigo-600 bg-indigo-50/30 shadow-xs z-10'
@@ -647,6 +946,11 @@ export default function MonthlyCalendar({
                         วันนี้
                       </span>
                     )}
+                    {day.isPast && (
+                      <span className="hidden md:inline text-[8px] text-gray-400 font-medium">
+                        ผ่านมาแล้ว
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -669,24 +973,26 @@ export default function MonthlyCalendar({
                       </span>
                     )}
 
-                    {/* Quick Book button on cell */}
-                    <button
-                      id={`btn-cell-book-${day.dateStr}`}
-                      type="button"
-                      title={`จองรถสำหรับวันที่ ${day.dayNumber}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenBookingModal(day.dateStr);
-                      }}
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md transition-all flex items-center gap-0.5 cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white shadow-2xs opacity-100'
-                          : 'opacity-0 group-hover:opacity-100 bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white'
-                      }`}
-                    >
-                      <Plus className="w-2.5 h-2.5" />
-                      <span className="hidden sm:inline">จอง</span>
-                    </button>
+                    {/* Quick Book button on cell (Only shown for today and future dates) */}
+                    {!day.isPast && (
+                      <button
+                        id={`btn-cell-book-${day.dateStr}`}
+                        type="button"
+                        title={`จองรถสำหรับวันที่ ${day.dayNumber}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenBookingModal(day.dateStr);
+                        }}
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md transition-all flex items-center gap-0.5 cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-2xs opacity-100'
+                            : 'opacity-0 group-hover:opacity-100 bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white'
+                        }`}
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span className="hidden sm:inline">จอง</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -886,70 +1192,96 @@ export default function MonthlyCalendar({
                 </div>
 
                 {/* 3. Trip Times and Dates */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      วันที่เริ่มต้นเดินทาง
-                    </label>
-                    <input
-                      id="input-quick-start-date"
-                      type="date"
-                      value={selectedDateStr}
-                      onChange={(e) => {
-                        const newStart = e.target.value;
-                        const prevDuration = getSelectedDaysCount(selectedDateStr, endDateStr);
-                        setSelectedDateStr(newStart);
-                        if (prevDuration > 1) {
-                          setEndDateStr(calculateEndDateStr(newStart, prevDuration));
-                        } else if (endDateStr < newStart) {
-                          setEndDateStr(newStart);
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
-                      required
-                    />
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      กำหนดวันและเวลาเดินทาง <span className="text-red-500">*</span>
+                    </span>
+                    <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
+                      <span>🔒 ห้ามจองย้อนหลัง</span>
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      เวลาเริ่มต้น
-                    </label>
-                    <input
-                      id="input-quick-start-time"
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
-                      required
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        วันที่เริ่มต้นเดินทาง <span className="text-gray-400 font-normal">(วันนี้เป็นต้นไป)</span>
+                      </label>
+                      <input
+                        id="input-quick-start-date"
+                        type="date"
+                        min={realTodayStr}
+                        value={selectedDateStr}
+                        onChange={(e) => {
+                          const newStart = e.target.value;
+                          if (isDateInPast(newStart)) {
+                            setBookingError(`ไม่อนุญาตให้จองย้อนหลัง กรุณาเลือกตั้งแต่วันที่ปัจจุบัน (${formatThaiDate(realTodayStr)}) เป็นต้นไป`);
+                            return;
+                          }
+                          setBookingError('');
+                          const prevDuration = getSelectedDaysCount(selectedDateStr, endDateStr);
+                          setSelectedDateStr(newStart);
+                          if (prevDuration > 1) {
+                            setEndDateStr(calculateEndDateStr(newStart, prevDuration));
+                          } else if (endDateStr < newStart) {
+                            setEndDateStr(newStart);
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      วันที่สิ้นสุดเดินทาง
-                    </label>
-                    <input
-                      id="input-quick-end-date"
-                      type="date"
-                      value={endDateStr}
-                      onChange={(e) => setEndDateStr(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
-                      required
-                    />
-                  </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        เวลาเริ่มต้น
+                      </label>
+                      <input
+                        id="input-quick-start-time"
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      เวลาสิ้นสุด
-                    </label>
-                    <input
-                      id="input-quick-end-time"
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
-                      required
-                    />
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        วันที่สิ้นสุดเดินทาง
+                      </label>
+                      <input
+                        id="input-quick-end-date"
+                        type="date"
+                        min={selectedDateStr || realTodayStr}
+                        value={endDateStr}
+                        onChange={(e) => {
+                          const newEnd = e.target.value;
+                          if (newEnd < selectedDateStr) {
+                            setBookingError('วันที่สิ้นสุดการเดินทางต้องไม่น้อยกว่าวันที่เริ่มต้น');
+                            return;
+                          }
+                          setBookingError('');
+                          setEndDateStr(newEnd);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        เวลาสิ้นสุด
+                      </label>
+                      <input
+                        id="input-quick-end-time"
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1067,24 +1399,27 @@ export default function MonthlyCalendar({
                   </div>
                 </div>
 
-                {/* 4. Choose Approver (ผู้มีสิทธิ์ Approve) */}
+                {/* 4. Choose Approver (ผู้มีสิทธิ์ Approve 1 ในฝ่ายเดียวกัน) */}
                 <div className="space-y-2 pt-2 border-t border-gray-100" id="booking-approver-selection-section">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-indigo-600" />
-                      <span>เลือกผู้อนุมัติการจองรถ (ผู้มีสิทธิ์ Approve) <span className="text-red-500">*</span></span>
+                      <span>เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 ในฝ่ายเดียวกัน) <span className="text-red-500">*</span></span>
                     </label>
-                    <span className="text-[10px] text-indigo-700 bg-indigo-50 font-medium px-2 py-0.5 rounded-full border border-indigo-100 w-fit">
-                      ผู้ที่ถูกเลือกจะเป็นผู้อนุมัติคนเดียว
+                    <span className="text-[10px] text-blue-700 bg-blue-50 font-medium px-2 py-0.5 rounded-full border border-blue-100 w-fit">
+                      เมื่อผ่านขั้นที่ 1 ระบบจะส่งต่อ Approve 2 อัตโนมัติ
                     </span>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    ดึงข้อมูลพนักงานที่มีสิทธิ์ Approve เพื่อกำหนดให้เป็นผู้อนุมัติการจองรถครั้งนี้
+                    ดึงรายชื่อพนักงานที่มีสิทธิ์ Approve 1 ในฝ่ายเดียวกับคุณ ({currentUser?.division || currentUser?.department})
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                     {eligibleApprovers.map((approver) => {
                       const isSelected = selectedApproverId === approver.id;
+                      const userDiv = (currentUser?.division || currentUser?.department || '').trim().toLowerCase();
+                      const appDiv = (approver.division || approver.department || '').trim().toLowerCase();
+                      const isSameDiv = Boolean(userDiv && appDiv && userDiv === appDiv);
                       const isSameDept = Boolean(currentUser?.department && approver.department === currentUser.department);
 
                       return (
@@ -1098,7 +1433,7 @@ export default function MonthlyCalendar({
                               : 'border-gray-200 hover:border-indigo-300 bg-white hover:bg-slate-50/50'
                           }`}
                         >
-                          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-2xs">
+                          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-2xs">
                             {approver.name.substring(0, 2)}
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1109,16 +1444,20 @@ export default function MonthlyCalendar({
                               {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
                             </div>
                             <span className="text-[11px] text-gray-500 block truncate font-medium">
-                              {approver.department}
+                              {approver.division || approver.department}
                             </span>
                             <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                              {isSameDept && (
+                              {isSameDiv ? (
                                 <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  ⭐ ฝ่ายเดียวกัน
+                                </span>
+                              ) : isSameDept ? (
+                                <span className="text-[9px] font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">
                                   แผนกเดียวกัน
                                 </span>
-                              )}
-                              <span className="text-[9px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                                สิทธิ์ Approve
+                              ) : null}
+                              <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
+                                Approve 1
                               </span>
                             </div>
                           </div>
@@ -1283,22 +1622,595 @@ export default function MonthlyCalendar({
                 >
                   ปิด
                 </button>
-                <button
-                  onClick={() => {
-                    const date = viewingDayBookings;
-                    setViewingDayBookings(null);
-                    handleOpenBookingModal(date);
-                  }}
-                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>จองรถคันอื่นในวันนี้</span>
-                </button>
+                {viewingDayBookings && !isDateInPast(viewingDayBookings) ? (
+                  <button
+                    onClick={() => {
+                      const date = viewingDayBookings;
+                      setViewingDayBookings(null);
+                      handleOpenBookingModal(date);
+                    }}
+                    className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>จองรถสำหรับวันนี้</span>
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-gray-400 font-medium italic">
+                    (วันที่ผ่านมาแล้ว - ไม่อนุญาตให้จองย้อนหลัง)
+                  </span>
+                )}
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL: Departure Checklist (บันทึกข้อมูลก่อนออกเดินทาง) */}
+      <AnimatePresence>
+        {departureBooking && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[92vh] flex flex-col z-10"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center font-bold shadow-xs">
+                    <Gauge className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">
+                      บันทึกข้อมูลก่อนออกเดินทาง
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      รถ: {departureBooking.vehicleName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDepartureBooking(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {departureError && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{departureError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveDeparture} className="flex-1 overflow-y-auto pr-1 space-y-4">
+                {/* 1. ไมล์เริ่มต้น */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-gray-800">
+                    1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="home-input-start-mileage"
+                      type="number"
+                      value={startMileageInput}
+                      onChange={(e) => setStartMileageInput(e.target.value)}
+                      placeholder="เช่น 18200"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      required
+                    />
+                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                      km.
+                    </span>
+                  </div>
+
+                  {/* แนบรูปถ่ายไมล์เริ่มต้น */}
+                  <div className="pt-1.5">
+                    {/* Hidden Native Camera Input (Opens phone camera directly) */}
+                    <input
+                      ref={startCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
+                      className="hidden"
+                      id="input-camera-start-mileage"
+                    />
+                    {/* Hidden File Picker Input (Gallery / Device files) */}
+                    <input
+                      ref={startFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
+                      className="hidden"
+                      id="input-file-start-mileage"
+                    />
+                    {startPhotoPreview ? (
+                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-amber-200 group bg-black/5">
+                        <img
+                          src={startPhotoPreview}
+                          alt="Start Mileage Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => startCameraInputRef.current?.click()}
+                            className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
+                            title="ถ่ายภาพใหม่ด้วยกล้อง"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStartPhotoPreview('')}
+                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
+                            title="ลบรูป"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          id="btn-open-camera-start-mileage"
+                          onClick={() => startCameraInputRef.current?.click()}
+                          className="w-full py-3.5 px-4 border-2 border-dashed border-amber-400 hover:border-amber-500 bg-amber-50/70 hover:bg-amber-100/70 rounded-2xl text-xs font-bold text-amber-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                            <Camera className="w-4 h-4" />
+                          </div>
+                          <div className="text-left">
+                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์เริ่มต้นทันที</div>
+                            <div className="text-[11px] text-amber-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์</div>
+                          </div>
+                        </button>
+                        <div className="flex items-center justify-between px-1 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => startFileInputRef.current?.click()}
+                            className="text-gray-500 hover:text-amber-800 hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-amber-600" />
+                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์เริ่มต้น', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันชัดเจน', (img) => setStartPhotoPreview(img))}
+                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <span>📹 กล้องสด (Live Viewfinder)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. น้ำมันเริ่มต้น */}
+                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                  <label className="block text-xs font-bold text-gray-800">
+                    2. น้ำมันเริ่มต้น (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {FUEL_OPTIONS.map((f) => {
+                      const isSel = startFuelInput === f;
+                      return (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setStartFuelInput(f)}
+                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
+                            isSel
+                              ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300/40'
+                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {f}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-3 border-t border-gray-100 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDepartureBooking(null)}
+                    className="flex-1 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer active:scale-95"
+                  >
+                    บันทึกข้อมูลออกเดินทาง
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: Return Checklist & Complete Mission (เสร็จสิ้นภารกิจ & คืนรถ) */}
+      <AnimatePresence>
+        {returnBooking && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[92vh] flex flex-col z-10"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center font-bold shadow-xs">
+                    <Check className="w-5 h-5 stroke-[3]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">
+                      เสร็จสิ้นภารกิจ & คืนรถยนต์ส่วนกลาง
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      รถ: {returnBooking.vehicleName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setReturnBooking(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Trip Reference summary */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1 shrink-0">
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>ผู้ยืมรถ:</span>
+                  <strong className="text-gray-900">{returnBooking.userName}</strong>
+                </div>
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>ไมล์เริ่มต้นที่บันทึกไว้:</span>
+                  <span className="font-mono font-bold text-indigo-700">
+                    {returnBooking.startMileage !== undefined ? `${returnBooking.startMileage.toLocaleString()} km.` : 'ไม่ได้ระบุ'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>น้ำมันเริ่มต้น:</span>
+                  <span className="font-semibold text-gray-800">{returnBooking.startFuelLevel || '-'}</span>
+                </div>
+              </div>
+
+              {returnError && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{returnError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleConfirmReturn} className="flex-1 overflow-y-auto pr-1 space-y-4">
+                {/* 3.1 ไมล์สิ้นสุด */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-gray-800">
+                      3.1 ไมล์สิ้นสุด (กิโลเมตร) <span className="text-red-500">*</span>
+                    </label>
+                    {returnBooking.startMileage && endMileageInput && parseInt(endMileageInput, 10) >= returnBooking.startMileage && (
+                      <span className="text-[11px] font-bold text-emerald-700">
+                        วิ่งไป {(parseInt(endMileageInput, 10) - returnBooking.startMileage).toLocaleString()} km.
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="home-input-end-mileage"
+                      type="number"
+                      value={endMileageInput}
+                      onChange={(e) => setEndMileageInput(e.target.value)}
+                      placeholder="เช่น 18720"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      required
+                    />
+                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                      km.
+                    </span>
+                  </div>
+
+                  {/* แนบรูปถ่ายไมล์สิ้นสุด */}
+                  <div className="pt-1.5">
+                    {/* Hidden Native Camera Input */}
+                    <input
+                      ref={endCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
+                      className="hidden"
+                      id="input-camera-end-mileage"
+                    />
+                    {/* Hidden File Picker Input */}
+                    <input
+                      ref={endFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
+                      className="hidden"
+                      id="input-file-end-mileage"
+                    />
+                    {endPhotoPreview ? (
+                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-emerald-200 group bg-black/5">
+                        <img
+                          src={endPhotoPreview}
+                          alt="End Mileage Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => endCameraInputRef.current?.click()}
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
+                            title="ถ่ายภาพใหม่ด้วยกล้อง"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEndPhotoPreview('')}
+                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
+                            title="ลบรูป"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          id="btn-open-camera-end-mileage"
+                          onClick={() => endCameraInputRef.current?.click()}
+                          className="w-full py-3.5 px-4 border-2 border-dashed border-emerald-400 hover:border-emerald-600 bg-emerald-50/70 hover:bg-emerald-100/70 rounded-2xl text-xs font-bold text-emerald-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                            <Camera className="w-4 h-4" />
+                          </div>
+                          <div className="text-left">
+                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์สิ้นสุดทันที</div>
+                            <div className="text-[11px] text-emerald-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์ส่งคืน</div>
+                          </div>
+                        </button>
+                        <div className="flex items-center justify-between px-1 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => endFileInputRef.current?.click()}
+                            className="text-gray-500 hover:text-emerald-700 hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์สิ้นสุด', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันตอนส่งคืนชัดเจน', (img) => setEndPhotoPreview(img))}
+                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <span>📹 กล้องสด (Live Viewfinder)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3.2 น้ำมันส่งคืน */}
+                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                  <label className="block text-xs font-bold text-gray-800">
+                    3.2 น้ำมันเริ่มต้น / สิ้นสุด (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {FUEL_OPTIONS.map((f) => {
+                      const isSel = endFuelInput === f;
+                      return (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setEndFuelInput(f)}
+                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
+                            isSel
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400/30'
+                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {f}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3.3 แนบรูปหลักฐานการคืนกุญแจ (หย่อนลงตู้) - REQUIRED TO UNLOCK OK BUTTON */}
+                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                      <Key className="w-4 h-4 text-amber-600" />
+                      <span>3.3 แนบรูปหลักฐานการคืนกุญแจ <span className="text-red-500">*</span></span>
+                    </label>
+                    <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-medium">
+                      ถ่ายรูปตอนหย่อนกุญแจลงตู้
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-gray-500">
+                    กรุณาถ่ายรูปขณะหย่อนกุญแจรถยนต์ลงในตู้รับกุญแจ เพื่อเป็นหลักฐานว่าส่งคืนกุญแจเรียบร้อยแล้ว
+                  </p>
+
+                  {/* Hidden Native Camera Input */}
+                  <input
+                    ref={keyCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => handleFileChange(e, setKeyPhotoPreview)}
+                    className="hidden"
+                    id="input-camera-key-photo"
+                  />
+                  {/* Hidden File Picker Input */}
+                  <input
+                    ref={keyFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileChange(e, setKeyPhotoPreview)}
+                    className="hidden"
+                    id="input-file-key-photo"
+                  />
+
+                  {keyPhotoPreview ? (
+                    <div className="space-y-1.5">
+                      <div className="relative w-full h-40 rounded-xl overflow-hidden border-2 border-emerald-500 group shadow-xs">
+                        <img
+                          src={keyPhotoPreview}
+                          alt="Key Return Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => keyCameraInputRef.current?.click()}
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
+                            title="ถ่ายภาพใหม่ด้วยกล้อง"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setKeyPhotoPreview('')}
+                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
+                            title="ลบรูป"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-emerald-700 font-bold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> แนบรูปถ่ายกุญแจลงตู้เรียบร้อย พร้อมกดยืนยันคืนรถ
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        id="btn-open-camera-key-photo"
+                        onClick={() => keyCameraInputRef.current?.click()}
+                        className="w-full py-4 px-4 border-2 border-dashed border-amber-400 hover:border-emerald-500 bg-amber-50 hover:bg-emerald-50/50 rounded-2xl text-xs text-amber-900 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs group active:scale-[0.99]"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                          <Camera className="w-5 h-5" />
+                        </div>
+                        <span className="font-bold text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพหย่อนกุญแจลงตู้ทันที</span>
+                        <span className="text-[11px] text-amber-700 font-normal">
+                          เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหลักฐานคืนกุญแจ
+                        </span>
+                      </button>
+                      <div className="flex items-center justify-between px-1 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => keyFileInputRef.current?.click()}
+                          className="text-gray-500 hover:text-amber-800 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-amber-600" />
+                          <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('ถ่ายภาพหลักฐานการคืนกุญแจ', 'กรุณาถ่ายรูปขณะหย่อนกุญแจรถยนต์ลงในตู้รับกุญแจ เพื่อเป็นหลักฐาน', (img) => setKeyPhotoPreview(img))}
+                          className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <span>📹 กล้องสด (Live Viewfinder)</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Buttons with Conditional OK Button (Requirement 3.3) */}
+                <div className="flex items-center gap-3 pt-3 border-t border-gray-100 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setReturnBooking(null)}
+                    className="flex-1 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+
+                  {/* The OK Button: Appears only when key photo is attached */}
+                  {keyPhotoPreview ? (
+                    <button
+                      id="btn-home-confirm-return-ok"
+                      type="submit"
+                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                    >
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>OK ยืนยันว่าคืนรถได้</span>
+                    </button>
+                  ) : (
+                    <div className="flex-1 py-2.5 bg-gray-100 border border-gray-200 text-gray-400 text-xs font-bold rounded-xl text-center cursor-not-allowed">
+                      <span>กรุณาถ่ายรูปหย่อนกุญแจเพื่อปลดล็อกปุ่ม OK</span>
+                    </div>
+                  )}
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Photo Preview Modal */}
+      {viewingPhoto && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between border-b pb-2">
+              <span className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-indigo-600" />
+                <span>{viewingPhoto.title}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setViewingPhoto(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="max-h-[75vh] overflow-hidden rounded-xl bg-black flex items-center justify-center">
+              <img
+                src={viewingPhoto.url}
+                alt={viewingPhoto.title}
+                className="max-h-[75vh] w-auto object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Camera Viewfinder Modal */}
+      {cameraModalConfig && cameraModalConfig.isOpen && (
+        <CameraCaptureModal
+          isOpen={cameraModalConfig.isOpen}
+          title={cameraModalConfig.title}
+          subtitle={cameraModalConfig.subtitle}
+          onCapture={cameraModalConfig.onCapture}
+          onClose={() => setCameraModalConfig(null)}
+          preferredFacingMode="environment"
+        />
+      )}
     </div>
   );
 }

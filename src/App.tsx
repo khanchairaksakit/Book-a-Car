@@ -23,9 +23,9 @@ import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
-import UserSwitcherModal from './components/UserSwitcherModal';
 import { translations, Language } from './utils/translations';
 import { isUserAdmin, getUserRoles, getRoleBadgeInfo, canUserViewBooking, hasRole } from './utils/userHelpers';
+import { getRealTodayStr } from './utils/dateHelpers';
 
 import {
   CalendarDays,
@@ -95,7 +95,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
   });
 
-  const [currentUser, setCurrentUser] = useState<User>(() => {
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('car_booking_current_user');
     if (saved) {
       try {
@@ -114,12 +114,11 @@ export default function App() {
         // fallback
       }
     }
-    // Default to the first user (Admin/Approve/User) so anyone opening the app enters directly without Google account or login
-    return INITIAL_USERS[0];
+    // Production: Require logging in with username and password
+    return null;
   });
 
   const [isLoginPageOpen, setIsLoginPageOpen] = useState(false);
-  const [isUserSwitcherOpen, setIsUserSwitcherOpen] = useState(false);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -128,6 +127,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('car_booking_current_user');
     setIsLoginPageOpen(true);
   };
 
@@ -202,6 +203,7 @@ export default function App() {
     };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
+    setToastMessage(`เพิ่มผู้ใช้งาน "${newUser.name}" เรียบร้อยแล้ว`);
     if (!currentUser) {
       setCurrentUser(newUser);
     }
@@ -332,7 +334,7 @@ export default function App() {
     };
     setBookings([newBooking, ...bookings]);
 
-    const todayStr = '2026-07-20';
+    const todayStr = getRealTodayStr();
     const start = newBooking.startDate.substring(0, 10);
     const end = newBooking.endDate.substring(0, 10);
     
@@ -357,32 +359,63 @@ export default function App() {
     }
   };
 
-  const handleUpdateBookingStatus = async (bookingId: string, status: BookingStatus) => {
-    const approverName =
-      status === 'Approved' || status === 'Completed'
-        ? currentUser
-          ? `${currentUser.name} (${hasRole(currentUser, 'Admin') ? 'Admin' : 'ผู้อนุมัติ'})`
-          : 'ผู้ดูแลระบบ'
-        : undefined;
+  const handleUpdateBookingStatus = async (
+    bookingId: string,
+    status: BookingStatus,
+    extraData?: Partial<Booking>
+  ) => {
+    let approverName: string | undefined = undefined;
+    let approvedAt: string | undefined = undefined;
 
-    const updatedBookings = bookings.map((b) =>
-      b.id === bookingId
-        ? {
-            ...b,
-            status,
-            ...(approverName ? { approverName, approvedAt: new Date().toISOString() } : {}),
-          }
-        : b
-    );
+    if (status === 'Approved') {
+      const existing = bookings.find((b) => b.id === bookingId);
+      const stage1Name = extraData?.stage1ApprovedBy || existing?.stage1ApprovedBy;
+      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'Approve 2';
+      approverName = stage1Name ? `${stage1Name} (Approve 1) & ${stage2Name} (Approve 2)` : `${stage2Name}`;
+      approvedAt = new Date().toISOString();
+    }
+
+    const updatedBookings = bookings.map((b) => {
+      if (b.id !== bookingId) return b;
+      return {
+        ...b,
+        status,
+        ...(approverName ? { approverName, approvedAt } : {}),
+        ...extraData,
+      };
+    });
     setBookings(updatedBookings);
 
     const booking = updatedBookings.find((b) => b.id === bookingId);
     if (!booking) return;
 
+    if (status === 'Pending_Approve2') {
+      setToastMessage(`อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่งต่อคำขอให้ Approve 2 พิจารณา`);
+    } else if (status === 'Approved') {
+      setToastMessage(`อนุมัติคำขอจองรถ ${booking.vehicleName} เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`);
+    } else if (status === 'Completed') {
+      setToastMessage(`เสร็จสิ้นภารกิจและบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
+    } else if (status === 'Cancelled') {
+      setToastMessage(`ยกเลิก/ปฏิเสธคำขอจองรถเรียบร้อยแล้ว`);
+    }
+
     try {
       await saveBooking(booking);
 
-      const todayStr = '2026-07-20';
+      // If mileage is returned in extraData, update vehicle currentMileage
+      if (extraData?.endMileage && booking.vehicleId) {
+        setVehicles((prev) =>
+          prev.map((v) =>
+            v.id === booking.vehicleId ? { ...v, currentMileage: extraData.endMileage } : v
+          )
+        );
+        const vToUpdate = vehicles.find((v) => v.id === booking.vehicleId);
+        if (vToUpdate) {
+          await saveVehicle({ ...vToUpdate, currentMileage: extraData.endMileage });
+        }
+      }
+
+      const todayStr = getRealTodayStr();
       const start = booking.startDate.substring(0, 10);
       const end = booking.endDate.substring(0, 10);
 
@@ -392,7 +425,7 @@ export default function App() {
           v.id === booking.vehicleId ? { ...v, status: 'In Use' } : v
         );
         setVehicles(updatedVehicles);
-        const matchedVehicle = updatedVehicles.find(v => v.id === booking.vehicleId);
+        const matchedVehicle = updatedVehicles.find((v) => v.id === booking.vehicleId);
         if (matchedVehicle) {
           await saveVehicle(matchedVehicle);
         }
@@ -412,7 +445,7 @@ export default function App() {
               : v
           );
           setVehicles(updatedVehicles);
-          const matchedVehicle = updatedVehicles.find(v => v.id === booking.vehicleId);
+          const matchedVehicle = updatedVehicles.find((v) => v.id === booking.vehicleId);
           if (matchedVehicle) {
             await saveVehicle(matchedVehicle);
           }
@@ -434,13 +467,12 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // If login page was explicitly opened, show the Login Page
-  if (isLoginPageOpen) {
+  // If not logged in or login page was explicitly opened, show the Login Page
+  if (!currentUser || isLoginPageOpen) {
     return (
       <LoginPage
         users={users}
         onLogin={handleLogin}
-        onDirectAccess={() => setIsLoginPageOpen(false)}
         language={language}
         onToggleLanguage={handleToggleLanguage}
       />
@@ -517,23 +549,14 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-800">
-                <button
-                  id="sidebar-switch-user-btn"
-                  onClick={() => setIsUserSwitcherOpen(true)}
-                  className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-indigo-300 hover:text-white hover:bg-indigo-900/40 rounded-lg border border-indigo-800/40 transition-colors cursor-pointer"
-                  title="สลับบัญชีผู้ใช้งาน"
-                >
-                  <Users className="w-3 h-3" />
-                  <span>{language === 'th' ? 'สลับผู้ใช้' : 'Switch'}</span>
-                </button>
+              <div className="pt-2 border-t border-slate-800">
                 <button
                   id="sidebar-logout-btn"
                   onClick={handleLogout}
-                  className="flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg border border-slate-800 hover:border-red-900/40 transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-slate-300 hover:text-red-300 hover:bg-red-950/40 rounded-xl border border-slate-800 hover:border-red-900/40 transition-colors cursor-pointer"
                   title={t.logout}
                 >
-                  <LogOut className="w-3 h-3" />
+                  <LogOut className="w-3.5 h-3.5" />
                   <span>{t.logout}</span>
                 </button>
               </div>
@@ -717,38 +740,26 @@ export default function App() {
 
             <div className="h-8 w-[1px] bg-gray-200 hidden lg:block" />
 
-            {/* Quick Switch User Button in Header */}
-            <button
-              id="header-switch-user-btn"
-              onClick={() => setIsUserSwitcherOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-              title={language === 'th' ? 'สลับบัญชีผู้ใช้งาน / เปลี่ยนสิทธิ์' : 'Switch Active Account'}
-            >
-              <Users className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden sm:inline">{language === 'th' ? 'สลับผู้ใช้' : 'Switch User'}</span>
-            </button>
-
             {currentUser && (
               <div
                 id="header-profile-box"
-                onClick={() => setIsUserSwitcherOpen(true)}
-                className="flex items-center gap-2 px-2.5 py-1 hover:bg-slate-50 border border-slate-100 rounded-lg transition-colors cursor-pointer"
-                title={language === 'th' ? 'คลิกเพื่อสลับผู้ใช้หรือดูสิทธิ์' : 'Click to switch user or view roles'}
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl shadow-2xs"
+                title={currentUser.name}
               >
-                <div className="text-right hidden sm:block">
+                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shrink-0 shadow-xs">
+                  {currentUser.name.substring(0, 2)}
+                </div>
+                <div className="text-left hidden sm:block">
                   <span className="text-xs font-bold block text-gray-900 leading-tight">
                     {currentUser.name}
                   </span>
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
+                  <div className="flex items-center gap-1 mt-0.5">
                     {getUserRoles(currentUser).slice(0, 2).map((r) => (
-                      <span key={r} className="text-[9px] font-semibold px-1 py-0 rounded bg-slate-100 text-slate-700">
+                      <span key={r} className="text-[9px] font-semibold px-1 py-0 rounded bg-slate-200 text-slate-700">
                         {r}
                       </span>
                     ))}
                   </div>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white">
-                  {currentUser.name.substring(0, 2)}
                 </div>
                 {isUserAdmin(currentUser) ? (
                   <Shield className="w-3.5 h-3.5 text-purple-600 hidden sm:block" />
@@ -789,6 +800,7 @@ export default function App() {
                   users={users}
                   onSelectUser={handleSelectUser}
                   onAddBooking={handleAddBooking}
+                  onUpdateBookingStatus={handleUpdateBookingStatus}
                   onNavigateToBookingList={() => setActiveTab('booking')}
                   onNavigateToVehicles={() => setActiveTab('vehicles')}
                 />
@@ -857,17 +869,6 @@ export default function App() {
           </button>
         </div>
       )}
-
-      {/* User & Role Switcher Modal */}
-      <UserSwitcherModal
-        isOpen={isUserSwitcherOpen}
-        onClose={() => setIsUserSwitcherOpen(false)}
-        users={users}
-        currentUser={currentUser}
-        onSelectUser={handleSelectUser}
-        onOpenLoginPage={() => setIsLoginPageOpen(true)}
-        language={language}
-      />
     </div>
   );
 }

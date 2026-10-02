@@ -17,6 +17,7 @@ import {
 import { Vehicle, Booking, User, VehicleType } from '../types';
 import { formatMileage, formatThaiDate } from '../utils/vehicleAlerts';
 import { canUserViewBooking } from '../utils/userHelpers';
+import { getRealTodayStr, isDateInPast, isDateToday } from '../utils/dateHelpers';
 
 interface VehicleOverviewProps {
   vehicles: Vehicle[];
@@ -45,8 +46,9 @@ export default function VehicleOverview({
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'booked' | 'maintenance'>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
 
-  const baseTodayStr = '2026-07-20';
-  const isToday = selectedDateStr === baseTodayStr;
+  const todayStr = getRealTodayStr();
+  const isToday = isDateToday(selectedDateStr);
+  const isPast = isDateInPast(selectedDateStr);
 
   // Format full Thai date with day of week (e.g. วันจันทร์ที่ 20 กรกฎาคม 2569)
   const fullThaiDate = useMemo(() => {
@@ -160,7 +162,7 @@ export default function VehicleOverview({
                 <button
                   id="btn-overview-reset-today"
                   type="button"
-                  onClick={() => onSelectDate(baseTodayStr)}
+                  onClick={() => onSelectDate(todayStr)}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md transition-colors cursor-pointer ml-1"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -170,17 +172,23 @@ export default function VehicleOverview({
             </p>
           </div>
 
-          {/* Quick Action Button */}
+          {/* Quick Action Button with anti-past booking rule */}
           <div className="flex items-center gap-2">
-            <button
-              id="btn-overview-book-for-date"
-              type="button"
-              onClick={() => onOpenBookingModal(selectedDateStr)}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>จองรถสำหรับวันนี้ ({formatThaiDate(selectedDateStr)})</span>
-            </button>
+            {isPast ? (
+              <div className="px-3.5 py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200">
+                <span>⚠️ วันที่ผ่านมาแล้ว (ห้ามจองย้อนหลัง)</span>
+              </div>
+            ) : (
+              <button
+                id="btn-overview-book-for-date"
+                type="button"
+                onClick={() => onOpenBookingModal(selectedDateStr)}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>จองรถสำหรับวันนี้ ({formatThaiDate(selectedDateStr)})</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -435,15 +443,26 @@ export default function VehicleOverview({
                 {/* Card Action Button */}
                 <div className="pt-2">
                   {isAvailable ? (
-                    <button
-                      id={`btn-book-car-${vehicle.id}`}
-                      type="button"
-                      onClick={() => onOpenBookingModal(selectedDateStr, vehicle.id)}
-                      className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
-                    >
-                      <span>จองคันนี้</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    isPast ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-1.5 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs font-medium cursor-not-allowed text-center"
+                        title="ไม่อนุญาตให้จองย้อนหลัง"
+                      >
+                        ไม่อนุญาตให้จองย้อนหลัง
+                      </button>
+                    ) : (
+                      <button
+                        id={`btn-book-car-${vehicle.id}`}
+                        type="button"
+                        onClick={() => onOpenBookingModal(selectedDateStr, vehicle.id)}
+                        className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+                      >
+                        <span>จองคันนี้</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )
                   ) : isBooked ? (
                     <button
                       type="button"

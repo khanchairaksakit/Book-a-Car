@@ -3,7 +3,8 @@ import { User, UserRole, Booking } from '../types';
 export function getUserRoles(user?: User | null): UserRole[] {
   if (!user) return [];
   if (Array.isArray(user.roles) && user.roles.length > 0) {
-    return user.roles;
+    // Map legacy 'Approve' to 'Approve 1'
+    return user.roles.map((r) => (r === 'Approve' ? 'Approve 1' : r));
   }
   if (user.role === 'Admin') return ['Admin', 'User'];
   return ['User'];
@@ -12,6 +13,12 @@ export function getUserRoles(user?: User | null): UserRole[] {
 export function hasRole(user: User | null | undefined, role: UserRole): boolean {
   if (!user) return false;
   const roles = getUserRoles(user);
+  if (role === 'Approve 1') {
+    return roles.includes('Approve 1') || roles.includes('Approve' as any);
+  }
+  if (role === 'Approve' as any) {
+    return roles.includes('Approve 1') || roles.includes('Approve' as any);
+  }
   return roles.includes(role);
 }
 
@@ -19,8 +26,16 @@ export function isUserAdmin(user: User | null | undefined): boolean {
   return hasRole(user, 'Admin');
 }
 
+export function isUserApprover1(user: User | null | undefined): boolean {
+  return hasRole(user, 'Approve 1') || hasRole(user, 'Admin');
+}
+
+export function isUserApprover2(user: User | null | undefined): boolean {
+  return hasRole(user, 'Approve 2') || hasRole(user, 'Admin');
+}
+
 export function isUserApprover(user: User | null | undefined): boolean {
-  return hasRole(user, 'Approve') || hasRole(user, 'Admin');
+  return isUserApprover1(user) || isUserApprover2(user);
 }
 
 /**
@@ -40,16 +55,67 @@ export function getBookingDepartment(booking: Booking, allUsers?: User[]): strin
 }
 
 /**
- * Retrieves all users who possess the 'Approve' permission (or Admin with approve rights).
+ * Resolves the division of a booking, falling back to looking up the booking's user.
  */
-export function getEligibleApprovers(users: User[]): User[] {
-  return users.filter((u) => hasRole(u, 'Approve') || isUserAdmin(u));
+export function getBookingDivision(booking: Booking, allUsers?: User[]): string {
+  if (booking.userDivision && booking.userDivision.trim()) {
+    return booking.userDivision.trim();
+  }
+  if (allUsers && booking.userId) {
+    const matched = allUsers.find((u) => u.id === booking.userId);
+    if (matched?.division) {
+      return matched.division.trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Retrieves eligible Approver 1 candidates.
+ * Rule: Must possess 'Approve 1' permission AND must be in the same division ("ฝ่ายเดียวกันกับ user").
+ */
+export function getEligibleStage1Approvers(users: User[], currentUser?: User | null): User[] {
+  // First, find all users with Approve 1 (or Admin)
+  const allApprover1Users = users.filter((u) => isUserApprover1(u));
+  if (!currentUser) return allApprover1Users;
+
+  const currentDiv = (currentUser.division || '').trim().toLowerCase();
+  const currentDept = (currentUser.department || '').trim().toLowerCase();
+
+  // Filter for candidates in the same division (or department if division is empty)
+  const sameDivisionApprovers = allApprover1Users.filter((u) => {
+    const uDiv = (u.division || '').trim().toLowerCase();
+    const uDept = (u.department || '').trim().toLowerCase();
+    if (currentDiv && uDiv) {
+      return currentDiv === uDiv;
+    }
+    if (currentDept && uDept) {
+      return currentDept === uDept;
+    }
+    return false;
+  });
+
+  // If there are approvers in the same division, return them.
+  // If none exist in the same division yet, return all Approver 1 candidates with same division prioritized.
+  if (sameDivisionApprovers.length > 0) {
+    return sameDivisionApprovers;
+  }
+
+  return allApprover1Users;
+}
+
+/**
+ * Retrieves eligible Approver 2 candidates.
+ * Rule: Must possess 'Approve 2' permission or Admin.
+ */
+export function getEligibleStage2Approvers(users: User[]): User[] {
+  return users.filter((u) => isUserApprover2(u));
 }
 
 /**
  * Checks whether the current user is permitted to approve/reject the given booking:
- * - If booking specifies `assignedApproverId`: ONLY that designated user (or Admin) can approve.
- * - Otherwise: Department-level approver (or Admin).
+ * - Stage 1 (Pending): ONLY the designated Approve 1 user (or Admin) can approve.
+ * - Stage 2 (Pending_Approve2): Any user with Approve 2 role (or Admin) can approve.
  */
 export function canUserApproveBooking(
   booking: Booking,
@@ -59,14 +125,23 @@ export function canUserApproveBooking(
   if (!currentUser) return false;
   if (isUserAdmin(currentUser)) return true;
 
-  if (booking.assignedApproverId) {
-    return currentUser.id === booking.assignedApproverId;
+  // Stage 1: Waiting for Approve 1
+  if (booking.status === 'Pending') {
+    if (booking.assignedApproverId) {
+      return currentUser.id === booking.assignedApproverId;
+    }
+    // Fallback: any Approve 1 in same division
+    if (isUserApprover1(currentUser)) {
+      const userDiv = (currentUser.division || currentUser.department || '').trim().toLowerCase();
+      const bookingDiv = (getBookingDivision(booking, allUsers) || getBookingDepartment(booking, allUsers)).toLowerCase();
+      return Boolean(userDiv && bookingDiv && userDiv === bookingDiv);
+    }
+    return false;
   }
 
-  if (hasRole(currentUser, 'Approve')) {
-    const currentDept = (currentUser.department || '').trim().toLowerCase();
-    const bookingDept = getBookingDepartment(booking, allUsers).toLowerCase();
-    return Boolean(currentDept && bookingDept && currentDept === bookingDept);
+  // Stage 2: Waiting for Approve 2
+  if (booking.status === 'Pending_Approve2') {
+    return isUserApprover2(currentUser);
   }
 
   return false;
@@ -74,11 +149,11 @@ export function canUserApproveBooking(
 
 /**
  * Checks whether a booking is visible to the given user based on strict role policy:
- * - Admin: Sees all bookings across all departments
+ * - Admin: Sees all bookings across all departments/divisions
  * - Requester: Always sees their own bookings
- * - Assigned Approver: When an approver is chosen, ONLY that designated user can see and approve it
- * - Approver (legacy bookings): Sees bookings within their own department
- * - User (regular staff): Sees ONLY their own bookings (cannot view other users' bookings)
+ * - Stage 1: Designated Approve 1 user can see and approve
+ * - Stage 2: Approve 2 users can see and approve
+ * - Approved / Completed: Approvers (Stage 1 & 2), Requester, and same division staff
  */
 export function canUserViewBooking(
   booking: Booking,
@@ -97,24 +172,41 @@ export function canUserViewBooking(
     return true;
   }
 
-  // 3. If an approver is explicitly designated: ONLY that chosen user can view it as the sole approver
-  if (booking.assignedApproverId) {
-    return currentUser.id === booking.assignedApproverId;
+  // 3. Stage 1 (Pending): designated Approve 1 user
+  if (booking.status === 'Pending') {
+    if (booking.assignedApproverId) {
+      return currentUser.id === booking.assignedApproverId;
+    }
+    if (isUserApprover1(currentUser)) {
+      const currentDiv = (currentUser.division || currentUser.department || '').trim().toLowerCase();
+      const bookingDiv = (getBookingDivision(booking, allUsers) || getBookingDepartment(booking, allUsers)).toLowerCase();
+      return Boolean(currentDiv && bookingDiv && currentDiv === bookingDiv);
+    }
   }
 
-  // 4. Legacy fallback: Approver strictly limited to their own department
-  if (hasRole(currentUser, 'Approve')) {
-    const currentDept = (currentUser.department || '').trim().toLowerCase();
-    const bookingDept = getBookingDepartment(booking, allUsers).toLowerCase();
-    return Boolean(currentDept && bookingDept && currentDept === bookingDept);
+  // 4. Stage 2 (Pending_Approve2): all Approve 2 users
+  if (booking.status === 'Pending_Approve2') {
+    if (isUserApprover2(currentUser)) {
+      return true;
+    }
   }
 
-  // 5. Regular user: strictly limited to their own bookings
+  // 5. Approved / Completed: Approvers who participated, or same division approvers
+  if (booking.status === 'Approved' || booking.status === 'Completed') {
+    if (currentUser.id === booking.assignedApproverId) return true;
+    if (isUserApprover2(currentUser)) return true;
+    if (isUserApprover1(currentUser)) {
+      const currentDiv = (currentUser.division || currentUser.department || '').trim().toLowerCase();
+      const bookingDiv = (getBookingDivision(booking, allUsers) || getBookingDepartment(booking, allUsers)).toLowerCase();
+      if (currentDiv && bookingDiv && currentDiv === bookingDiv) return true;
+    }
+  }
+
   return false;
 }
 
 /**
- * Filters a list of bookings based on the logged-in user's role and department.
+ * Filters a list of bookings based on the logged-in user's role and visibility.
  */
 export function filterBookingsForUser(
   bookings: Booking[],
@@ -139,9 +231,17 @@ export function getRoleBadgeInfo(role: UserRole, isEn: boolean = false): {
         text: 'text-purple-700',
         border: 'border-purple-200',
       };
+    case 'Approve 2':
+      return {
+        label: isEn ? 'Approve 2' : 'ผู้อนุมัติขั้นที่ 2 (Approve 2)',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-700',
+        border: 'border-emerald-200',
+      };
+    case 'Approve 1':
     case 'Approve':
       return {
-        label: isEn ? 'Approver' : 'ผู้อนุมัติ (Approve)',
+        label: isEn ? 'Approve 1' : 'ผู้อนุมัติขั้นที่ 1 (Approve 1)',
         bg: 'bg-blue-50',
         text: 'text-blue-700',
         border: 'border-blue-200',
