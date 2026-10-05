@@ -99,35 +99,17 @@ export default function DepartmentDivisionModal({
   };
 
   const handleDeleteDepartment = (deptName: string) => {
-    const userCount = getDeptUserCount(deptName);
-    const confirmMsg = userCount > 0
-      ? (isEn
-          ? `There are ${userCount} employees in "${deptName}". Are you sure you want to delete this department?`
-          : `มีพนักงานสังกัดแผนก "${deptName}" อยู่ ${userCount} คน คุณแน่ใจหรือไม่ว่าต้องการลบแผนกนี้ออกจากรายการ?`)
-      : (isEn ? `Delete department "${deptName}"?` : `ต้องการลบแผนก "${deptName}" ใช่หรือไม่?`);
-
-    if (window.confirm(confirmMsg)) {
-      const updated = departments.filter((d) => d !== deptName);
-      onSaveDepartments(updated);
-      setSuccessMsg(isEn ? `Deleted "${deptName}"` : `ลบแผนก "${deptName}" เรียบร้อยแล้ว`);
-      setTimeout(() => setSuccessMsg(''), 3000);
-    }
+    const updated = departments.filter((d) => d !== deptName);
+    onSaveDepartments(updated);
+    setSuccessMsg(isEn ? `Deleted "${deptName}"` : `ลบแผนก "${deptName}" เรียบร้อยแล้ว`);
+    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
   const handleDeleteDivision = (divName: string) => {
-    const userCount = getDivUserCount(divName);
-    const confirmMsg = userCount > 0
-      ? (isEn
-          ? `There are ${userCount} employees in "${divName}". Are you sure you want to delete this division?`
-          : `มีพนักงานสังกัดฝ่าย "${divName}" อยู่ ${userCount} คน คุณแน่ใจหรือไม่ว่าต้องการลบฝ่ายนี้ออกจากรายการ?`)
-      : (isEn ? `Delete division "${divName}"?` : `ต้องการลบฝ่าย "${divName}" ใช่หรือไม่?`);
-
-    if (window.confirm(confirmMsg)) {
-      const updated = divisions.filter((d) => d !== divName);
-      onSaveDivisions(updated);
-      setSuccessMsg(isEn ? `Deleted "${divName}"` : `ลบฝ่าย "${divName}" เรียบร้อยแล้ว`);
-      setTimeout(() => setSuccessMsg(''), 3000);
-    }
+    const updated = divisions.filter((d) => d !== divName);
+    onSaveDivisions(updated);
+    setSuccessMsg(isEn ? `Deleted "${divName}"` : `ลบฝ่าย "${divName}" เรียบร้อยแล้ว`);
+    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
   const handleSaveEdit = () => {

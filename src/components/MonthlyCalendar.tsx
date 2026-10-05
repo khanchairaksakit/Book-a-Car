@@ -1,6 +1,12 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Vehicle, Booking, User, BookingStatus, FuelLevel } from '../types';
-import { isUserAdmin, canUserViewBooking, getEligibleStage1Approvers } from '../utils/userHelpers';
+import {
+  isUserAdmin,
+  canUserViewBooking,
+  getEligibleStage1Approvers,
+  getEligibleStage2Approvers,
+  isUserApprover1,
+} from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
 import { getRealTodayStr, isDateInPast, isDateToday, validateBookingDates } from '../utils/dateHelpers';
@@ -30,6 +36,7 @@ import {
   Gauge,
   Key,
   Upload,
+  MessageCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -49,6 +56,10 @@ interface MonthlyCalendarProps {
   onUpdateBookingStatus?: (bookingId: string, status: BookingStatus, extraData?: Partial<Booking>) => void;
   onNavigateToBookingList: () => void;
   onNavigateToVehicles: () => void;
+  onOpenLineShare?: (booking: Booking) => void;
+  onOpenLineQuickApprove?: (booking: Booking, stage: 1 | 2, action?: 'approve' | 'reject' | 'review') => void;
+  isLineModuleEnabled?: boolean;
+  onUpdateUserLineId?: (userId: string, lineId: string) => void;
 }
 
 const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
@@ -63,6 +74,10 @@ export default function MonthlyCalendar({
   onUpdateBookingStatus,
   onNavigateToBookingList,
   onNavigateToVehicles,
+  onOpenLineShare,
+  onOpenLineQuickApprove,
+  isLineModuleEnabled = true,
+  onUpdateUserLineId,
 }: MonthlyCalendarProps) {
   // Real-time current date
   const realTodayStr = getRealTodayStr();
@@ -80,6 +95,16 @@ export default function MonthlyCalendar({
       (b) => b.status === 'Approved' && (b.userId === currentUser.id || isUserAdmin(currentUser))
     );
   }, [bookings, currentUser]);
+
+  // Pending bookings ready for LINE approval / sharing
+  const pendingLineBookings = useMemo(() => {
+    if (!currentUser || !isLineModuleEnabled) return [];
+    return bookings.filter(
+      (b) =>
+        (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
+        canUserViewBooking(b, currentUser, users)
+    );
+  }, [bookings, currentUser, users, isLineModuleEnabled]);
 
   // Trip Checklist Modals for departure and return
   const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
@@ -216,6 +241,7 @@ export default function MonthlyCalendar({
   const [endTime, setEndTime] = useState<string>('17:00');
   const [endDateStr, setEndDateStr] = useState<string>(realTodayStr);
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
+  const [showAllDeptApprovers, setShowAllDeptApprovers] = useState<boolean>(false);
   const [destination, setDestination] = useState<string>('');
   const [purpose, setPurpose] = useState<string>('');
   const [passengersCount, setPassengersCount] = useState<number>(1);
@@ -243,9 +269,24 @@ export default function MonthlyCalendar({
     });
   };
 
-  // Eligible approvers: users with 'Approve 1' permission in same division (or Admin)
-  const eligibleApprovers = useMemo(
+  // Eligible approvers: users with 'Approve 1' permission in same department/division (or all Approve 1 if toggled)
+  const sameDeptApprovers = useMemo(
     () => getEligibleStage1Approvers(users, currentUser),
+    [users, currentUser]
+  );
+
+  const allStage1Approvers = useMemo(
+    () => users.filter((u) => isUserApprover1(u)),
+    [users]
+  );
+
+  const eligibleApprovers = useMemo(
+    () => (showAllDeptApprovers ? allStage1Approvers : sameDeptApprovers),
+    [showAllDeptApprovers, allStage1Approvers, sameDeptApprovers]
+  );
+
+  const eligibleStage2Approvers = useMemo(
+    () => getEligibleStage2Approvers(users, currentUser),
     [users, currentUser]
   );
 
@@ -477,18 +518,19 @@ export default function MonthlyCalendar({
       }
     }
 
-    // Pre-select appropriate approver (prefer same division Approve 1)
+    // Pre-select appropriate approver 1 (prefer same department Approve 1)
+    setShowAllDeptApprovers(false);
+
     const approvers = getEligibleStage1Approvers(users, currentUser);
-    const sameDiv = approvers.find(
+    const sameDept = approvers.find(
       (a) =>
-        ((a.division && currentUser?.division && a.division === currentUser.division) ||
-         (a.department === currentUser?.department)) &&
+        (a.department === currentUser?.department ||
+          (a.division && currentUser?.division && a.division === currentUser.division)) &&
         a.id !== currentUser?.id
     );
-    if (sameDiv) {
-      setSelectedApproverId(sameDiv.id);
-    } else if (approvers.length > 0) {
-      setSelectedApproverId(approvers[0].id);
+    const chosenApp1 = sameDept || approvers[0] || null;
+    if (chosenApp1) {
+      setSelectedApproverId(chosenApp1.id);
     } else {
       setSelectedApproverId('');
     }
@@ -559,11 +601,18 @@ export default function MonthlyCalendar({
       return;
     }
 
-    const chosenApprover = eligibleApprovers.find((u) => u.id === selectedApproverId);
+    const chosenApprover =
+      allStage1Approvers.find((u) => u.id === selectedApproverId) ||
+      eligibleApprovers.find((u) => u.id === selectedApproverId);
     if (!chosenApprover) {
-      setBookingError('ไม่พบข้อมูลผู้อนุมัติที่ระบุ กรุณาเลือกใหม่อีกครั้ง');
+      setBookingError('ไม่พบข้อมูลผู้อนุมัติขั้นที่ 1 ที่ระบุ กรุณาเลือกใหม่อีกครั้ง');
       return;
     }
+
+    const chosenStage2Approver =
+      eligibleStage2Approvers.find((u) => u.id !== chosenApprover.id) ||
+      eligibleStage2Approvers[0] ||
+      null;
 
     const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId);
     if (!selectedVehicle) {
@@ -593,7 +642,7 @@ export default function MonthlyCalendar({
     const endIso = `${endDateStr}T${endTime}`;
 
     const isAdminUser = isUserAdmin(currentUser);
-    const isSelfApproval = isAdminUser && chosenApprover.id === currentUser.id;
+    const isSelfApproval = isAdminUser && chosenApprover.id === currentUser.id && !isLineModuleEnabled;
 
     const newBookingData = {
       vehicleId: selectedVehicle.id,
@@ -612,6 +661,11 @@ export default function MonthlyCalendar({
       status: (isSelfApproval ? 'Approved' : 'Pending') as BookingStatus,
       assignedApproverId: chosenApprover.id,
       assignedApproverName: chosenApprover.name,
+      assignedApproverLineId: chosenApprover.lineUserId || undefined,
+      stage2ApproverId: chosenStage2Approver?.id,
+      stage2ApproverName: chosenStage2Approver?.name || 'Approve 2',
+      stage2ApproverLineId: chosenStage2Approver?.lineUserId || undefined,
+      requesterLineId: currentUser.lineUserId || undefined,
       approverName: isSelfApproval ? `${currentUser.name} (Admin)` : undefined,
       approvedAt: isSelfApproval ? new Date().toISOString() : undefined,
     };
@@ -697,6 +751,100 @@ export default function MonthlyCalendar({
           </div>
         </div>
       </div>
+
+      {/* Pending Approvals via LINE Quick Action Section (Only when LINE Module is enabled) */}
+      {isLineModuleEnabled && pendingLineBookings.length > 0 && (
+        <div
+          id="calendar-line-pending-approvals"
+          className="bg-gradient-to-r from-[#06C755]/10 via-emerald-50/70 to-white border-2 border-[#06C755]/40 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-[#06C755] text-white font-black text-xs flex items-center justify-center shadow-xs shrink-0">
+                LINE
+              </div>
+              <div>
+                <h2 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <span>คำขอใช้รถที่รออนุมัติ • ส่งขอและกดอนุมัติผ่าน LINE ได้ทันที</span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-[#06C755] text-white rounded-full">
+                    {pendingLineBookings.length} รายการรออนุมัติ
+                  </span>
+                </h2>
+                <p className="text-[11px] text-gray-600">
+                  กดส่งการ์ดขออนุมัติเข้าแชท LINE ให้หัวหน้างาน หรือกดอนุมัติผ่านระบบ LINE Quick Approval ได้ในคลิกเดียว
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToBookingList}
+              className="text-xs font-bold text-[#059440] hover:underline flex items-center gap-1 self-start sm:self-center cursor-pointer"
+            >
+              <span>ดูรายการจองทั้งหมด</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {pendingLineBookings.slice(0, 4).map((b) => {
+              const isStage2 = b.status === 'Pending_Approve2';
+              return (
+                <div
+                  key={b.id}
+                  className="bg-white rounded-xl p-3.5 border border-emerald-200/90 shadow-2xs flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-gray-900 text-xs truncate">
+                        🚘 {b.vehicleName}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                          isStage2
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        {isStage2 ? '⏳ รอ Approve 2' : `⏳ รอ ${b.assignedApproverName || 'Approve 1'}`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-700 font-medium">
+                      👤 ผู้ขอ: <strong>{b.userName}</strong> ({b.userDepartment || '-'}) • 📍 {b.destination}
+                    </p>
+                    <p className="text-[10px] text-gray-500 font-mono">
+                      📅 {formatTripDateTime(b.startDate, b.endDate)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
+                    {onOpenLineShare && (
+                      <button
+                        type="button"
+                        id={`btn-home-line-share-${b.id}`}
+                        onClick={() => onOpenLineShare(b)}
+                        className="flex-1 py-2 px-3 bg-[#06C755] hover:bg-[#05b34c] text-white text-xs font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 fill-white" />
+                        <span>{isStage2 ? 'ส่งขออนุมัติขั้น 2 ใน LINE' : 'ส่งขออนุมัติผ่าน LINE'}</span>
+                      </button>
+                    )}
+                    {onOpenLineQuickApprove && (
+                      <button
+                        type="button"
+                        id={`btn-home-line-quick-approve-${b.id}`}
+                        onClick={() => onOpenLineQuickApprove(b, isStage2 ? 2 : 1, 'approve')}
+                        className="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <span>⚡ อนุมัติผ่าน LINE</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* User Active Approved Missions Banner & Prominent "เสร็จสิ้นภารกิจ" button */}
       {myActiveBookings.length > 0 && (
@@ -1399,28 +1547,53 @@ export default function MonthlyCalendar({
                   </div>
                 </div>
 
-                {/* 4. Choose Approver (ผู้มีสิทธิ์ Approve 1 ในฝ่ายเดียวกัน) */}
-                <div className="space-y-2 pt-2 border-t border-gray-100" id="booking-approver-selection-section">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                {/* 4. Choose Approver 1 (แผนกเดียวกัน เลือกผู้อนุมัติได้ตามสิทธิ์ Approve 1) */}
+                <div className="space-y-3 pt-2 border-t border-gray-100" id="booking-approver-selection-section">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                     <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-indigo-600" />
-                      <span>เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 ในฝ่ายเดียวกัน) <span className="text-red-500">*</span></span>
+                      <span>
+                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 แผนกเดียวกัน ตามสิทธิ์ที่ได้รับ){' '}
+                        <span className="text-red-500">*</span>
+                      </span>
                     </label>
-                    <span className="text-[10px] text-blue-700 bg-blue-50 font-medium px-2 py-0.5 rounded-full border border-blue-100 w-fit">
-                      เมื่อผ่านขั้นที่ 1 ระบบจะส่งต่อ Approve 2 อัตโนมัติ
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {allStage1Approvers.length > sameDeptApprovers.length && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllDeptApprovers(!showAllDeptApprovers)}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 cursor-pointer"
+                        >
+                          {showAllDeptApprovers
+                            ? 'แสดงเฉพาะแผนกเดียวกัน'
+                            : `ดู Approve 1 แผนกอื่นด้วย (${allStage1Approvers.length} คน)`}
+                        </button>
+                      )}
+                      <span className="text-[10px] text-emerald-700 bg-emerald-50 font-semibold px-2 py-0.5 rounded-full border border-emerald-200 w-fit">
+                        ผ่าน Approve 1 แล้วส่งต่อ Approve 2 อัตโนมัติ
+                      </span>
+                    </div>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    ดึงรายชื่อพนักงานที่มีสิทธิ์ Approve 1 ในฝ่ายเดียวกับคุณ ({currentUser?.division || currentUser?.department})
+                    ดึงรายชื่อผู้มีสิทธิ์ <strong>Approve 1</strong> ในแผนกเดียวกับคุณ (
+                    <span className="font-semibold text-gray-700">
+                      {currentUser?.department}
+                      {currentUser?.division ? ` / ${currentUser.division}` : ''}
+                    </span>
+                    ) จากหน้ากำหนดผู้ใช้งานและบทบาทหน้าที่
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                     {eligibleApprovers.map((approver) => {
                       const isSelected = selectedApproverId === approver.id;
-                      const userDiv = (currentUser?.division || currentUser?.department || '').trim().toLowerCase();
-                      const appDiv = (approver.division || approver.department || '').trim().toLowerCase();
+                      const isSameDept = Boolean(
+                        currentUser?.department &&
+                          approver.department.trim().toLowerCase() ===
+                            currentUser.department.trim().toLowerCase()
+                      );
+                      const userDiv = (currentUser?.division || '').trim().toLowerCase();
+                      const appDiv = (approver.division || '').trim().toLowerCase();
                       const isSameDiv = Boolean(userDiv && appDiv && userDiv === appDiv);
-                      const isSameDept = Boolean(currentUser?.department && approver.department === currentUser.department);
 
                       return (
                         <div
@@ -1439,21 +1612,27 @@ export default function MonthlyCalendar({
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-bold text-gray-900 truncate block">
-                                {approver.name}
+                                {approver.name}{' '}
+                                {approver.employeeCode ? (
+                                  <span className="text-[10px] font-mono text-gray-500 font-normal">
+                                    [{approver.employeeCode}]
+                                  </span>
+                                ) : null}
                               </span>
                               {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
                             </div>
-                            <span className="text-[11px] text-gray-500 block truncate font-medium">
-                              {approver.division || approver.department}
+                            <span className="text-[11px] text-gray-600 block truncate font-medium">
+                              {approver.department}
+                              {approver.division ? ` • ${approver.division}` : ''}
                             </span>
                             <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                              {isSameDiv ? (
+                              {isSameDept ? (
                                 <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                                  ⭐ ฝ่ายเดียวกัน
+                                  ⭐ แผนกเดียวกัน
                                 </span>
-                              ) : isSameDept ? (
-                                <span className="text-[9px] font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">
-                                  แผนกเดียวกัน
+                              ) : isSameDiv ? (
+                                <span className="text-[9px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">
+                                  ฝ่ายเดียวกัน
                                 </span>
                               ) : null}
                               <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
@@ -1522,23 +1701,34 @@ export default function MonthlyCalendar({
                 </div>
 
                 {/* Modal Footer Controls */}
-                <div className="pt-4 border-t border-gray-200 flex items-center justify-between gap-3 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsBookingModalOpen(false)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    ยกเลิก
-                  </button>
+                <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                  {isLineModuleEnabled ? (
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#059440] bg-[#06C755]/10 px-3 py-1.5 rounded-xl border border-[#06C755]/25 font-semibold">
+                      <MessageCircle className="w-3.5 h-3.5 fill-[#06C755] text-[#06C755] shrink-0" />
+                      <span>หลังกดยืนยัน ระบบจะเปิดการ์ดส่งขออนุมัติผ่าน LINE ให้ทันที</span>
+                    </div>
+                  ) : (
+                    <div />
+                  )}
 
-                  <button
-                    id="btn-submit-quick-booking"
-                    type="submit"
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>ยืนยันการจองรถยนต์</span>
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBookingModalOpen(false)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+
+                    <button
+                      id="btn-submit-quick-booking"
+                      type="submit"
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{isLineModuleEnabled ? 'ยืนยันการจอง & ส่งขออนุมัติ LINE' : 'ยืนยันการจองรถยนต์'}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>
@@ -1605,9 +1795,24 @@ export default function MonthlyCalendar({
                           <Clock className="w-3.5 h-3.5 text-gray-400" />
                           <span>{formatTripDateTime(b.startDate, b.endDate)}</span>
                         </div>
-                        <div className="text-gray-600 flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                          <span className="truncate">ปลายทาง: {isAllowed ? b.destination : 'ติดภารกิจ'}</span>
+                        <div className="text-gray-600 flex items-center justify-between gap-2 pt-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span className="truncate">ปลายทาง: {isAllowed ? b.destination : 'ติดภารกิจ'}</span>
+                          </div>
+                          {isLineModuleEnabled && isAllowed && onOpenLineShare && b.status !== 'Cancelled' && b.status !== 'Completed' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingDayBookings(null);
+                                onOpenLineShare(b);
+                              }}
+                              className="px-2.5 py-1 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
+                            >
+                              <MessageCircle className="w-3 h-3 fill-white" />
+                              <span>ส่งขออนุมัติ LINE</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

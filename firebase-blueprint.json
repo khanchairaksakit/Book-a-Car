@@ -40,7 +40,8 @@
         "roles": { "type": "array" },
         "role": { "type": "string", "enum": ["User", "Admin"] },
         "username": { "type": "string" },
-        "password": { "type": "string" }
+        "password": { "type": "string" },
+        "lineUserId": { "type": "string" }
       },
       "required": ["id", "name", "department", "phone", "email"]
     },
@@ -63,12 +64,23 @@
         "purpose": { "type": "string" },
         "destination": { "type": "string" },
         "passengersCount": { "type": "integer" },
-        "status": { "type": "string", "enum": ["Pending", "Approved", "Cancelled", "Completed"] },
+        "status": { "type": "string", "enum": ["Pending", "Pending_Approve2", "Approved", "Cancelled", "Completed"] },
         "createdAt": { "type": "string" },
         "assignedApproverId": { "type": "string" },
         "assignedApproverName": { "type": "string" },
+        "assignedApproverLineId": { "type": "string" },
+        "stage2ApproverId": { "type": "string" },
+        "stage2ApproverName": { "type": "string" },
+        "stage2ApproverLineId": { "type": "string" },
+        "requesterLineId": { "type": "string" },
         "approverName": { "type": "string" },
-        "approvedAt": { "type": "string" }
+        "approvedAt": { "type": "string" },
+        "approvedVia": { "type": "string" },
+        "lineNotifiedAt": { "type": "string" },
+        "rejectionReason": { "type": "string" },
+        "rejectedBy": { "type": "string" },
+        "rejectedAt": { "type": "string" },
+        "rejectedStage": { "type": "integer" }
       },
       "required": ["id", "vehicleId", "userId", "userName", "vehicleName", "startDate", "endDate", "purpose", "destination", "passengersCount", "status", "createdAt"]
     }

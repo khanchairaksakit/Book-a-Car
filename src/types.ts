@@ -51,6 +51,7 @@ export interface User {
   role?: 'User' | 'Admin'; // legacy fallback
   username?: string; // สำหรับล็อกอินด้วย user
   password?: string; // รหัสผ่านสำหรับล็อกอิน
+  lineUserId?: string; // LINE User ID หรือ LINE ID สำหรับรับแจ้งเตือนอนุมัติ
 }
 
 export interface Booking {
@@ -72,14 +73,27 @@ export interface Booking {
   createdAt: string; // วันที่เอกสาร
 
   // Approvals (2-Stage Approval Process)
-  assignedApproverId?: string; // ID ของผู้อนุมัติขั้นที่ 1 ที่ถูกเลือก (Approve 1 ในฝ่ายเดียวกัน)
+  assignedApproverId?: string; // ID ของผู้อนุมัติขั้นที่ 1 ที่ถูกเลือก (Approve 1 ในแผนก/ฝ่ายเดียวกัน)
   assignedApproverName?: string; // ชื่อของผู้อนุมัติขั้นที่ 1 ที่ถูกเลือก
+  assignedApproverLineId?: string; // LINE ID ของผู้อนุมัติขั้นที่ 1
+  stage2ApproverId?: string; // ID ของผู้อนุมัติขั้นที่ 2 ที่กำหนดไว้
+  stage2ApproverName?: string; // ชื่อของผู้อนุมัติขั้นที่ 2 ที่กำหนดไว้
+  stage2ApproverLineId?: string; // LINE ID ของผู้อนุมัติขั้นที่ 2
+  requesterLineId?: string; // LINE ID ของผู้ขอใช้รถ (User) สำหรับรับแจ้งเตือนผลการอนุมัติ
   stage1ApprovedBy?: string; // ผู้ทำการอนุมัติขั้นที่ 1
   stage1ApprovedAt?: string; // วันที่อนุมัติขั้นที่ 1
   stage2ApprovedBy?: string; // ผู้ทำการอนุมัติขั้นที่ 2 (Approve 2)
   stage2ApprovedAt?: string; // วันที่อนุมัติขั้นที่ 2
   approverName?: string; // สรุปชื่อผู้อนุมัติ
   approvedAt?: string; // วันที่อนุมัติเสร็จสิ้น
+  approvedVia?: 'LINE' | 'Web'; // ช่องทางที่กดอนุมัติ
+  lineNotifiedAt?: string; // เวลาที่ส่งขออนุมัติผ่าน LINE ล่าสุด
+
+  // Rejection Details (กรณีไม่อนุมัติ ต้องระบุเหตุผล)
+  rejectionReason?: string; // เหตุผลที่ไม่อนุมัติ
+  rejectedBy?: string; // ชื่อผู้ที่กดไม่อนุมัติ
+  rejectedAt?: string; // วันเวลาที่กดไม่อนุมัติ
+  rejectedStage?: 1 | 2; // ขั้นตอนที่ไม่อนุมัติ (1 = Approve 1, 2 = Approve 2)
 
   // Departure Checklist (ข้อมูลก่อนออกเดินทางหลังจากอนุมัติ)
   startMileage?: number; // ไมล์เริ่มต้น (km.)

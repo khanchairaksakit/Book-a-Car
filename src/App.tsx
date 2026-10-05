@@ -23,6 +23,13 @@ import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
+import LineShareApprovalModal from './components/LineShareApprovalModal';
+import LineQuickApproveModal from './components/LineQuickApproveModal';
+import {
+  triggerServerLineApprovalPush,
+  getLineModuleEnabled,
+  setLineModuleEnabled,
+} from './utils/lineApprovalUtils';
 import { translations, Language } from './utils/translations';
 import { isUserAdmin, getUserRoles, getRoleBadgeInfo, canUserViewBooking, hasRole } from './utils/userHelpers';
 import { getRealTodayStr } from './utils/dateHelpers';
@@ -231,20 +238,22 @@ export default function App() {
   };
 
   const handleEditUser = async (updatedUser: User) => {
-    setUsers(users.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
-    if (currentUser?.id === updatedUser.id) {
-      setCurrentUser(updatedUser);
-    }
+    setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+    setCurrentUser((prev) => (prev?.id === updatedUser.id ? updatedUser : prev));
     const updatedBookings = bookings.map((b) =>
       b.userId === updatedUser.id
-        ? { ...b, userName: updatedUser.name, userPhone: updatedUser.phone }
+        ? {
+            ...b,
+            userName: updatedUser.name,
+            userPhone: updatedUser.phone,
+            requesterLineId: updatedUser.lineUserId || b.requesterLineId,
+          }
         : b
     );
     setBookings(updatedBookings);
 
     try {
       await saveUser(updatedUser);
-      // Sync names on user's bookings in firestore too
       for (const b of updatedBookings) {
         if (b.userId === updatedUser.id) {
           await saveBooking(b);
@@ -252,6 +261,39 @@ export default function App() {
       }
     } catch (e) {
       console.error('Cloud edit user failed', e);
+    }
+  };
+
+  const handleUpdateUserLineId = async (userId: string, lineUserId: string) => {
+    const cleanLineId = lineUserId.trim();
+    let targetUser: User | undefined;
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === userId) {
+          const updated = { ...u, lineUserId: cleanLineId };
+          targetUser = updated;
+          return updated;
+        }
+        return u;
+      })
+    );
+    setCurrentUser((prev) => (prev?.id === userId ? { ...prev, lineUserId: cleanLineId } : prev));
+    setBookings((prev) =>
+      prev.map((b) => ({
+        ...b,
+        ...(b.userId === userId ? { requesterLineId: cleanLineId } : {}),
+        ...(b.assignedApproverId === userId ? { assignedApproverLineId: cleanLineId } : {}),
+        ...(b.stage2ApproverId === userId ? { stage2ApproverLineId: cleanLineId } : {}),
+      }))
+    );
+
+    const existing = targetUser || users.find((u) => u.id === userId);
+    if (existing) {
+      try {
+        await saveUser({ ...existing, lineUserId: cleanLineId });
+      } catch (e) {
+        console.error('Cloud update user lineUserId failed', e);
+      }
     }
   };
 
@@ -334,6 +376,31 @@ export default function App() {
     };
     setBookings([newBooking, ...bookings]);
 
+    // If pending approval and LINE module is enabled, automatically push to Approve 1's LINE ID from User Management (without popping up the preview modal)
+    if (isLineModuleEnabled && newBooking.status === 'Pending') {
+      const stage1Approver = users.find((u) => u.id === newBooking.assignedApproverId);
+      const targetLineId = newBooking.assignedApproverLineId || stage1Approver?.lineUserId;
+      triggerServerLineApprovalPush({
+        booking: newBooking,
+        stage: 1,
+        approverUser: stage1Approver,
+        approverName: newBooking.assignedApproverName || stage1Approver?.name,
+        targetLineId,
+      })
+        .then((res) => {
+          if (res?.oaPushSuccess) {
+            setToastMessage(
+              `จองรถสำเร็จ! ส่งขออนุมัติไปยัง LINE ของ ${newBooking.assignedApproverName || 'Approve 1'} (${targetLineId || 'LINE OA'}) เรียบร้อยแล้ว`
+            );
+          } else {
+            setToastMessage(
+              `บันทึกคำขอจองรถและส่งคำขอไปหา ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} เรียบร้อยแล้ว`
+            );
+          }
+        })
+        .catch(() => {});
+    }
+
     const todayStr = getRealTodayStr();
     const start = newBooking.startDate.substring(0, 10);
     const end = newBooking.endDate.substring(0, 10);
@@ -390,13 +457,60 @@ export default function App() {
     if (!booking) return;
 
     if (status === 'Pending_Approve2') {
-      setToastMessage(`อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่งต่อคำขอให้ Approve 2 พิจารณา`);
+      if (isLineModuleEnabled) {
+        const stage2Approver =
+          users.find((u) => u.id === booking.stage2ApproverId) ||
+          users.find((u) => u.roles?.includes('Approve 2'));
+        const targetStage2LineId = booking.stage2ApproverLineId || stage2Approver?.lineUserId;
+        triggerServerLineApprovalPush({
+          booking,
+          stage: 2,
+          approverUser: stage2Approver,
+          approverName: booking.stage2ApproverName || stage2Approver?.name || 'Approve 2',
+          targetLineId: targetStage2LineId,
+        }).catch(() => {});
+      }
+      setToastMessage(
+        isLineModuleEnabled
+          ? `อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่ง LINE ขอการอนุมัติไปยัง Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) เรียบร้อยแล้ว`
+          : `อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่งต่อคำขอให้ Approve 2 พิจารณา`
+      );
     } else if (status === 'Approved') {
-      setToastMessage(`อนุมัติคำขอจองรถ ${booking.vehicleName} เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`);
+      if (isLineModuleEnabled) {
+        const reqUser = users.find((u) => u.id === booking.userId);
+        const targetReqLineId = booking.requesterLineId || reqUser?.lineUserId;
+        triggerServerLineApprovalPush({
+          booking,
+          stage: 'approved',
+          approverUser: reqUser,
+          approverName: booking.stage2ApprovedBy || booking.approverName || 'Approve 2',
+          targetLineId: targetReqLineId,
+        }).catch(() => {});
+      }
+      setToastMessage(
+        isLineModuleEnabled
+          ? `อนุมัติคำขอจองรถ ${booking.vehicleName} ครบ 2 ขั้นตอน และส่ง LINE แจ้งเตือนผู้จอง (${booking.userName}) เรียบร้อยแล้ว`
+          : `อนุมัติคำขอจองรถ ${booking.vehicleName} เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
+      );
     } else if (status === 'Completed') {
       setToastMessage(`เสร็จสิ้นภารกิจและบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
     } else if (status === 'Cancelled') {
-      setToastMessage(`ยกเลิก/ปฏิเสธคำขอจองรถเรียบร้อยแล้ว`);
+      if (isLineModuleEnabled && booking.rejectionReason) {
+        const reqUser = users.find((u) => u.id === booking.userId);
+        const targetReqLineId = booking.requesterLineId || reqUser?.lineUserId;
+        triggerServerLineApprovalPush({
+          booking,
+          stage: 'rejected',
+          approverUser: reqUser,
+          approverName: booking.rejectedBy || 'ผู้อนุมัติ',
+          targetLineId: targetReqLineId,
+        }).catch(() => {});
+      }
+      setToastMessage(
+        booking.rejectionReason
+          ? `ไม่อนุมัติคำขอจองรถ (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
+          : `ยกเลิก/ปฏิเสธคำขอจองรถเรียบร้อยแล้ว`
+      );
     }
 
     try {
@@ -467,15 +581,152 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // If not logged in or login page was explicitly opened, show the Login Page
+  // Modular Savepoint State for LINE Request & Approval
+  const [isLineModuleEnabled, setIsLineModuleEnabled] = useState<boolean>(() =>
+    getLineModuleEnabled()
+  );
+
+  const handleToggleLineModule = (enabled: boolean) => {
+    setIsLineModuleEnabled(enabled);
+    setLineModuleEnabled(enabled);
+    if (!enabled) {
+      setLineShareBookingId(null);
+      setLineQuickApproveState(null);
+      setToastMessage('สลับกลับสู่จุดเซฟมาตรฐานเรียบร้อย (ปิดระบบขอและอนุมัติผ่าน LINE โดยไม่กระทบข้อมูลเดิม)');
+    } else {
+      setToastMessage('เปิดใช้งานระบบขอและอนุมัติผ่าน LINE เรียบร้อยแล้ว');
+    }
+  };
+
+  // LINE Share & Quick Approval States
+  const [lineShareBookingId, setLineShareBookingId] = useState<string | null>(null);
+  const [lineQuickApproveState, setLineQuickApproveState] = useState<{
+    bookingId: string;
+    stage: 1 | 2;
+    action: 'approve' | 'reject' | 'review';
+    approverId?: string;
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const lineBookingId = params.get('lineBookingId');
+    if (!lineBookingId) return null;
+    const stageParam = params.get('stage') === '2' ? 2 : 1;
+    const actionParam = params.get('action');
+    const action: 'approve' | 'reject' | 'review' =
+      actionParam === 'approve' || actionParam === 'reject' ? actionParam : 'review';
+    const approverId = params.get('approverId') || undefined;
+    return {
+      bookingId: lineBookingId,
+      stage: stageParam,
+      action,
+      approverId,
+    };
+  });
+
+  const handleCloseLineQuickApprove = () => {
+    setLineQuickApproveState(null);
+    if (typeof window !== 'undefined' && window.location.search.includes('lineBookingId')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('lineBookingId');
+      url.searchParams.delete('stage');
+      url.searchParams.delete('action');
+      url.searchParams.delete('approverId');
+      window.history.replaceState({}, '', url.toString());
+    }
+  };
+
+  const handleMarkLineNotified = async (bookingId: string) => {
+    const nowIso = new Date().toISOString();
+    setBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, lineNotifiedAt: nowIso } : b))
+    );
+    const found = bookings.find((b) => b.id === bookingId);
+    if (found) {
+      try {
+        await saveBooking({ ...found, lineNotifiedAt: nowIso });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Sync any pending LINE OA Webhook postback actions
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const resp = await fetch('/api/line/webhook-actions');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const actions = Array.isArray(data?.actions) ? data.actions : [];
+        for (const act of actions) {
+          const targetBooking = bookings.find((b) => b.id === act.bookingId);
+          if (targetBooking) {
+            if (act.action === 'approve') {
+              if (targetBooking.status === 'Pending') {
+                await handleUpdateBookingStatus(targetBooking.id, 'Pending_Approve2', {
+                  stage1ApprovedBy: `${targetBooking.assignedApproverName || 'Approve 1'} (LINE OA)`,
+                  stage1ApprovedAt: act.timestamp,
+                  approvedVia: 'LINE',
+                });
+              } else if (targetBooking.status === 'Pending_Approve2') {
+                await handleUpdateBookingStatus(targetBooking.id, 'Approved', {
+                  stage2ApprovedBy: `Approve 2 (LINE OA)`,
+                  stage2ApprovedAt: act.timestamp,
+                  approvedVia: 'LINE',
+                });
+              }
+            } else if (act.action === 'reject') {
+              await handleUpdateBookingStatus(targetBooking.id, 'Cancelled', {
+                approvedVia: 'LINE',
+              });
+            }
+          }
+          await fetch('/api/line/ack-webhook-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: act.id }),
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [bookings]);
+
+  const activeLineShareBooking = lineShareBookingId
+    ? bookings.find((b) => b.id === lineShareBookingId) || null
+    : null;
+
+  const activeLineQuickApproveBooking = lineQuickApproveState
+    ? bookings.find((b) => b.id === lineQuickApproveState.bookingId) || null
+    : null;
+
+  // If not logged in or login page was explicitly opened, show the Login Page (plus LINE Quick Approve Modal if opened via LINE link)
   if (!currentUser || isLoginPageOpen) {
     return (
-      <LoginPage
-        users={users}
-        onLogin={handleLogin}
-        language={language}
-        onToggleLanguage={handleToggleLanguage}
-      />
+      <>
+        <LoginPage
+          users={users}
+          onLogin={handleLogin}
+          language={language}
+          onToggleLanguage={handleToggleLanguage}
+        />
+        {lineQuickApproveState && activeLineQuickApproveBooking && (
+          <LineQuickApproveModal
+            isOpen={Boolean(lineQuickApproveState)}
+            onClose={handleCloseLineQuickApprove}
+            booking={activeLineQuickApproveBooking}
+            users={users}
+            currentUser={currentUser}
+            initialStage={lineQuickApproveState.stage}
+            initialAction={lineQuickApproveState.action}
+            initialApproverId={lineQuickApproveState.approverId}
+            onUpdateBookingStatus={handleUpdateBookingStatus}
+            onUpdateUserLineId={handleUpdateUserLineId}
+          />
+        )}
+      </>
     );
   }
 
@@ -652,14 +903,45 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-4 border-t border-slate-800/60 bg-slate-950/40 text-center">
-          <p className="text-[10px] text-slate-400 font-semibold tracking-wide">
-            Corporate Fleet Management
-          </p>
-          <p className="text-[9px] text-slate-500 mt-0.5">
-            ระบบจองรถยนต์ส่วนกลาง
-          </p>
+        {/* Sidebar Savepoint Toggle & Footer */}
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/50 space-y-2.5">
+          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-slate-200 flex items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isLineModuleEnabled ? 'bg-[#06C755]' : 'bg-slate-500'
+                  }`}
+                />
+                <span>ระบบอนุมัติผ่าน LINE</span>
+              </span>
+              <span className="text-[9px] text-slate-400 block truncate">
+                {isLineModuleEnabled ? 'เปิดใช้งาน (มีจุดเซฟ)' : 'ปิดไว้ (โหมดจุดเซฟเดิม)'}
+              </span>
+            </div>
+            <button
+              type="button"
+              id="sidebar-toggle-line-savepoint"
+              onClick={() => handleToggleLineModule(!isLineModuleEnabled)}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${
+                isLineModuleEnabled
+                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                  : 'bg-[#06C755] hover:bg-[#05b34c] text-white'
+              }`}
+              title="สลับเปิด/ปิดการขอและอนุมัติผ่าน LINE โดยไม่กระทบข้อมูลเดิม"
+            >
+              {isLineModuleEnabled ? 'ปิด LINE' : 'เปิด LINE'}
+            </button>
+          </div>
+
+          <div className="text-center">
+            <p className="text-[10px] text-slate-400 font-semibold tracking-wide">
+              Corporate Fleet Management
+            </p>
+            <p className="text-[9px] text-slate-500 mt-0.5">
+              ระบบจองรถยนต์ส่วนกลาง
+            </p>
+          </div>
         </div>
       </aside>
 
@@ -803,6 +1085,16 @@ export default function App() {
                   onUpdateBookingStatus={handleUpdateBookingStatus}
                   onNavigateToBookingList={() => setActiveTab('booking')}
                   onNavigateToVehicles={() => setActiveTab('vehicles')}
+                  isLineModuleEnabled={isLineModuleEnabled}
+                  onOpenLineShare={(booking) => setLineShareBookingId(booking.id)}
+                  onOpenLineQuickApprove={(booking, stage, action = 'approve') =>
+                    setLineQuickApproveState({
+                      bookingId: booking.id,
+                      stage,
+                      action,
+                    })
+                  }
+                  onUpdateUserLineId={handleUpdateUserLineId}
                 />
               )}
 
@@ -815,6 +1107,16 @@ export default function App() {
                   onAddBooking={handleAddBooking}
                   onUpdateBookingStatus={handleUpdateBookingStatus}
                   onDeleteBooking={handleDeleteBooking}
+                  isLineModuleEnabled={isLineModuleEnabled}
+                  onToggleLineModule={handleToggleLineModule}
+                  onOpenLineShare={(booking) => setLineShareBookingId(booking.id)}
+                  onOpenLineQuickApprove={(booking, stage, action = 'approve') =>
+                    setLineQuickApproveState({
+                      bookingId: booking.id,
+                      stage,
+                      action,
+                    })
+                  }
                 />
               )}
 
@@ -839,6 +1141,7 @@ export default function App() {
                   onEditUser={handleEditUser}
                   onDeleteUser={handleDeleteUser}
                   language={language}
+                  isLineModuleEnabled={isLineModuleEnabled}
                 />
               )}
 
@@ -856,6 +1159,44 @@ export default function App() {
         </main>
       </div>
 
+
+      {/* LINE Share & Flex Message Approval Modal */}
+      {activeLineShareBooking && (
+        <LineShareApprovalModal
+          isOpen={Boolean(activeLineShareBooking)}
+          onClose={() => setLineShareBookingId(null)}
+          booking={activeLineShareBooking}
+          users={users}
+          currentUser={currentUser}
+          onMarkLineNotified={handleMarkLineNotified}
+          onUpdateBookingStatus={handleUpdateBookingStatus}
+          onUpdateUserLineId={handleUpdateUserLineId}
+          onOpenQuickApprove={(b, stage, action = 'approve') => {
+            setLineShareBookingId(null);
+            setLineQuickApproveState({
+              bookingId: b.id,
+              stage,
+              action,
+            });
+          }}
+        />
+      )}
+
+      {/* LINE Quick Approval Portal Modal (Deep-Link & One-Click Approval) */}
+      {lineQuickApproveState && activeLineQuickApproveBooking && (
+        <LineQuickApproveModal
+          isOpen={Boolean(lineQuickApproveState)}
+          onClose={handleCloseLineQuickApprove}
+          booking={activeLineQuickApproveBooking}
+          users={users}
+          currentUser={currentUser}
+          initialStage={lineQuickApproveState.stage}
+          initialAction={lineQuickApproveState.action}
+          initialApproverId={lineQuickApproveState.approverId}
+          onUpdateBookingStatus={handleUpdateBookingStatus}
+          onUpdateUserLineId={handleUpdateUserLineId}
+        />
+      )}
 
       {/* Floating Toast Message */}
       {toastMessage && (

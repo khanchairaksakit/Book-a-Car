@@ -106,6 +106,7 @@ export const INITIAL_USERS: User[] = [
     role: 'Admin',
     username: 'somchai',
     password: 'password123',
+    lineUserId: '@somchai.fleet',
   },
   {
     id: 'user-2',
@@ -119,6 +120,7 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'somsri',
     password: 'password123',
+    lineUserId: '@somsri.hr',
   },
   {
     id: 'user-3',
@@ -132,6 +134,7 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'wichai',
     password: 'password123',
+    lineUserId: '@wichai.it',
   },
   {
     id: 'user-4',
@@ -145,6 +148,7 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'nattapong',
     password: 'password123',
+    lineUserId: '@nattapong.po',
   },
   {
     id: 'user-5',
@@ -158,6 +162,7 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'kittisak',
     password: 'password123',
+    lineUserId: '@kittisak.approve2',
   },
   {
     id: 'user-6',
@@ -171,6 +176,7 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'pimchanok',
     password: 'password123',
+    lineUserId: '@pimchanok.it',
   },
 ];
 

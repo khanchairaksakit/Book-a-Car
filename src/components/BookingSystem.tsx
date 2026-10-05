@@ -32,6 +32,7 @@ import {
   Upload,
   ArrowRight,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CameraCaptureModal from './CameraCaptureModal';
@@ -44,6 +45,10 @@ interface BookingSystemProps {
   onAddBooking?: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
   onUpdateBookingStatus: (bookingId: string, status: BookingStatus, extraData?: Partial<Booking>) => void;
   onDeleteBooking: (bookingId: string) => void;
+  onOpenLineShare?: (booking: Booking) => void;
+  onOpenLineQuickApprove?: (booking: Booking, stage: 1 | 2, action?: 'approve' | 'reject' | 'review') => void;
+  isLineModuleEnabled?: boolean;
+  onToggleLineModule?: (enabled: boolean) => void;
 }
 
 const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
@@ -55,11 +60,21 @@ export default function BookingSystem({
   currentUser,
   onUpdateBookingStatus,
   onDeleteBooking,
+  onOpenLineShare,
+  onOpenLineQuickApprove,
+  isLineModuleEnabled = true,
+  onToggleLineModule,
 }: BookingSystemProps) {
   // Search & filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [deletingBooking, setDeletingBooking] = useState<Booking | null>(null);
+  const [rejectingBookingState, setRejectingBookingState] = useState<{
+    booking: Booking;
+    stage: 1 | 2;
+  } | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [rejectReasonError, setRejectReasonError] = useState('');
 
   // Modal States for Trip Checklists
   const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
@@ -406,6 +421,72 @@ export default function BookingSystem({
         </div>
       </div>
 
+      {/* LINE Integration & System Savepoint Control Bar */}
+      <div
+        id="line-savepoint-control-bar"
+        className={`rounded-2xl p-4 border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          isLineModuleEnabled
+            ? 'bg-gradient-to-r from-[#06C755]/10 via-emerald-50/60 to-white border-[#06C755]/35 shadow-2xs'
+            : 'bg-slate-100/80 border-slate-200 text-slate-600'
+        }`}
+      >
+        <div className="flex items-start sm:items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-xl font-black text-xs flex items-center justify-center shrink-0 shadow-xs ${
+              isLineModuleEnabled
+                ? 'bg-[#06C755] text-white'
+                : 'bg-slate-300 text-slate-600'
+            }`}
+          >
+            LINE
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-sm font-bold text-gray-900">
+                ระบบส่งขออนุมัติและกดอนุมัติผ่าน LINE (2 ขั้นตอน)
+              </h3>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  isLineModuleEnabled
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                {isLineModuleEnabled ? '🟢 เปิดใช้งานอยู่' : '⚪ ปิดใช้งาน (โหมดจุดเซฟเดิม)'}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-600 mt-0.5">
+              {isLineModuleEnabled
+                ? 'แยกโมดูลอิสระ 100% • สามารถส่งการ์ดขออนุมัติเข้าแชท LINE และกดอนุมัติผ่านลิงก์ LINE ได้ทันทีโดยไม่กระทบข้อมูลหลัก'
+                : 'ขณะนี้อยู่ในโหมดจุดเซฟมาตรฐาน (นำปุ่มขอและอนุมัติผ่าน LINE ออกชั่วคราวโดยไม่กระทบข้อมูลใดๆ ที่สร้างไว้)'}
+            </p>
+          </div>
+        </div>
+
+        {onToggleLineModule && (
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <button
+              type="button"
+              id="btn-toggle-line-savepoint"
+              onClick={() => onToggleLineModule(!isLineModuleEnabled)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
+                isLineModuleEnabled
+                  ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+                  : 'bg-[#06C755] hover:bg-[#05b34c] text-white border-[#06C755]'
+              }`}
+              title="สลับเปิด/ปิดระบบขอและอนุมัติผ่าน LINE (จุดเซฟระบบ ไม่กระทบข้อมูลเดิม)"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>
+                {isLineModuleEnabled
+                  ? 'สลับกลับจุดเซฟ (เอา LINE ออก)'
+                  : 'เปิดใช้งานระบบขอและอนุมัติผ่าน LINE'}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Search Input Bar */}
       <div className="relative">
         <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
@@ -477,6 +558,11 @@ export default function BookingSystem({
                       <span className="text-xs text-gray-500 block">
                         {booking.userDepartment || '-'} {booking.userDivision ? `• ${booking.userDivision}` : ''}
                         {booking.userPhone ? ` • 📞 ${booking.userPhone}` : ''}
+                        {isLineModuleEnabled && booking.requesterLineId ? (
+                          <span className="ml-1.5 font-mono text-[10px] font-bold text-[#059440] bg-[#06C755]/10 px-1.5 py-0.2 rounded border border-[#06C755]/30">
+                            💬 LINE User: {booking.requesterLineId}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                   </div>
@@ -487,6 +573,11 @@ export default function BookingSystem({
                       <span>{booking.vehicleName}</span>
                     </span>
                     {getBookingStatusBadge(booking.status)}
+                    {isLineModuleEnabled && booking.approvedVia === 'LINE' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#06C755]/15 text-[#059440] border border-[#06C755]/30">
+                        💬 อนุมัติผ่าน LINE
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -533,7 +624,12 @@ export default function BookingSystem({
                           </span>
                           <div>
                             <span className="font-bold text-gray-900">ขั้นที่ 1 (Approve 1):</span>{' '}
-                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้อนุมัติฝ่าย'}</span>
+                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้อนุมัติแผนก'}</span>
+                            {isLineModuleEnabled && booking.assignedApproverLineId && (
+                              <span className="ml-1 font-mono text-[9px] text-[#059440]">
+                                ({booking.assignedApproverLineId})
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -541,7 +637,7 @@ export default function BookingSystem({
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
                               <Check className="w-3 h-3" /> ผ่านแล้ว
                             </span>
-                          ) : booking.status === 'Cancelled' ? (
+                          ) : booking.status === 'Cancelled' && (!booking.rejectedStage || booking.rejectedStage === 1) ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                               ไม่อนุมัติ
                             </span>
@@ -562,14 +658,25 @@ export default function BookingSystem({
                           <div>
                             <span className="font-bold text-gray-900">ขั้นที่ 2 (Approve 2):</span>{' '}
                             <span className="text-gray-600">
-                              {booking.stage2ApprovedBy ? booking.stage2ApprovedBy : 'ผู้อนุมัติขั้นสุดท้าย'}
+                              {booking.stage2ApprovedBy
+                                ? booking.stage2ApprovedBy
+                                : booking.stage2ApproverName || 'ผู้อนุมัติขั้นสุดท้าย'}
                             </span>
+                            {isLineModuleEnabled && booking.stage2ApproverLineId && (
+                              <span className="ml-1 font-mono text-[9px] text-[#059440]">
+                                ({booking.stage2ApproverLineId})
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div>
                           {booking.stage2ApprovedBy || booking.status === 'Approved' || booking.status === 'Completed' ? (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
                               <Check className="w-3 h-3" /> อนุมัติครบแล้ว
+                            </span>
+                          ) : booking.status === 'Cancelled' && booking.rejectedStage === 2 ? (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                              ไม่อนุมัติ
                             </span>
                           ) : booking.status === 'Pending_Approve2' ? (
                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 animate-pulse">
@@ -580,6 +687,21 @@ export default function BookingSystem({
                           )}
                         </div>
                       </div>
+
+                      {/* Rejection Reason Display if Cancelled/Rejected */}
+                      {booking.status === 'Cancelled' && booking.rejectionReason && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-900 space-y-0.5">
+                          <div className="font-bold text-rose-700 flex items-center justify-between">
+                            <span>❌ เหตุผลที่ไม่อนุมัติ:</span>
+                            {booking.rejectedBy && (
+                              <span className="text-[10px] font-medium text-rose-600">
+                                โดย {booking.rejectedBy}
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-medium text-rose-900">{booking.rejectionReason}</p>
+                        </div>
+                      )}
                     </div>
 
                     {booking.approverName && (
@@ -713,9 +835,29 @@ export default function BookingSystem({
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* LINE Share / Send Approval Request Button */}
+                    {isLineModuleEnabled && onOpenLineShare && booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
+                      <button
+                        id={`btn-line-share-${booking.id}`}
+                        type="button"
+                        onClick={() => onOpenLineShare(booking)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#06C755] hover:bg-[#05b34c] active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                        title="ส่งคำขออนุมัติพร้อมลิงก์กดอนุมัติด่วนเข้าแชท LINE หรือ LINE Official Account"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 fill-white" />
+                        <span>
+                          {booking.status === 'Pending'
+                            ? 'ส่งขออนุมัติผ่าน LINE (ขั้นที่ 1)'
+                            : booking.status === 'Pending_Approve2'
+                            ? 'ส่งต่อขออนุมัติผ่าน LINE (ขั้นที่ 2)'
+                            : 'แจ้งผลอนุมัติผ่าน LINE'}
+                        </span>
+                      </button>
+                    )}
+
                     {/* Stage 1 Approval Action */}
                     {canApproveStage1Action && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button
                           id={`btn-approve-stage1-${booking.id}`}
                           type="button"
@@ -734,17 +876,21 @@ export default function BookingSystem({
                         <button
                           id={`btn-reject-stage1-${booking.id}`}
                           type="button"
-                          onClick={() => onUpdateBookingStatus(booking.id, 'Cancelled')}
+                          onClick={() => {
+                            setRejectingBookingState({ booking, stage: 1 });
+                            setRejectReasonInput('');
+                            setRejectReasonError('');
+                          }}
                           className="px-3 py-2 border border-red-200 hover:bg-red-50 text-red-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
-                          ไม่อนุมัติ
+                          ไม่อนุมัติ (ระบุเหตุผล)
                         </button>
                       </div>
                     )}
 
                     {/* Stage 2 Approval Action */}
                     {canApproveStage2Action && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button
                           id={`btn-approve-stage2-${booking.id}`}
                           type="button"
@@ -763,10 +909,14 @@ export default function BookingSystem({
                         <button
                           id={`btn-reject-stage2-${booking.id}`}
                           type="button"
-                          onClick={() => onUpdateBookingStatus(booking.id, 'Cancelled')}
+                          onClick={() => {
+                            setRejectingBookingState({ booking, stage: 2 });
+                            setRejectReasonInput('');
+                            setRejectReasonError('');
+                          }}
                           className="px-3 py-2 border border-red-200 hover:bg-red-50 text-red-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
-                          ไม่อนุมัติ
+                          ไม่อนุมัติ (ระบุเหตุผล)
                         </button>
                       </div>
                     )}
@@ -1392,6 +1542,82 @@ export default function BookingSystem({
                   alt={viewingPhoto.title}
                   className="max-h-[75vh] max-w-full object-contain"
                 />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reject with Reason Modal (when LINE module is off or standard web reject) */}
+      <AnimatePresence>
+        {rejectingBookingState && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-rose-700 text-base">
+                  ❌ ไม่อนุมัติคำขอใช้รถ (ขั้นที่ {rejectingBookingState.stage})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setRejectingBookingState(null)}
+                  className="p-1 text-gray-400 hover:text-gray-700 rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-gray-600">
+                คำขอของ <strong>{rejectingBookingState.booking.userName}</strong> ({rejectingBookingState.booking.vehicleName})
+              </p>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-800">
+                  ระบุเหตุผลที่ไม่อนุมัติ <span className="text-rose-600">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectReasonInput}
+                  onChange={(e) => {
+                    setRejectReasonInput(e.target.value);
+                    if (e.target.value.trim()) setRejectReasonError('');
+                  }}
+                  placeholder="กรุณาระบุเหตุผลที่ไม่อนุมัติ เพื่อแจ้งให้ผู้ขอใช้รถทราบ..."
+                  className="w-full p-3 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-500 outline-hidden"
+                />
+                {rejectReasonError && (
+                  <p className="text-xs font-bold text-rose-600">{rejectReasonError}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectingBookingState(null)}
+                  className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!rejectReasonInput.trim()) {
+                      setRejectReasonError('กรุณาระบุเหตุผลที่ไม่อนุมัติคำขอใช้รถ');
+                      return;
+                    }
+                    onUpdateBookingStatus(rejectingBookingState.booking.id, 'Cancelled', {
+                      rejectionReason: rejectReasonInput.trim(),
+                      rejectedBy: `${currentUser?.name || 'ผู้อนุมัติ'} (Approve ${rejectingBookingState.stage})`,
+                      rejectedAt: new Date().toISOString(),
+                      rejectedStage: rejectingBookingState.stage,
+                    });
+                    setRejectingBookingState(null);
+                  }}
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
+                >
+                  ยืนยันไม่อนุมัติ
+                </button>
               </div>
             </motion.div>
           </div>

@@ -58,6 +58,7 @@ interface UserRegistrationProps {
   onEditUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
   language?: Language;
+  isLineModuleEnabled?: boolean;
 }
 
 export default function UserRegistration({
@@ -69,6 +70,7 @@ export default function UserRegistration({
   onEditUser,
   onDeleteUser,
   language = 'th',
+  isLineModuleEnabled = true,
 }: UserRegistrationProps) {
   const [isEditing, setIsEditing] = useState<User | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -82,6 +84,7 @@ export default function UserRegistration({
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('password123');
+  const [lineUserId, setLineUserId] = useState('');
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [roles, setRoles] = useState<UserRole[]>(['User']);
   const [error, setError] = useState('');
@@ -146,6 +149,7 @@ export default function UserRegistration({
     setEmail('');
     setUsername('');
     setPassword('password123');
+    setLineUserId('');
     setRoles(['User']);
     setError('');
     setShowFormPassword(false);
@@ -241,6 +245,7 @@ export default function UserRegistration({
         email: email.trim(),
         username: cleanUsername,
         password: cleanPassword,
+        lineUserId: lineUserId.trim() || undefined,
         roles: effectiveRoles,
         role: legacyRole,
       });
@@ -257,6 +262,7 @@ export default function UserRegistration({
         email: email.trim(),
         username: cleanUsername,
         password: cleanPassword,
+        lineUserId: lineUserId.trim() || undefined,
         roles: effectiveRoles,
         role: legacyRole,
       });
@@ -281,6 +287,7 @@ export default function UserRegistration({
     setEmail(user.email);
     setUsername(user.username || user.email.split('@')[0]);
     setPassword(user.password || 'password123');
+    setLineUserId(user.lineUserId || '');
     setRoles(getUserRoles(user));
     setError('');
   };
@@ -296,6 +303,7 @@ export default function UserRegistration({
     setEmail('');
     setUsername('');
     setPassword('password123');
+    setLineUserId('');
     setRoles(['User']);
     setError('');
   };
@@ -804,9 +812,32 @@ export default function UserRegistration({
                       </div>
                     </div>
 
-                    <div className="text-[11px] text-gray-500 mb-3 flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-gray-400" />
-                      <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
+                    <div className="text-[11px] text-gray-500 mb-3 flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1">
+                        <Phone className="w-3 h-3 text-gray-400" />
+                        <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
+                      </span>
+                      {isLineModuleEnabled && (
+                        user.lineUserId ? (
+                          <button
+                            type="button"
+                            onClick={() => startEdit(user)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#06C755]/15 hover:bg-[#06C755]/25 text-[#059440] border border-[#06C755]/30 truncate max-w-[145px] cursor-pointer"
+                            title={`คลิกเพื่อแก้ไข LINE ID (${user.lineUserId})`}
+                          >
+                            💬 LINE: {user.lineUserId}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startEdit(user)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 cursor-pointer"
+                            title="คลิกเพื่อเพิ่ม LINE ID สำหรับรับแจ้งเตือน"
+                          >
+                            + ระบุ LINE ID
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
 
@@ -1306,6 +1337,26 @@ export default function UserRegistration({
                       required
                     />
                   </div>
+
+                  {/* LINE ID / LINE User ID */}
+                  {isLineModuleEnabled && (
+                    <div className="bg-[#06C755]/10 p-3 rounded-xl border border-[#06C755]/30 space-y-1">
+                      <label className="block text-xs font-bold text-[#059440]">
+                        💬 LINE ID หรือ LINE User ID (สำหรับรับแจ้งเตือนและอนุมัติผ่าน LINE)
+                      </label>
+                      <input
+                        id="user-input-line-id"
+                        type="text"
+                        value={lineUserId}
+                        onChange={(e) => setLineUserId(e.target.value)}
+                        placeholder="เช่น @somchai หรือ U1234567890abcdef... (เว้นว่างได้)"
+                        className="w-full px-3 py-1.5 border border-[#06C755]/40 bg-white rounded-lg text-xs focus:ring-1 focus:ring-[#06C755] focus:outline-hidden"
+                      />
+                      <p className="text-[10px] text-emerald-700">
+                        ใช้สำหรับเชื่อมต่อการส่งคำขออนุมัติและแจ้งผลการจองรถผ่าน LINE
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Modal Footer directly inside <form> so submit works natively across all browsers */}

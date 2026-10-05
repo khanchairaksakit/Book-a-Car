@@ -137,16 +137,28 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           const roles: UserRole[] = [];
           const lowerRoles = rawRoles.toLowerCase();
           if (lowerRoles.includes('admin') || lowerRoles.includes('ผู้ดูแล')) roles.push('Admin');
-          if (lowerRoles.includes('approve 2') || lowerRoles.includes('อนุมัติ 2') || lowerRoles.includes('approve2')) {
+          const hasApp2 =
+            lowerRoles.includes('approve 2') ||
+            lowerRoles.includes('approve2') ||
+            lowerRoles.includes('อนุมัติ 2') ||
+            lowerRoles.includes('ลำดับ 2') ||
+            lowerRoles.includes('ลำดับที่ 2') ||
+            lowerRoles.includes('ขั้นที่ 2') ||
+            lowerRoles.includes('ขั้น 2');
+          if (hasApp2) {
             roles.push('Approve 2');
           }
-          if (
+          const hasExplicitApp1 =
             lowerRoles.includes('approve 1') ||
-            lowerRoles.includes('อนุมัติ 1') ||
             lowerRoles.includes('approve1') ||
-            (lowerRoles.includes('approve') && !lowerRoles.includes('approve 2') && !lowerRoles.includes('approve2')) ||
-            (lowerRoles.includes('อนุมัติ') && !lowerRoles.includes('อนุมัติ 2'))
-          ) {
+            lowerRoles.includes('อนุมัติ 1') ||
+            lowerRoles.includes('ลำดับ 1') ||
+            lowerRoles.includes('ลำดับที่ 1') ||
+            lowerRoles.includes('ขั้นที่ 1') ||
+            lowerRoles.includes('ขั้น 1');
+          const hasGenericApprove =
+            (lowerRoles.includes('approve') || lowerRoles.includes('อนุมัติ')) && !hasApp2;
+          if (hasExplicitApp1 || hasGenericApprove) {
             roles.push('Approve 1');
           }
           if (lowerRoles.includes('user') || lowerRoles.includes('ผู้ใช้') || roles.length === 0) roles.push('User');
