@@ -1342,7 +1342,7 @@ export default function UserRegistration({
                   {isLineModuleEnabled && (
                     <div className="bg-[#06C755]/10 p-3 rounded-xl border border-[#06C755]/30 space-y-1">
                       <label className="block text-xs font-bold text-[#059440]">
-                        💬 LINE ID หรือ LINE User ID (สำหรับรับแจ้งเตือนและอนุมัติผ่าน LINE)
+                        💬 LINE ID หรือ LINE User ID (สำหรับรับการแจ้งเตือนผ่าน LINE)
                       </label>
                       <input
                         id="user-input-line-id"
@@ -1353,7 +1353,7 @@ export default function UserRegistration({
                         className="w-full px-3 py-1.5 border border-[#06C755]/40 bg-white rounded-lg text-xs focus:ring-1 focus:ring-[#06C755] focus:outline-hidden"
                       />
                       <p className="text-[10px] text-emerald-700">
-                        ใช้สำหรับเชื่อมต่อการส่งคำขออนุมัติและแจ้งผลการจองรถผ่าน LINE
+                        ใช้สำหรับเชื่อมต่อการแจ้งเตือนคำขอและผลการจองรถผ่าน LINE
                       </p>
                     </div>
                   )}

@@ -100,6 +100,8 @@ async function getLineAccessToken(): Promise<string> {
 function buildBookingFlexMessage(params: {
   booking: {
     id: string;
+    jobNumber?: string;
+    createdAt?: string;
     userName: string;
     userDepartment?: string;
     userDivision?: string;
@@ -130,6 +132,18 @@ function buildBookingFlexMessage(params: {
 }) {
   const { booking, stage, approverName, approvalUrl, rejectUrl, reviewUrl } = params;
 
+  const computeJobNo = () => {
+    if (booking.jobNumber && booking.jobNumber.trim()) {
+      return booking.jobNumber.trim().replace(/^JOB-/i, 'AX-');
+    }
+    const rawDate = (booking.createdAt || booking.startDate || '').substring(0, 10).replace(/-/g, '');
+    const dateStamp = /^\d{8}$/.test(rawDate) ? rawDate : new Date().toISOString().substring(0, 10).replace(/-/g, '');
+    const digits = (booking.id || '').replace(/\D/g, '');
+    const suffix = digits.length >= 3 ? digits.slice(-3) : (booking.id || '001').slice(-3).toUpperCase();
+    return `AX-${dateStamp}-${suffix.padStart(3, '0')}`;
+  };
+  const jobNo = computeJobNo();
+
   const isApprovedDone = stage === 'approved' || booking.status === 'Approved';
   const isRejectedDone = stage === 'rejected' || booking.status === 'Cancelled';
   const isStage2 = stage === 2 || booking.status === 'Pending_Approve2';
@@ -147,14 +161,14 @@ function buildBookingFlexMessage(params: {
     : isRejectedDone
     ? '❌ คำขอใช้รถไม่ได้รับการอนุมัติ'
     : isStage2
-    ? '🚗 คำขออนุมัติใช้รถ (ขั้นที่ 2: Approve 2)'
-    : '🚗 คำขออนุมัติใช้รถ (ขั้นที่ 1: Approve 1)';
+    ? '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 2: Approve 2)'
+    : '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 1: Approve 1)';
 
   const headerSub = isApprovedDone
     ? `เรียนคุณ ${booking.userName}${booking.requesterLineId ? ` (${booking.requesterLineId})` : ''} • พร้อมออกเดินทาง`
     : isRejectedDone
     ? `เรียนคุณ ${booking.userName} • ไม่อนุมัติโดย ${booking.rejectedBy || 'ผู้อนุมัติ'}`
-    : `เรียนคุณ ${approverName || (isStage2 ? booking.stage2ApproverName : booking.assignedApproverName) || 'ผู้อนุมัติ'} โปรดพิจารณา`;
+    : `เรียนคุณ ${approverName || (isStage2 ? booking.stage2ApproverName : booking.assignedApproverName) || 'ผู้อนุมัติ'} โปรดตรวจสอบในระบบ`;
 
   const formatDateTime = (iso: string) => {
     try {
@@ -173,62 +187,40 @@ function buildBookingFlexMessage(params: {
   };
 
   const stageNum = isStage2 ? 2 : 1;
-  const baseUrl = (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
+  const rawBaseUrl = (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
     ? process.env.APP_URL
     : DEFAULT_APP_URL
-  ).replace(/\/$/, '');
+  )
+    .replace(/\/$/, '')
+    .replace('://ais-dev-', '://ais-pre-');
 
-  const safeApproveUri =
-    approvalUrl && approvalUrl.startsWith('http')
-      ? approvalUrl
-      : `${baseUrl}/?lineBookingId=${encodeURIComponent(booking.id)}&stage=${stageNum}&action=approve`;
-  const safeRejectUri =
-    rejectUrl && rejectUrl.startsWith('http')
-      ? rejectUrl
-      : `${baseUrl}/?lineBookingId=${encodeURIComponent(booking.id)}&stage=${stageNum}&action=reject`;
-  const safeReviewUri =
+  const normalizeExternalLineUri = (rawUri: string) => {
+    const publicUri = rawUri.replace('://ais-dev-', '://ais-pre-');
+    if (publicUri.includes('openExternalBrowser=1')) return publicUri;
+    return publicUri.includes('?')
+      ? `${publicUri}&openExternalBrowser=1`
+      : `${publicUri}?openExternalBrowser=1`;
+  };
+
+  const safeReviewUri = normalizeExternalLineUri(
     reviewUrl && reviewUrl.startsWith('http')
       ? reviewUrl
-      : `${baseUrl}/?lineBookingId=${encodeURIComponent(booking.id)}&stage=${stageNum}&action=review`;
+      : `${rawBaseUrl}/?lineBookingId=${encodeURIComponent(booking.id)}&stage=${stageNum}&action=review`
+  );
 
-  const footerContents: any[] = [];
-  if (!isApprovedDone && !isRejectedDone) {
-    footerContents.push(
-      {
-        type: 'button',
-        style: 'primary',
-        color: '#06C755',
-        height: 'sm',
-        action: {
-          type: 'uri',
-          label: `✅ อนุมัติ (ขั้น ${stageNum})`,
-          uri: safeApproveUri,
-        },
+  const footerContents: any[] = [
+    {
+      type: 'button',
+      style: 'primary',
+      color: '#06C755',
+      height: 'sm',
+      action: {
+        type: 'uri',
+        label: '🔍 ดูรายละเอียด',
+        uri: safeReviewUri,
       },
-      {
-        type: 'button',
-        style: 'secondary',
-        color: '#FEE2E2',
-        height: 'sm',
-        action: {
-          type: 'uri',
-          label: '❌ ไม่อนุมัติ',
-          uri: safeRejectUri,
-        },
-      }
-    );
-  }
-
-  footerContents.push({
-    type: 'button',
-    style: 'link',
-    height: 'sm',
-    action: {
-      type: 'uri',
-      label: '🔍 ดูรายละเอียด',
-      uri: safeReviewUri,
     },
-  });
+  ];
 
   const statusContents: any[] = [
     {
@@ -237,7 +229,7 @@ function buildBookingFlexMessage(params: {
         ? `✅ ขั้นที่ 1 (Approve 1): อนุมัติโดย ${booking.stage1ApprovedBy}`
         : isRejectedDone && booking.rejectedStage === 1
         ? `❌ ขั้นที่ 1 (Approve 1): ไม่อนุมัติโดย ${booking.rejectedBy || booking.assignedApproverName || 'Approve 1'}`
-        : `⏳ ขั้นที่ 1: รอ ${booking.assignedApproverName || 'Approve 1'} (แผนกเดียวกัน)`,
+        : `⏳ ขั้นที่ 1: รอ ${booking.assignedApproverName || 'Approve 1'}`,
       size: 'xxs',
       color: booking.stage1ApprovedBy
         ? '#059669'
@@ -283,7 +275,7 @@ function buildBookingFlexMessage(params: {
 
   return {
     type: 'flex',
-    altText: `${headerTitle} - ${booking.userName} (${booking.vehicleName})`,
+    altText: `[${jobNo}] ${headerTitle} - ${booking.userName} (${booking.vehicleName})`,
     contents: {
       type: 'bubble',
       size: 'mega',
@@ -295,9 +287,9 @@ function buildBookingFlexMessage(params: {
         contents: [
           {
             type: 'text',
-            text: 'CORPORATE FLEET LINE APPROVAL',
-            color: '#FFFFFFCC',
-            size: 'xxs',
+            text: `📄 หมายเลขใบงาน: ${jobNo}`,
+            color: '#FFFFFF',
+            size: 'xs',
             weight: 'bold',
           },
           {
@@ -325,6 +317,23 @@ function buildBookingFlexMessage(params: {
         spacing: 'sm',
         paddingAll: '16px',
         contents: [
+          {
+            type: 'box',
+            layout: 'baseline',
+            spacing: 'sm',
+            contents: [
+              { type: 'text', text: 'เลขที่ใบงาน:', color: '#64748B', size: 'xs', flex: 3 },
+              {
+                type: 'text',
+                text: jobNo,
+                wrap: true,
+                color: '#4338CA',
+                size: 'xs',
+                weight: 'bold',
+                flex: 7,
+              },
+            ],
+          },
           {
             type: 'box',
             layout: 'baseline',

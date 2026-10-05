@@ -1,6 +1,9 @@
 import { Booking, User } from '../types';
+import { getBookingJobNumber } from './dateHelpers';
 
 export const LINE_MODULE_STORAGE_KEY = 'car_booking_line_module_enabled';
+const DEFAULT_SHARED_APP_URL =
+  'https://ais-pre-mlfwobw4wmpyzxvnmmwv5v-416326471534.asia-southeast1.run.app';
 
 /**
  * Savepoint & Modular Toggle for LINE Integration:
@@ -39,8 +42,11 @@ export function formatThaiDateTimeForLine(isoString: string): string {
 }
 
 export function getAppBaseUrl(): string {
-  if (typeof window === 'undefined') return '';
-  return `${window.location.origin}${window.location.pathname}`;
+  if (typeof window === 'undefined') {
+    return `${DEFAULT_SHARED_APP_URL}/`;
+  }
+  const publicOrigin = window.location.origin.replace('://ais-dev-', '://ais-pre-');
+  return `${publicOrigin}${window.location.pathname}`;
 }
 
 export function buildLineDeepLinks(
@@ -55,9 +61,9 @@ export function buildLineDeepLinks(
   const base = getAppBaseUrl();
   const approverParam = approverId ? `&approverId=${encodeURIComponent(approverId)}` : '';
   return {
-    approvalUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=approve${approverParam}`,
-    rejectUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=reject${approverParam}`,
-    reviewUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=review${approverParam}`,
+    approvalUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=approve${approverParam}&openExternalBrowser=1`,
+    rejectUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=reject${approverParam}&openExternalBrowser=1`,
+    reviewUrl: `${base}?lineBookingId=${encodeURIComponent(bookingId)}&stage=${stage}&action=review${approverParam}&openExternalBrowser=1`,
   };
 }
 
@@ -70,6 +76,7 @@ export function buildLineShareMessage(
 ): string {
   const effectiveStageNum: 1 | 2 = stage === 2 || booking.status === 'Pending_Approve2' ? 2 : 1;
   const links = buildLineDeepLinks(booking.id, effectiveStageNum, approverId);
+  const jobNo = getBookingJobNumber(booking);
 
   const deptInfo = [booking.userDepartment, booking.userDivision].filter(Boolean).join(' / ');
   const requesterLineLabel = booking.requesterLineId ? ` [LINE ID: ${booking.requesterLineId}]` : '';
@@ -77,6 +84,7 @@ export function buildLineShareMessage(
   if (stage === 'approved' || booking.status === 'Approved') {
     return [
       `✅ [แจ้งผลอนุมัติใช้รถครบ 2 ขั้นตอน]`,
+      `📄 หมายเลขใบงาน: ${jobNo}`,
       `เรียนคุณ ${booking.userName}${requesterLineLabel}`,
       `━━━━━━━━━━━━━━`,
       `👤 ผู้ขอใช้รถ: ${booking.userName}${deptInfo ? ` (${deptInfo})` : ''}`,
@@ -100,6 +108,7 @@ export function buildLineShareMessage(
       : 'ผู้อนุมัติ';
     return [
       `❌ [แจ้งผล: ไม่อนุมัติคำขอใช้รถ]`,
+      `📄 หมายเลขใบงาน: ${jobNo}`,
       `เรียนคุณ ${booking.userName}${requesterLineLabel}`,
       `━━━━━━━━━━━━━━`,
       `👤 ผู้ขอใช้รถ: ${booking.userName}${deptInfo ? ` (${deptInfo})` : ''}`,
@@ -117,8 +126,8 @@ export function buildLineShareMessage(
 
   const stageTitle =
     effectiveStageNum === 2
-      ? `🔵 [ขออนุมัติใช้รถส่วนกลาง - ขั้นที่ 2 (Approve 2)]`
-      : `🟢 [ขออนุมัติใช้รถส่วนกลาง - ขั้นที่ 1 (Approve 1 แผนกเดียวกัน)]`;
+      ? `🔵 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 2 (Approve 2)]`
+      : `🟢 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 1 (Approve 1)]`;
 
   const targetApproverLabel =
     approverName ||
@@ -140,6 +149,7 @@ export function buildLineShareMessage(
 
   return [
     stageTitle,
+    `📄 หมายเลขใบงาน: ${jobNo}`,
     `เรียนคุณ ${targetApproverLabel}${approverLineTag}`,
     `━━━━━━━━━━━━━━`,
     `👤 ผู้ขอใช้รถ: ${booking.userName}${deptInfo ? ` (${deptInfo})` : ''}${requesterLineLabel}`,
@@ -150,12 +160,8 @@ export function buildLineShareMessage(
     `📍 ปลายทาง: ${booking.destination} (${booking.passengersCount} คน)`,
     `📝 ภารกิจ: ${booking.purpose}${stage1Note}`,
     `━━━━━━━━━━━━━━`,
-    `👇 กดปุ่มลิงก์ด้านล่างเพื่อ "อนุมัติ" หรือ "ไม่อนุมัติ (พร้อมระบุเหตุผล)":`,
-    `✅ กดอนุมัติคำขอ (Approve ${effectiveStageNum}):`,
-    `${links.approvalUrl}`,
-    ``,
-    `❌ กดไม่อนุมัติ (และระบุเหตุผล):`,
-    `${links.rejectUrl}`,
+    `🔍 ดูรายละเอียด:`,
+    `${links.reviewUrl}`,
   ].join('\n');
 }
 

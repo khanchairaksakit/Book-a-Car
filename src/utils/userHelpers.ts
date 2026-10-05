@@ -72,8 +72,7 @@ export function getBookingDivision(booking: Booking, allUsers?: User[]): string 
 
 /**
  * Retrieves eligible Approver 1 candidates.
- * Rule: Must strictly possess 'Approve 1' permission (ตามสิทธิที่ได้รับในกำหนดผู้ใช้งานและบทบาทหน้าที่)
- * AND prioritizes approvers in the same department ("แผนกเดียวกัน") or division ("ฝ่ายเดียวกัน").
+ * Rule: Must strictly possess 'Approve 1' permission (ตามสิทธิที่ได้รับในกำหนดผู้ใช้งานและบทบาทหน้าที่).
  */
 export function getEligibleStage1Approvers(users: User[], currentUser?: User | null): User[] {
   const allApprover1Users = users.filter((u) => isUserApprover1(u));
@@ -82,27 +81,16 @@ export function getEligibleStage1Approvers(users: User[], currentUser?: User | n
   const currentDept = (currentUser.department || '').trim().toLowerCase();
   const currentDiv = (currentUser.division || '').trim().toLowerCase();
 
-  // Filter for candidates in the same department OR same division
-  const sameDeptOrDivApprovers = allApprover1Users.filter((u) => {
-    const uDept = (u.department || '').trim().toLowerCase();
-    const uDiv = (u.division || '').trim().toLowerCase();
-    const matchDept = Boolean(currentDept && uDept && currentDept === uDept);
-    const matchDiv = Boolean(currentDiv && uDiv && currentDiv === uDiv);
-    return matchDept || matchDiv;
+  return [...allApprover1Users].sort((a, b) => {
+    const aDept = (a.department || '').trim().toLowerCase();
+    const bDept = (b.department || '').trim().toLowerCase();
+    const aDiv = (a.division || '').trim().toLowerCase();
+    const bDiv = (b.division || '').trim().toLowerCase();
+
+    const aScore = (currentDept && aDept === currentDept ? 2 : 0) + (currentDiv && aDiv === currentDiv ? 1 : 0);
+    const bScore = (currentDept && bDept === currentDept ? 2 : 0) + (currentDiv && bDiv === currentDiv ? 1 : 0);
+    return bScore - aScore;
   });
-
-  // Sort so exact same department comes first, then same division
-  const sortedSame = [...sameDeptOrDivApprovers].sort((a, b) => {
-    const aSameDept = (a.department || '').trim().toLowerCase() === currentDept ? 1 : 0;
-    const bSameDept = (b.department || '').trim().toLowerCase() === currentDept ? 1 : 0;
-    return bSameDept - aSameDept;
-  });
-
-  if (sortedSame.length > 0) {
-    return sortedSame;
-  }
-
-  return allApprover1Users;
 }
 
 /**

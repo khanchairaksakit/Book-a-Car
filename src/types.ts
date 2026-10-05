@@ -56,6 +56,7 @@ export interface User {
 
 export interface Booking {
   id: string;
+  jobNumber?: string; // หมายเลขใบงาน เช่น AX-20261005-001
   vehicleId: string;
   userId: string;
   userName: string;

@@ -3,6 +3,7 @@ import { Booking, Vehicle, User } from '../types';
 import { Language } from '../utils/translations';
 import { formatThaiDate } from '../utils/vehicleAlerts';
 import { canUserViewBooking } from '../utils/userHelpers';
+import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
   Printer,
   Download,
@@ -137,6 +138,7 @@ export default function FleetReport({
       // Search term
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
+        const jobNo = getBookingJobNumber(b).toLowerCase();
         const plate = getVehiclePlate(b).toLowerCase();
         const borrower = (b.userName || '').toLowerCase();
         const purpose = (b.purpose || '').toLowerCase();
@@ -146,6 +148,7 @@ export default function FleetReport({
         const div = getUserDivision(b).toLowerCase();
 
         return (
+          jobNo.includes(q) ||
           plate.includes(q) ||
           borrower.includes(q) ||
           purpose.includes(q) ||
@@ -184,6 +187,7 @@ export default function FleetReport({
 
       return {
         'ลำดับ': idx + 1,
+        'หมายเลขใบงาน': getBookingJobNumber(b),
         'วันที่เอกสาร': formatThaiDate(b.createdAt),
         'ทะเบียนรถ': getVehiclePlate(b),
         'วันที่เริ่มใช้รถ': formatThaiDate(b.startDate),
@@ -321,7 +325,7 @@ export default function FleetReport({
           {/* Search Box */}
           <div className="lg:col-span-2 relative">
             <label className="block text-[11px] font-bold text-gray-600 mb-1">
-              {isEn ? 'Search' : 'ค้นหา (ผู้ยืม / ทะเบียน / ปลายทาง)'}
+              {isEn ? 'Search (Job No. / Requester / Plate / Destination)' : 'ค้นหา (เลขที่ใบงาน / ผู้ยืม / ทะเบียน / ปลายทาง)'}
             </label>
             <div className="relative">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
@@ -329,7 +333,7 @@ export default function FleetReport({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder={isEn ? 'Search requester, plate, destination...' : 'พิมพ์ชื่อผู้ยืม, ทะเบียนรถ, ปลายทาง...'}
+                placeholder={isEn ? 'Search job number (AX-...), requester, plate...' : 'พิมพ์เลขที่ใบงาน (AX-...), ชื่อผู้ยืม, ทะเบียนรถ...'}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -508,6 +512,7 @@ export default function FleetReport({
             <thead>
               <tr className="bg-slate-100 text-gray-900 font-bold border-b-2 border-gray-300 print:bg-slate-200">
                 <th className="p-2.5 border border-gray-300 text-center w-10">ลำดับ</th>
+                <th className="p-2.5 border border-gray-300 whitespace-nowrap">เลขที่ใบงาน</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">วันที่เอกสาร</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">ทะเบียนรถ</th>
                 <th className="p-2.5 border border-gray-300 whitespace-nowrap">วันที่เริ่มใช้รถ</th>
@@ -530,7 +535,7 @@ export default function FleetReport({
             <tbody>
               {filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="p-8 text-center text-gray-400 border border-gray-300">
+                  <td colSpan={19} className="p-8 text-center text-gray-400 border border-gray-300">
                     ไม่พบรายการบันทึกการใช้รถตามเงื่อนไขที่เลือก
                   </td>
                 </tr>
@@ -552,6 +557,9 @@ export default function FleetReport({
                     >
                       <td className="p-2 border border-gray-300 text-center font-mono text-[11px] text-gray-500">
                         {idx + 1}
+                      </td>
+                      <td className="p-2 border border-gray-300 whitespace-nowrap font-mono font-bold text-[11px] text-indigo-700">
+                        {getBookingJobNumber(b)}
                       </td>
                       <td className="p-2 border border-gray-300 whitespace-nowrap text-gray-700 font-medium">
                         {formatThaiDate(b.createdAt)}

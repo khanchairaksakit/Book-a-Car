@@ -32,7 +32,7 @@ import {
 } from './utils/lineApprovalUtils';
 import { translations, Language } from './utils/translations';
 import { isUserAdmin, getUserRoles, getRoleBadgeInfo, canUserViewBooking, hasRole } from './utils/userHelpers';
-import { getRealTodayStr } from './utils/dateHelpers';
+import { getRealTodayStr, generateNextJobNumber, getBookingJobNumber } from './utils/dateHelpers';
 
 import {
   CalendarDays,
@@ -67,10 +67,26 @@ export default function App() {
 
   const t = translations[language];
 
-  // 1. Optimistic states falling back to localStorage/Mock data initially
+  // 1. Optimistic states falling back to localStorage/Mock data initially (with production clean wipe of old bookings)
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
+    const isCleanResetDone = localStorage.getItem('ax_car_booking_clean_v3') === 'done';
+    if (!isCleanResetDone) {
+      localStorage.removeItem('car_booking_bookings');
+    }
     const saved = localStorage.getItem('car_booking_vehicles');
-    return saved ? JSON.parse(saved) : INITIAL_VEHICLES;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((v: Vehicle) =>
+            !isCleanResetDone && v.status === 'In Use' ? { ...v, status: 'Available' } : v
+          );
+        }
+      } catch {
+        return INITIAL_VEHICLES;
+      }
+    }
+    return INITIAL_VEHICLES;
   });
 
   const [users, setUsers] = useState<User[]>(() => {
@@ -98,8 +114,24 @@ export default function App() {
   });
 
   const [bookings, setBookings] = useState<Booking[]>(() => {
+    const isCleanResetDone = localStorage.getItem('ax_car_booking_clean_v3') === 'done';
+    if (!isCleanResetDone) {
+      localStorage.removeItem('car_booking_bookings');
+      localStorage.setItem('ax_car_booking_clean_v3', 'done');
+      return [];
+    }
     const saved = localStorage.getItem('car_booking_bookings');
-    return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((b: Booking) => b.jobNumber && b.jobNumber.startsWith('AX-'));
+        }
+      } catch {
+        return [];
+      }
+    }
+    return INITIAL_BOOKINGS;
   });
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -369,14 +401,17 @@ export default function App() {
 
   // Handlers for Booking with Firebase persistence
   const handleAddBooking = async (newBookingData: Omit<Booking, 'id' | 'createdAt'>) => {
+    const createdAtIso = new Date().toISOString();
+    const jobNumber = newBookingData.jobNumber || generateNextJobNumber(bookings, createdAtIso);
     const newBooking: Booking = {
       ...newBookingData,
       id: `b-${Date.now()}`,
-      createdAt: new Date().toISOString(),
+      jobNumber,
+      createdAt: createdAtIso,
     };
     setBookings([newBooking, ...bookings]);
 
-    // If pending approval and LINE module is enabled, automatically push to Approve 1's LINE ID from User Management (without popping up the preview modal)
+    // Automatically push notification to Approve 1's LINE ID from User Management
     if (isLineModuleEnabled && newBooking.status === 'Pending') {
       const stage1Approver = users.find((u) => u.id === newBooking.assignedApproverId);
       const targetLineId = newBooking.assignedApproverLineId || stage1Approver?.lineUserId;
@@ -390,11 +425,11 @@ export default function App() {
         .then((res) => {
           if (res?.oaPushSuccess) {
             setToastMessage(
-              `จองรถสำเร็จ! ส่งขออนุมัติไปยัง LINE ของ ${newBooking.assignedApproverName || 'Approve 1'} (${targetLineId || 'LINE OA'}) เรียบร้อยแล้ว`
+              `จองรถสำเร็จ (ใบงาน ${jobNumber})! ส่งแจ้งเตือนไปยัง LINE ของ ${newBooking.assignedApproverName || 'Approve 1'} (${targetLineId || 'LINE OA'}) เรียบร้อยแล้ว`
             );
           } else {
             setToastMessage(
-              `บันทึกคำขอจองรถและส่งคำขอไปหา ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} เรียบร้อยแล้ว`
+              `บันทึกใบงาน ${jobNumber} และแจ้งเตือนไปหา ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} เรียบร้อยแล้ว`
             );
           }
         })
@@ -455,6 +490,7 @@ export default function App() {
 
     const booking = updatedBookings.find((b) => b.id === bookingId);
     if (!booking) return;
+    const jobNo = getBookingJobNumber(booking);
 
     if (status === 'Pending_Approve2') {
       if (isLineModuleEnabled) {
@@ -472,8 +508,8 @@ export default function App() {
       }
       setToastMessage(
         isLineModuleEnabled
-          ? `อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่ง LINE ขอการอนุมัติไปยัง Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) เรียบร้อยแล้ว`
-          : `อนุมัติขั้นที่ 1 สำเร็จแล้ว ระบบได้ส่งต่อคำขอให้ Approve 2 พิจารณา`
+          ? `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่ง LINE แจ้งเตือนไปยัง Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) เรียบร้อยแล้ว`
+          : `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ Approve 2 พิจารณา`
       );
     } else if (status === 'Approved') {
       if (isLineModuleEnabled) {
@@ -489,11 +525,11 @@ export default function App() {
       }
       setToastMessage(
         isLineModuleEnabled
-          ? `อนุมัติคำขอจองรถ ${booking.vehicleName} ครบ 2 ขั้นตอน และส่ง LINE แจ้งเตือนผู้จอง (${booking.userName}) เรียบร้อยแล้ว`
-          : `อนุมัติคำขอจองรถ ${booking.vehicleName} เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
+          ? `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) ครบ 2 ขั้นตอน และส่ง LINE แจ้งเตือนผู้จอง (${booking.userName}) เรียบร้อยแล้ว`
+          : `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
       );
     } else if (status === 'Completed') {
-      setToastMessage(`เสร็จสิ้นภารกิจและบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
+      setToastMessage(`เสร็จสิ้นภารกิจใบงาน ${jobNo} และบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
     } else if (status === 'Cancelled') {
       if (isLineModuleEnabled && booking.rejectionReason) {
         const reqUser = users.find((u) => u.id === booking.userId);
@@ -508,8 +544,8 @@ export default function App() {
       }
       setToastMessage(
         booking.rejectionReason
-          ? `ไม่อนุมัติคำขอจองรถ (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
-          : `ยกเลิก/ปฏิเสธคำขอจองรถเรียบร้อยแล้ว`
+          ? `ไม่อนุมัติใบงาน ${jobNo} (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
+          : `ยกเลิก/ปฏิเสธใบงาน ${jobNo} เรียบร้อยแล้ว`
       );
     }
 
@@ -581,21 +617,12 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Modular Savepoint State for LINE Request & Approval
-  const [isLineModuleEnabled, setIsLineModuleEnabled] = useState<boolean>(() =>
-    getLineModuleEnabled()
-  );
+  // LINE Notification Module (Always enabled for notifications)
+  const [isLineModuleEnabled, setIsLineModuleEnabled] = useState<boolean>(true);
 
   const handleToggleLineModule = (enabled: boolean) => {
     setIsLineModuleEnabled(enabled);
     setLineModuleEnabled(enabled);
-    if (!enabled) {
-      setLineShareBookingId(null);
-      setLineQuickApproveState(null);
-      setToastMessage('สลับกลับสู่จุดเซฟมาตรฐานเรียบร้อย (ปิดระบบขอและอนุมัติผ่าน LINE โดยไม่กระทบข้อมูลเดิม)');
-    } else {
-      setToastMessage('เปิดใช้งานระบบขอและอนุมัติผ่าน LINE เรียบร้อยแล้ว');
-    }
   };
 
   // LINE Share & Quick Approval States
@@ -903,37 +930,8 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Sidebar Savepoint Toggle & Footer */}
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950/50 space-y-2.5">
-          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold text-slate-200 flex items-center gap-1.5">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    isLineModuleEnabled ? 'bg-[#06C755]' : 'bg-slate-500'
-                  }`}
-                />
-                <span>ระบบอนุมัติผ่าน LINE</span>
-              </span>
-              <span className="text-[9px] text-slate-400 block truncate">
-                {isLineModuleEnabled ? 'เปิดใช้งาน (มีจุดเซฟ)' : 'ปิดไว้ (โหมดจุดเซฟเดิม)'}
-              </span>
-            </div>
-            <button
-              type="button"
-              id="sidebar-toggle-line-savepoint"
-              onClick={() => handleToggleLineModule(!isLineModuleEnabled)}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${
-                isLineModuleEnabled
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                  : 'bg-[#06C755] hover:bg-[#05b34c] text-white'
-              }`}
-              title="สลับเปิด/ปิดการขอและอนุมัติผ่าน LINE โดยไม่กระทบข้อมูลเดิม"
-            >
-              {isLineModuleEnabled ? 'ปิด LINE' : 'เปิด LINE'}
-            </button>
-          </div>
-
+        {/* Sidebar Footer */}
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/50">
           <div className="text-center">
             <p className="text-[10px] text-slate-400 font-semibold tracking-wide">
               Corporate Fleet Management
@@ -1182,7 +1180,7 @@ export default function App() {
         />
       )}
 
-      {/* LINE Quick Approval Portal Modal (Deep-Link & One-Click Approval) */}
+      {/* LINE Booking Details Modal (Opened when clicking "ดูรายละเอียด" from LINE) */}
       {lineQuickApproveState && activeLineQuickApproveBooking && (
         <LineQuickApproveModal
           isOpen={Boolean(lineQuickApproveState)}
@@ -1195,6 +1193,10 @@ export default function App() {
           initialApproverId={lineQuickApproveState.approverId}
           onUpdateBookingStatus={handleUpdateBookingStatus}
           onUpdateUserLineId={handleUpdateUserLineId}
+          onNavigateToBookingList={() => {
+            handleCloseLineQuickApprove();
+            setActiveTab('booking');
+          }}
         />
       )}
 

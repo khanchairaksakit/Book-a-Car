@@ -9,6 +9,7 @@ import {
   getBookingDepartment,
   getBookingDivision,
 } from '../utils/userHelpers';
+import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
   Clock,
   MapPin,
@@ -158,8 +159,11 @@ export default function BookingSystem({
       const q = searchQuery.toLowerCase().trim();
       const dept = getBookingDepartment(b, users).toLowerCase();
       const div = getBookingDivision(b, users).toLowerCase();
+      const jobNo = getBookingJobNumber(b).toLowerCase();
       const matchSearch =
         !q ||
+        jobNo.includes(q) ||
+        b.id.toLowerCase().includes(q) ||
         b.userName.toLowerCase().includes(q) ||
         b.destination.toLowerCase().includes(q) ||
         b.vehicleName.toLowerCase().includes(q) ||
@@ -421,72 +425,6 @@ export default function BookingSystem({
         </div>
       </div>
 
-      {/* LINE Integration & System Savepoint Control Bar */}
-      <div
-        id="line-savepoint-control-bar"
-        className={`rounded-2xl p-4 border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-          isLineModuleEnabled
-            ? 'bg-gradient-to-r from-[#06C755]/10 via-emerald-50/60 to-white border-[#06C755]/35 shadow-2xs'
-            : 'bg-slate-100/80 border-slate-200 text-slate-600'
-        }`}
-      >
-        <div className="flex items-start sm:items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-xl font-black text-xs flex items-center justify-center shrink-0 shadow-xs ${
-              isLineModuleEnabled
-                ? 'bg-[#06C755] text-white'
-                : 'bg-slate-300 text-slate-600'
-            }`}
-          >
-            LINE
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xs sm:text-sm font-bold text-gray-900">
-                ระบบส่งขออนุมัติและกดอนุมัติผ่าน LINE (2 ขั้นตอน)
-              </h3>
-              <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                  isLineModuleEnabled
-                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : 'bg-slate-200 text-slate-700 border-slate-300'
-                }`}
-              >
-                {isLineModuleEnabled ? '🟢 เปิดใช้งานอยู่' : '⚪ ปิดใช้งาน (โหมดจุดเซฟเดิม)'}
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-600 mt-0.5">
-              {isLineModuleEnabled
-                ? 'แยกโมดูลอิสระ 100% • สามารถส่งการ์ดขออนุมัติเข้าแชท LINE และกดอนุมัติผ่านลิงก์ LINE ได้ทันทีโดยไม่กระทบข้อมูลหลัก'
-                : 'ขณะนี้อยู่ในโหมดจุดเซฟมาตรฐาน (นำปุ่มขอและอนุมัติผ่าน LINE ออกชั่วคราวโดยไม่กระทบข้อมูลใดๆ ที่สร้างไว้)'}
-            </p>
-          </div>
-        </div>
-
-        {onToggleLineModule && (
-          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-            <button
-              type="button"
-              id="btn-toggle-line-savepoint"
-              onClick={() => onToggleLineModule(!isLineModuleEnabled)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
-                isLineModuleEnabled
-                  ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
-                  : 'bg-[#06C755] hover:bg-[#05b34c] text-white border-[#06C755]'
-              }`}
-              title="สลับเปิด/ปิดระบบขอและอนุมัติผ่าน LINE (จุดเซฟระบบ ไม่กระทบข้อมูลเดิม)"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>
-                {isLineModuleEnabled
-                  ? 'สลับกลับจุดเซฟ (เอา LINE ออก)'
-                  : 'เปิดใช้งานระบบขอและอนุมัติผ่าน LINE'}
-              </span>
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* Search Input Bar */}
       <div className="relative">
         <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
@@ -494,7 +432,7 @@ export default function BookingSystem({
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="ค้นหาตามชื่อผู้ยืม, ทะเบียนรถ, แผนก, ฝ่าย หรือสถานที่ปลายทาง..."
+          placeholder="ค้นหาตามหมายเลขใบงาน (เช่น AX-...), ชื่อผู้ยืม, ทะเบียนรถ, แผนก, ฝ่าย หรือสถานที่ปลายทาง..."
           className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-2xs"
         />
       </div>
@@ -546,6 +484,9 @@ export default function BookingSystem({
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-900 text-white border border-slate-800 shadow-2xs">
+                          📄 ใบงาน: {getBookingJobNumber(booking)}
+                        </span>
                         <span className="font-bold text-gray-900 text-sm">
                           {booking.userName}
                         </span>
@@ -573,11 +514,6 @@ export default function BookingSystem({
                       <span>{booking.vehicleName}</span>
                     </span>
                     {getBookingStatusBadge(booking.status)}
-                    {isLineModuleEnabled && booking.approvedVia === 'LINE' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#06C755]/15 text-[#059440] border border-[#06C755]/30">
-                        💬 อนุมัติผ่าน LINE
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -835,22 +771,22 @@ export default function BookingSystem({
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* LINE Share / Send Approval Request Button */}
+                    {/* LINE Notification / Share Button */}
                     {isLineModuleEnabled && onOpenLineShare && booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
                       <button
                         id={`btn-line-share-${booking.id}`}
                         type="button"
                         onClick={() => onOpenLineShare(booking)}
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#06C755] hover:bg-[#05b34c] active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-                        title="ส่งคำขออนุมัติพร้อมลิงก์กดอนุมัติด่วนเข้าแชท LINE หรือ LINE Official Account"
+                        title="ส่งการ์ดแจ้งเตือนพร้อมปุ่มดูรายละเอียดเข้าแชท LINE หรือ LINE Official Account"
                       >
                         <MessageCircle className="w-3.5 h-3.5 fill-white" />
                         <span>
                           {booking.status === 'Pending'
-                            ? 'ส่งขออนุมัติผ่าน LINE (ขั้นที่ 1)'
+                            ? 'ส่งแจ้งเตือนทาง LINE (ขั้นที่ 1)'
                             : booking.status === 'Pending_Approve2'
-                            ? 'ส่งต่อขออนุมัติผ่าน LINE (ขั้นที่ 2)'
-                            : 'แจ้งผลอนุมัติผ่าน LINE'}
+                            ? 'ส่งแจ้งเตือนทาง LINE (ขั้นที่ 2)'
+                            : 'แจ้งผลอนุมัติทาง LINE'}
                         </span>
                       </button>
                     )}

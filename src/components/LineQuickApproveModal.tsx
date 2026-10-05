@@ -12,6 +12,7 @@ import {
   isUserApprover2,
   getEligibleStage1Approvers,
 } from '../utils/userHelpers';
+import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
   CheckCircle2,
   XCircle,
@@ -418,14 +419,10 @@ export default function LineQuickApproveModal({
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider bg-black/20 px-2 py-0.5 rounded-full">
-                LINE APPROVAL WORKFLOW • 2 STAGES
+                AX CAR RESERVATION • BOOKING DETAILS
               </span>
               <h3 className="font-bold text-base sm:text-lg mt-0.5 leading-tight">
-                {isStage1Pending
-                  ? 'อนุมัติคำขอใช้รถผ่าน LINE (ขั้นที่ 1: Approve 1)'
-                  : isStage2Pending
-                  ? 'อนุมัติคำขอใช้รถผ่าน LINE (ขั้นที่ 2: Approve 2)'
-                  : 'สถานะการอนุมัติคำขอใช้รถผ่าน LINE'}
+                รายละเอียดใบงานคำขอใช้รถยนต์ส่วนกลาง
               </h3>
             </div>
           </div>
@@ -450,15 +447,15 @@ export default function LineQuickApproveModal({
                   <h4 className="font-bold text-gray-900 text-sm leading-snug">
                     {booking.vehicleName}
                   </h4>
-                  <span className="text-[11px] font-mono text-gray-500">
-                    เลขที่คำขอ: #{booking.id.slice(-6)}
+                  <span className="inline-flex items-center gap-1 mt-0.5 text-[11px] font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    📄 หมายเลขใบงาน: {getBookingJobNumber(booking)}
                   </span>
                 </div>
               </div>
 
               {booking.status === 'Pending' && (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
-                  ⏳ รอ Approve 1 (แผนกเดียวกัน)
+                  ⏳ รอ Approve 1
                 </span>
               )}
               {booking.status === 'Pending_Approve2' && (
@@ -550,7 +547,7 @@ export default function LineQuickApproveModal({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold">ขั้นที่ 1 (Approve 1 แผนกเดียวกัน)</span>
+                  <span className="font-bold">ขั้นที่ 1 (Approve 1)</span>
                 </div>
                 <span className="text-[10px] block truncate mt-0.5 font-medium">
                   {booking.stage1ApprovedBy
@@ -787,199 +784,34 @@ export default function LineQuickApproveModal({
               </div>
             </div>
           ) : (
-            /* Active Approval Controls for Stage 1 or Stage 2 */
-            <div className="bg-white rounded-2xl border-2 border-[#06C755] p-4 space-y-4 shadow-sm">
+            /* Notification Details Info Box (Approvals happen inside the web system) */
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[#06C755]" />
+                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
                   <span>
                     {isStage1Pending
-                      ? 'ขั้นที่ 1: ผู้อนุมัติ Approve 1 (แผนกเดียวกัน) พิจารณาคำขอ'
-                      : 'ขั้นที่ 2: ผู้อนุมัติ Approve 2 พิจารณาอนุมัติขั้นสุดท้าย'}
+                      ? `สถานะปัจจุบัน: รอคุณ ${booking.assignedApproverName || 'Approve 1'} พิจารณาในระบบ`
+                      : `สถานะปัจจุบัน: รอคุณ ${booking.stage2ApproverName || 'Approve 2'} พิจารณาอนุมัติขั้นสุดท้ายในระบบ`}
                   </span>
                 </span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                  อนุมัติผ่าน LINE
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  แจ้งเตือนผ่าน LINE
                 </span>
               </div>
-
-              {/* Approver Identity (LINE ID is automatically pulled from User Management) */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                    {isStage1Pending
-                      ? 'ผู้อนุมัติขั้นที่ 1 (Approve 1 แผนกเดียวกัน):'
-                      : 'ผู้อนุมัติขั้นที่ 2 (Approve 2):'}
-                  </label>
-                  <select
-                    id="select-line-approver-name"
-                    value={selectedApproverId}
-                    onChange={(e) => handleApproverSelectChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-900 focus:ring-2 focus:ring-[#06C755] outline-hidden"
-                  >
-                    {(isStage1Pending
-                      ? stage1ApproverCandidates
-                      : stage2ApproverCandidates
-                    ).map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} ({u.department})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {isStage1Pending && stage2ApproverCandidates.length > 0 && (
-                  <div className="pt-2 border-t border-slate-200/80">
-                    <label className="block text-[11px] font-bold text-blue-800 mb-1">
-                      ส่งต่อขั้นที่ 2 ไปหา Approve 2 (ตามสิทธิ์ที่ได้รับ):
-                    </label>
-                    <select
-                      id="select-next-stage2-approver"
-                      value={nextStage2ApproverId}
-                      onChange={(e) => handleStage2TargetChange(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-hidden"
-                    >
-                      {stage2ApproverCandidates.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} ({u.department})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {/* Two Primary Buttons: [อนุมัติ] and [ไม่อนุมัติ] */}
-              {!isRejectingMode ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                  {isStage1Pending ? (
-                    <button
-                      type="button"
-                      id="btn-confirm-line-approve-stage1"
-                      onClick={handleApproveStage1}
-                      className="w-full py-3.5 px-4 bg-[#06C755] hover:bg-[#05b34c] active:scale-[0.99] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-[#06C755]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>✅ อนุมัติ (ส่งไลน์ต่อให้ Approve 2)</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      id="btn-confirm-line-approve-stage2"
-                      onClick={handleApproveStage2}
-                      className="w-full py-3.5 px-4 bg-[#06C755] hover:bg-[#05b34c] active:scale-[0.99] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-[#06C755]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>✅ อนุมัติขั้นที่ 2 (แจ้งผลให้ User)</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    id="btn-open-line-reject-reason"
-                    onClick={() => {
-                      setIsRejectingMode(true);
-                      setRejectionError('');
-                    }}
-                    className="w-full py-3.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs sm:text-sm rounded-xl border-2 border-rose-200 transition-all cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <XCircle className="w-5 h-5 shrink-0 text-rose-600" />
-                    <span>❌ ไม่อนุมัติ (ระบุเหตุผล)</span>
-                  </button>
-                </div>
-              ) : (
-                /* Mandatory Rejection Reason Input Box when clicking "ไม่อนุมัติ" */
-                <div
-                  id="line-rejection-reason-box"
-                  className="p-4 bg-rose-50/80 border-2 border-rose-300 rounded-2xl space-y-3 animate-in fade-in"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
-                      <XCircle className="w-4 h-4 text-rose-600" />
-                      <span>
-                        ระบุเหตุผลที่ไม่อนุมัติคำขอใช้รถ <span className="text-rose-600">*</span>
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsRejectingMode(false);
-                        setRejectionError('');
-                      }}
-                      className="text-[11px] font-semibold text-gray-500 hover:text-gray-800 cursor-pointer"
-                    >
-                      ย้อนกลับ
-                    </button>
-                  </div>
-
-                  {/* Quick Reason Chips */}
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-semibold text-rose-700 block">
-                      เลือกเหตุผลด่วน หรือพิมพ์ระบุเองด้านล่าง:
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {QUICK_REJECT_REASONS.map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => {
-                            setRejectionReason(preset);
-                            setRejectionError('');
-                          }}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all cursor-pointer text-left ${
-                            rejectionReason === preset
-                              ? 'bg-rose-600 text-white border-rose-600 font-bold'
-                              : 'bg-white hover:bg-rose-100/60 text-rose-800 border-rose-200'
-                          }`}
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <textarea
-                    id="textarea-line-rejection-reason"
-                    rows={2}
-                    value={rejectionReason}
-                    onChange={(e) => {
-                      setRejectionReason(e.target.value);
-                      if (e.target.value.trim()) setRejectionError('');
-                    }}
-                    placeholder="พิมพ์ระบุเหตุผลที่ไม่อนุมัติ เช่น รถต้องใช้รับรองลูกค้าสำคัญ..."
-                    className="w-full p-3 bg-white border border-rose-300 rounded-xl text-xs text-gray-900 focus:ring-2 focus:ring-rose-500 outline-hidden"
-                  />
-
-                  {rejectionError && (
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{rejectionError}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsRejectingMode(false);
-                        setRejectionError('');
-                      }}
-                      className="px-4 py-2.5 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl border border-gray-300 cursor-pointer"
-                    >
-                      ยกเลิก
-                    </button>
-                    <button
-                      type="button"
-                      id="btn-confirm-line-reject-with-reason"
-                      onClick={handleConfirmRejectBooking}
-                      className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      <Send className="w-4 h-4" />
-                      <span>ยืนยันไม่อนุมัติ & ส่งเหตุผลแจ้ง LINE ผู้จอง</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              <p className="text-xs text-gray-600 leading-relaxed">
+                ผู้อนุมัติสามารถตรวจสอบข้อมูลคำขอใช้รถด้านบน และดำเนินการอนุมัติหรือไม่อนุมัติได้ที่เมนู{' '}
+                <strong>ตรวจสอบสถานะ</strong> ในระบบจองรถส่วนกลาง
+              </p>
+              <button
+                type="button"
+                id="btn-go-to-status-menu"
+                onClick={onClose}
+                className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>ไปที่หน้าตรวจสอบสถานะในระบบ</span>
+              </button>
             </div>
           )}
         </div>

@@ -51,6 +51,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "jobNumber": { "type": "string" },
         "vehicleId": { "type": "string" },
         "userId": { "type": "string" },
         "userName": { "type": "string" },

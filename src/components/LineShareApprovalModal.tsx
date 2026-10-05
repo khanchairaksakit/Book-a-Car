@@ -7,6 +7,7 @@ import {
   getLineShareUrl,
   triggerServerLineApprovalPush,
 } from '../utils/lineApprovalUtils';
+import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
   X,
   Check,
@@ -188,9 +189,9 @@ export default function LineShareApprovalModal({
     }
   };
 
-  const handleCopyApproveLink = async () => {
+  const handleCopyReviewLink = async () => {
     try {
-      await navigator.clipboard.writeText(deepLinks.approvalUrl);
+      await navigator.clipboard.writeText(deepLinks.reviewUrl);
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 3000);
     } catch {
@@ -222,7 +223,7 @@ export default function LineShareApprovalModal({
     } else {
       setOaStatusMsg({
         type: 'info',
-        text: `บันทึก LINE ID และสร้างการ์ดคำขออนุมัติพร้อมแล้ว! กดปุ่ม "เปิดแอป LINE ส่งให้ผู้อนุมัติ" หรือกดปุ่มบนการ์ดตัวอย่างด้านซ้ายเพื่ออนุมัติ/ไม่อนุมัติได้ทันที`,
+        text: `สร้างการ์ดแจ้งเตือนพร้อมแล้ว! กดปุ่ม "เปิดแอป LINE ส่งแจ้งเตือน" ด้านล่างเพื่อส่งเข้าแชท LINE ได้ทันที`,
       });
     }
   };
@@ -244,15 +245,15 @@ export default function LineShareApprovalModal({
                     : isRejected
                     ? 'ส่ง LINE แจ้งผลไม่อนุมัติและเหตุผลให้ผู้จองรถ (User)'
                     : isStage2
-                    ? 'ส่ง LINE ขออนุมัติใช้รถ ขั้นที่ 2 (Approve 2)'
-                    : 'ส่ง LINE ขออนุมัติใช้รถ ขั้นที่ 1 (Approve 1 แผนกเดียวกัน)'}
+                    ? 'ส่ง LINE แจ้งเตือนคำขอใช้รถ ขั้นที่ 2 (Approve 2)'
+                    : 'ส่ง LINE แจ้งเตือนคำขอใช้รถ ขั้นที่ 1 (Approve 1)'}
                 </h3>
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">
-                  User → Approve 1 → Approve 2
+                  แจ้งเตือนทาง LINE
                 </span>
               </div>
               <p className="text-xs text-emerald-50 mt-0.5">
-                แสดงปุ่มอนุมัติและไม่อนุมัติ (หากไม่อนุมัติต้องระบุเหตุผล) พร้อมส่งต่อ Approve 2 และแจ้งเตือน LINE ID ของ User
+                ส่งการ์ดแจ้งเตือนพร้อมปุ่มกดดูรายละเอียดใบงานผ่าน LINE
               </p>
             </div>
           </div>
@@ -310,7 +311,7 @@ export default function LineShareApprovalModal({
                   }`}
                 >
                   <span className="text-[9px] font-bold uppercase tracking-wider opacity-85 block">
-                    CORPORATE FLEET LINE APPROVAL
+                    AX CAR RESERVATION NOTIFICATION
                   </span>
                   <h4 className="font-bold text-sm leading-snug mt-0.5">
                     {isApproved
@@ -318,8 +319,8 @@ export default function LineShareApprovalModal({
                       : isRejected
                       ? '❌ คำขอไม่ได้รับการอนุมัติ'
                       : isStage2
-                      ? '🚗 ขออนุมัติใช้รถ (ขั้นที่ 2: Approve 2)'
-                      : '🚗 ขออนุมัติใช้รถ (ขั้นที่ 1: Approve 1)'}
+                      ? '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 2: Approve 2)'
+                      : '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 1: Approve 1)'}
                   </h4>
                   <p className="text-[11px] opacity-90 mt-0.5 truncate">
                     {isApproved
@@ -332,6 +333,12 @@ export default function LineShareApprovalModal({
 
                 {/* Bubble Body */}
                 <div className="p-3.5 space-y-2 text-[11px]">
+                  <div className="flex justify-between gap-2 pb-1.5 border-b border-gray-100">
+                    <span className="text-gray-400 shrink-0">หมายเลขใบงาน:</span>
+                    <span className="font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      📄 {getBookingJobNumber(booking)}
+                    </span>
+                  </div>
                   <div className="flex justify-between gap-2">
                     <span className="text-gray-400 shrink-0">ผู้ขอใช้รถ:</span>
                     <span className="font-bold text-gray-900 text-right truncate">
@@ -421,44 +428,27 @@ export default function LineShareApprovalModal({
                   </div>
                 </div>
 
-                {/* Bubble Footer Action Buttons */}
+                {/* Bubble Footer Action Button: View Details Only */}
                 <div className="p-3 pt-0 space-y-1.5">
-                  {!isApproved && !isRejected && onOpenQuickApprove && (
-                    <>
-                      <button
-                        type="button"
-                        id="btn-preview-line-approve"
-                        onClick={() => {
-                          handleSaveLineIds();
-                          onClose();
-                          onOpenQuickApprove(enrichedBooking, activeStageNum, 'approve');
-                        }}
-                        className="w-full py-2.5 bg-[#06C755] hover:bg-[#05b34c] text-white font-bold rounded-lg text-xs transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1"
-                      >
-                        <span>
-                          ✅ กดอนุมัติ (Approve {activeStageNum})
-                          {activeStageNum === 1 ? ' → ส่งต่อ Approve 2' : ' → แจ้ง User'}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        id="btn-preview-line-reject"
-                        onClick={() => {
-                          handleSaveLineIds();
-                          onClose();
-                          onOpenQuickApprove(enrichedBooking, activeStageNum, 'reject');
-                        }}
-                        className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs transition-all cursor-pointer border border-rose-200"
-                      >
-                        ❌ กดไม่อนุมัติ (ต้องระบุเหตุผล)
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    id="btn-preview-line-review"
+                    onClick={() => {
+                      handleSaveLineIds();
+                      onClose();
+                      if (onOpenQuickApprove) {
+                        onOpenQuickApprove(enrichedBooking, activeStageNum, 'review');
+                      }
+                    }}
+                    className="w-full py-2.5 bg-[#06C755] hover:bg-[#05b34c] text-white font-bold rounded-lg text-xs transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1"
+                  >
+                    <span>🔍 ดูรายละเอียด</span>
+                  </button>
                 </div>
               </div>
 
               <p className="text-[10px] text-slate-900/80 text-center font-medium">
-                💡 ผู้อนุมัติสามารถกดปุ่ม &ldquo;อนุมัติ&rdquo; หรือ &ldquo;ไม่อนุมัติ (ระบุเหตุผล)&rdquo; บนการ์ดนี้หรือจากลิงก์ใน LINE ได้ทันที
+                💡 ผู้รับสามารถกดปุ่ม &ldquo;🔍 ดูรายละเอียด&rdquo; บนการ์ดแจ้งเตือนใน LINE เพื่อเปิดดูข้อมูลใบงานได้ทันที
               </p>
             </div>
           </div>
@@ -470,7 +460,7 @@ export default function LineShareApprovalModal({
               <div className="bg-white p-3.5 rounded-2xl border border-emerald-200 shadow-2xs flex items-center justify-between text-[10px] text-gray-600 flex-wrap gap-1.5">
                 <span className="font-semibold text-emerald-800 flex items-center gap-1">
                   <UserCheck className="w-3.5 h-3.5 text-[#06C755]" />
-                  <span>ลำดับการขออนุมัติและแจ้งเตือนผ่าน LINE:</span>
+                  <span>ลำดับการแจ้งเตือนผ่าน LINE:</span>
                 </span>
                 <div className="flex items-center gap-1 flex-wrap font-medium">
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800">
@@ -484,7 +474,7 @@ export default function LineShareApprovalModal({
                         : 'bg-emerald-100 text-emerald-800'
                     }`}
                   >
-                    Approve 1 (อนุมัติ/ไม่อนุมัติ+เหตุผล)
+                    แจ้งเตือน Approve 1
                   </span>
                   <ArrowRight className="w-3 h-3 text-gray-400" />
                   <span
@@ -496,11 +486,11 @@ export default function LineShareApprovalModal({
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >
-                    Approve 2 (อนุมัติ/ไม่อนุมัติ+เหตุผล)
+                    แจ้งเตือน Approve 2
                   </span>
                   <ArrowRight className="w-3 h-3 text-gray-400" />
                   <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
-                    แจ้งเตือน LINE User
+                    แจ้งผลให้ User
                   </span>
                 </div>
               </div>
@@ -533,10 +523,10 @@ export default function LineShareApprovalModal({
                     <h4 className="font-bold text-gray-900 text-sm">
                       {isApproved || isRejected
                         ? `1. ส่งข้อความแจ้งผลการอนุมัติไปยัง LINE ของ ${booking.userName}`
-                        : `1. ส่งคำขออนุมัติเข้าแชท LINE ของ ${targetApproverLabel} (ขั้นที่ ${activeStageNum})`}
+                        : `1. ส่งแจ้งเตือนคำขอใช้รถเข้าแชท LINE ของ ${targetApproverLabel} (ขั้นที่ ${activeStageNum})`}
                     </h4>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      แนบรายละเอียดการจองพร้อม <strong>ลิงก์ปุ่มกดอนุมัติ และ ปุ่มไม่อนุมัติ (พร้อมระบุเหตุผล)</strong>
+                      แนบรายละเอียดการจองและหมายเลขใบงาน พร้อม <strong>ลิงก์กดดูรายละเอียด</strong>
                     </p>
                   </div>
                 </div>
@@ -557,7 +547,7 @@ export default function LineShareApprovalModal({
                     <span>
                       {isApproved || isRejected
                         ? `เปิดแอป LINE ส่งแจ้งผลให้ ${booking.userName}`
-                        : `เปิดแอป LINE ส่งขออนุมัติหา ${targetApproverLabel}`}
+                        : `เปิดแอป LINE ส่งแจ้งเตือนหา ${targetApproverLabel}`}
                     </span>
                     <ExternalLink className="w-3.5 h-3.5 opacity-80" />
                   </a>
@@ -583,12 +573,12 @@ export default function LineShareApprovalModal({
                 </div>
               </div>
 
-              {/* Option 2: Automated LINE OA Push & Direct Quick Approve Portal */}
+              {/* Option 2: Automated LINE OA Push */}
               <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-gray-900 text-xs sm:text-sm flex items-center gap-1.5">
                     <Send className="w-4 h-4 text-indigo-600" />
-                    <span>2. ส่งแจ้งเตือนผ่าน LINE Official Account หรือกดอนุมัติผ่านระบบ LINE ทันที</span>
+                    <span>2. ส่งการ์ดแจ้งเตือนผ่าน LINE Official Account (@479mbfhu)</span>
                   </h4>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -597,7 +587,7 @@ export default function LineShareApprovalModal({
                         : 'bg-slate-100 text-slate-600 border-slate-200'
                     }`}
                   >
-                    {lineServerConfigured ? '🟢 เชื่อมต่อ LINE OA แล้ว' : '⚡ โหมดลิงก์อนุมัติด่วน'}
+                    {lineServerConfigured ? '🟢 เชื่อมต่อ LINE OA แล้ว' : '⚡ โหมดลิงก์แจ้งเตือน'}
                   </span>
                 </div>
 
@@ -617,41 +607,10 @@ export default function LineShareApprovalModal({
                     </span>
                   </button>
 
-                  {onOpenQuickApprove && !isApproved && !isRejected && (
-                    <>
-                      <button
-                        type="button"
-                        id="btn-open-line-quick-portal"
-                        onClick={() => {
-                          handleSaveLineIds();
-                          onClose();
-                          onOpenQuickApprove(enrichedBooking, activeStageNum, 'approve');
-                        }}
-                        className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-300 transition-colors cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>เปิดหน้าจออนุมัติ LINE (ขั้นที่ {activeStageNum})</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        id="btn-open-line-quick-reject"
-                        onClick={() => {
-                          handleSaveLineIds();
-                          onClose();
-                          onOpenQuickApprove(enrichedBooking, activeStageNum, 'reject');
-                        }}
-                        className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 transition-colors cursor-pointer flex items-center gap-1.5"
-                      >
-                        <span>❌ กดไม่อนุมัติ (ระบุเหตุผล)</span>
-                      </button>
-                    </>
-                  )}
-
                   <button
                     type="button"
                     id="btn-copy-magic-link"
-                    onClick={handleCopyApproveLink}
+                    onClick={handleCopyReviewLink}
                     className="px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl border border-gray-300 transition-colors cursor-pointer flex items-center gap-1.5"
                   >
                     {copiedLink ? (
@@ -662,7 +621,7 @@ export default function LineShareApprovalModal({
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5 text-gray-500" />
-                        <span>คัดลอกลิงก์อนุมัติ</span>
+                        <span>คัดลอกลิงก์ดูรายละเอียด</span>
                       </>
                     )}
                   </button>

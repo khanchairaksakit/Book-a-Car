@@ -9,7 +9,14 @@ import {
 } from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
-import { getRealTodayStr, isDateInPast, isDateToday, validateBookingDates } from '../utils/dateHelpers';
+import {
+  getRealTodayStr,
+  isDateInPast,
+  isDateToday,
+  validateBookingDates,
+  getBookingJobNumber,
+  generateNextJobNumber,
+} from '../utils/dateHelpers';
 import {
   ChevronLeft,
   ChevronRight,
@@ -643,8 +650,10 @@ export default function MonthlyCalendar({
 
     const isAdminUser = isUserAdmin(currentUser);
     const isSelfApproval = isAdminUser && chosenApprover.id === currentUser.id && !isLineModuleEnabled;
+    const jobNumber = generateNextJobNumber(bookings, new Date().toISOString());
 
     const newBookingData = {
+      jobNumber,
       vehicleId: selectedVehicle.id,
       userId: currentUser.id,
       userName: currentUser.name,
@@ -673,8 +682,8 @@ export default function MonthlyCalendar({
     onAddBooking(newBookingData);
     setBookingSuccess(
       isSelfApproval
-        ? 'จองรถสำเร็จและได้รับการอนุมัติทันทีในฐานะผู้ดูแลระบบ!'
-        : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว รอคุณ ${chosenApprover.name} (${chosenApprover.division || chosenApprover.department}) พิจารณาอนุมัติขั้นที่ 1 ก่อนส่งต่อให้ Approve 2`
+        ? `จองรถสำเร็จ (หมายเลขใบงาน: ${jobNumber}) และได้รับการอนุมัติทันทีในฐานะผู้ดูแลระบบ!`
+        : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว (หมายเลขใบงาน: ${jobNumber}) รอคุณ ${chosenApprover.name} (${chosenApprover.division || chosenApprover.department}) พิจารณาอนุมัติขั้นที่ 1`
     );
 
     // Reset fields
@@ -752,100 +761,6 @@ export default function MonthlyCalendar({
         </div>
       </div>
 
-      {/* Pending Approvals via LINE Quick Action Section (Only when LINE Module is enabled) */}
-      {isLineModuleEnabled && pendingLineBookings.length > 0 && (
-        <div
-          id="calendar-line-pending-approvals"
-          className="bg-gradient-to-r from-[#06C755]/10 via-emerald-50/70 to-white border-2 border-[#06C755]/40 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3"
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-[#06C755] text-white font-black text-xs flex items-center justify-center shadow-xs shrink-0">
-                LINE
-              </div>
-              <div>
-                <h2 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <span>คำขอใช้รถที่รออนุมัติ • ส่งขอและกดอนุมัติผ่าน LINE ได้ทันที</span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold bg-[#06C755] text-white rounded-full">
-                    {pendingLineBookings.length} รายการรออนุมัติ
-                  </span>
-                </h2>
-                <p className="text-[11px] text-gray-600">
-                  กดส่งการ์ดขออนุมัติเข้าแชท LINE ให้หัวหน้างาน หรือกดอนุมัติผ่านระบบ LINE Quick Approval ได้ในคลิกเดียว
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onNavigateToBookingList}
-              className="text-xs font-bold text-[#059440] hover:underline flex items-center gap-1 self-start sm:self-center cursor-pointer"
-            >
-              <span>ดูรายการจองทั้งหมด</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {pendingLineBookings.slice(0, 4).map((b) => {
-              const isStage2 = b.status === 'Pending_Approve2';
-              return (
-                <div
-                  key={b.id}
-                  className="bg-white rounded-xl p-3.5 border border-emerald-200/90 shadow-2xs flex flex-col justify-between gap-3"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-gray-900 text-xs truncate">
-                        🚘 {b.vehicleName}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          isStage2
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200'
-                        }`}
-                      >
-                        {isStage2 ? '⏳ รอ Approve 2' : `⏳ รอ ${b.assignedApproverName || 'Approve 1'}`}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-700 font-medium">
-                      👤 ผู้ขอ: <strong>{b.userName}</strong> ({b.userDepartment || '-'}) • 📍 {b.destination}
-                    </p>
-                    <p className="text-[10px] text-gray-500 font-mono">
-                      📅 {formatTripDateTime(b.startDate, b.endDate)}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
-                    {onOpenLineShare && (
-                      <button
-                        type="button"
-                        id={`btn-home-line-share-${b.id}`}
-                        onClick={() => onOpenLineShare(b)}
-                        className="flex-1 py-2 px-3 bg-[#06C755] hover:bg-[#05b34c] text-white text-xs font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5 fill-white" />
-                        <span>{isStage2 ? 'ส่งขออนุมัติขั้น 2 ใน LINE' : 'ส่งขออนุมัติผ่าน LINE'}</span>
-                      </button>
-                    )}
-                    {onOpenLineQuickApprove && (
-                      <button
-                        type="button"
-                        id={`btn-home-line-quick-approve-${b.id}`}
-                        onClick={() => onOpenLineQuickApprove(b, isStage2 ? 2 : 1, 'approve')}
-                        className="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <span>⚡ อนุมัติผ่าน LINE</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* User Active Approved Missions Banner & Prominent "เสร็จสิ้นภารกิจ" button */}
       {myActiveBookings.length > 0 && (
         <div id="user-active-missions-section" className="space-y-3">
@@ -872,9 +787,14 @@ export default function MonthlyCalendar({
                       <Car className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-gray-900 text-sm leading-snug">
-                        {b.vehicleName}
-                      </h4>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          📄 {getBookingJobNumber(b)}
+                        </span>
+                        <h4 className="font-bold text-gray-900 text-sm leading-snug">
+                          {b.vehicleName}
+                        </h4>
+                      </div>
                       <p className="text-xs text-gray-500 font-mono">
                         {formatThaiDate(b.startDate)} → {formatThaiDate(b.endDate)}
                       </p>
@@ -1547,53 +1467,29 @@ export default function MonthlyCalendar({
                   </div>
                 </div>
 
-                {/* 4. Choose Approver 1 (แผนกเดียวกัน เลือกผู้อนุมัติได้ตามสิทธิ์ Approve 1) */}
+                {/* 4. Choose Approver 1 (เลือกผู้อนุมัติได้ตามสิทธิ์ Approve 1) */}
                 <div className="space-y-3 pt-2 border-t border-gray-100" id="booking-approver-selection-section">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                     <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-indigo-600" />
                       <span>
-                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 แผนกเดียวกัน ตามสิทธิ์ที่ได้รับ){' '}
+                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 ตามสิทธิ์ที่ได้รับ){' '}
                         <span className="text-red-500">*</span>
                       </span>
                     </label>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {allStage1Approvers.length > sameDeptApprovers.length && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllDeptApprovers(!showAllDeptApprovers)}
-                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 cursor-pointer"
-                        >
-                          {showAllDeptApprovers
-                            ? 'แสดงเฉพาะแผนกเดียวกัน'
-                            : `ดู Approve 1 แผนกอื่นด้วย (${allStage1Approvers.length} คน)`}
-                        </button>
-                      )}
                       <span className="text-[10px] text-emerald-700 bg-emerald-50 font-semibold px-2 py-0.5 rounded-full border border-emerald-200 w-fit">
                         ผ่าน Approve 1 แล้วส่งต่อ Approve 2 อัตโนมัติ
                       </span>
                     </div>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    ดึงรายชื่อผู้มีสิทธิ์ <strong>Approve 1</strong> ในแผนกเดียวกับคุณ (
-                    <span className="font-semibold text-gray-700">
-                      {currentUser?.department}
-                      {currentUser?.division ? ` / ${currentUser.division}` : ''}
-                    </span>
-                    ) จากหน้ากำหนดผู้ใช้งานและบทบาทหน้าที่
+                    ดึงรายชื่อผู้มีสิทธิ์ <strong>Approve 1</strong> จากหน้ากำหนดผู้ใช้งานและบทบาทหน้าที่
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                     {eligibleApprovers.map((approver) => {
                       const isSelected = selectedApproverId === approver.id;
-                      const isSameDept = Boolean(
-                        currentUser?.department &&
-                          approver.department.trim().toLowerCase() ===
-                            currentUser.department.trim().toLowerCase()
-                      );
-                      const userDiv = (currentUser?.division || '').trim().toLowerCase();
-                      const appDiv = (approver.division || '').trim().toLowerCase();
-                      const isSameDiv = Boolean(userDiv && appDiv && userDiv === appDiv);
 
                       return (
                         <div
@@ -1626,15 +1522,6 @@ export default function MonthlyCalendar({
                               {approver.division ? ` • ${approver.division}` : ''}
                             </span>
                             <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                              {isSameDept ? (
-                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                                  ⭐ แผนกเดียวกัน
-                                </span>
-                              ) : isSameDiv ? (
-                                <span className="text-[9px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200">
-                                  ฝ่ายเดียวกัน
-                                </span>
-                              ) : null}
                               <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
                                 Approve 1
                               </span>
@@ -1705,7 +1592,7 @@ export default function MonthlyCalendar({
                   {isLineModuleEnabled ? (
                     <div className="flex items-center gap-1.5 text-[11px] text-[#059440] bg-[#06C755]/10 px-3 py-1.5 rounded-xl border border-[#06C755]/25 font-semibold">
                       <MessageCircle className="w-3.5 h-3.5 fill-[#06C755] text-[#06C755] shrink-0" />
-                      <span>หลังกดยืนยัน ระบบจะเปิดการ์ดส่งขออนุมัติผ่าน LINE ให้ทันที</span>
+                      <span>หลังกดยืนยัน ระบบจะส่งแจ้งเตือนทาง LINE ให้ผู้อนุมัติโดยอัตโนมัติ</span>
                     </div>
                   ) : (
                     <div />
@@ -1726,7 +1613,7 @@ export default function MonthlyCalendar({
                       className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>{isLineModuleEnabled ? 'ยืนยันการจอง & ส่งขออนุมัติ LINE' : 'ยืนยันการจองรถยนต์'}</span>
+                      <span>ยืนยันการจองรถยนต์</span>
                     </button>
                   </div>
                 </div>
@@ -1774,10 +1661,15 @@ export default function MonthlyCalendar({
                         key={b.id}
                         className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs"
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-gray-900">{b.vehicleName}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                              📄 {getBookingJobNumber(b)}
+                            </span>
+                            <span className="font-bold text-gray-900 truncate">{b.vehicleName}</span>
+                          </div>
                           <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
                               b.status === 'Approved'
                                 ? 'bg-indigo-100 text-indigo-700'
                                 : b.status === 'Completed'
@@ -1810,7 +1702,7 @@ export default function MonthlyCalendar({
                               className="px-2.5 py-1 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
                             >
                               <MessageCircle className="w-3 h-3 fill-white" />
-                              <span>ส่งขออนุมัติ LINE</span>
+                              <span>แจ้งเตือนทาง LINE</span>
                             </button>
                           )}
                         </div>

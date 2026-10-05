@@ -130,33 +130,37 @@ export async function getBookings(): Promise<Booking[]> {
     const snapshot = await getDocs(colRef);
     
     if (snapshot.empty) {
-      console.log('Seeding initial bookings to Firestore...');
-      const batch = writeBatch(db);
-      for (const booking of INITIAL_BOOKINGS) {
-        const docRef = doc(db, 'bookings', booking.id);
-        batch.set(docRef, booking);
-      }
-      await batch.commit();
-      return INITIAL_BOOKINGS;
+      return [];
     }
     
     const bookings: Booking[] = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data() as Booking;
-      const initialMatch = INITIAL_BOOKINGS.find((b) => b.id === data.id);
+    const legacyCleanupBatch = writeBatch(db);
+    let hasLegacyDocs = false;
+
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as Booking;
+      // Purge any old test/legacy bookings created prior to AX- jobNumber format
+      if (!data.jobNumber || !data.jobNumber.startsWith('AX-')) {
+        legacyCleanupBatch.delete(docSnap.ref);
+        hasLegacyDocs = true;
+        return;
+      }
       const userMatch = INITIAL_USERS.find((u) => u.id === data.userId);
       bookings.push({
         ...data,
-        userDepartment: data.userDepartment || initialMatch?.userDepartment || userMatch?.department || '',
-        userDivision: data.userDivision || initialMatch?.userDivision || userMatch?.division || '',
-        assignedApproverId: data.assignedApproverId || initialMatch?.assignedApproverId,
-        assignedApproverName: data.assignedApproverName || initialMatch?.assignedApproverName,
+        userDepartment: data.userDepartment || userMatch?.department || '',
+        userDivision: data.userDivision || userMatch?.division || '',
       });
     });
+
+    if (hasLegacyDocs) {
+      await legacyCleanupBatch.commit().catch(() => {});
+    }
+
     return bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (error) {
     console.error('Error fetching bookings from Firestore:', error);
-    return INITIAL_BOOKINGS;
+    return [];
   }
 }
 
