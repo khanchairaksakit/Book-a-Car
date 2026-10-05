@@ -84,6 +84,17 @@
         "rejectedStage": { "type": "integer" }
       },
       "required": ["id", "vehicleId", "userId", "userName", "vehicleName", "startDate", "endDate", "purpose", "destination", "passengersCount", "status", "createdAt"]
+    },
+    "RolePermissionsSetting": {
+      "title": "RolePermissionsSetting",
+      "description": "Stores role permissions matrix configuration across menus",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "matrix": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "matrix"]
     }
   },
   "firestore": {
@@ -98,6 +109,10 @@
     "/bookings/{bookingId}": {
       "schema": "Booking",
       "description": "Fleet bookings collection"
+    },
+    "/settings/{settingId}": {
+      "schema": "RolePermissionsSetting",
+      "description": "Application settings including role permissions matrix"
     }
   }
 }

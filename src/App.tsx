@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Vehicle, User, Booking, BookingStatus } from './types';
+import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey } from './types';
 import {
   INITIAL_VEHICLES,
   INITIAL_USERS,
@@ -15,6 +15,8 @@ import {
   getBookings,
   saveBooking,
   deleteBooking,
+  getRolePermissions,
+  saveRolePermissions,
 } from './lib/firebase';
 
 import BookingSystem from './components/BookingSystem';
@@ -31,7 +33,16 @@ import {
   setLineModuleEnabled,
 } from './utils/lineApprovalUtils';
 import { translations, Language } from './utils/translations';
-import { isUserAdmin, getUserRoles, getRoleBadgeInfo, canUserViewBooking, hasRole } from './utils/userHelpers';
+import {
+  isUserAdmin,
+  getUserRoles,
+  getRoleBadgeInfo,
+  canUserViewBooking,
+  hasRole,
+  getStoredRolePermissions,
+  saveStoredRolePermissions,
+  getUserEffectiveMenuPermission,
+} from './utils/userHelpers';
 import { getRealTodayStr, generateNextJobNumber, getBookingJobNumber } from './utils/dateHelpers';
 
 import {
@@ -176,19 +187,38 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
 
+  // Role Permissions Matrix state
+  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMatrix>(() => {
+    return getStoredRolePermissions();
+  });
+
+  const handleUpdateRolePermissions = async (newMatrix: RolePermissionsMatrix) => {
+    setRolePermissions(newMatrix);
+    saveStoredRolePermissions(newMatrix);
+    try {
+      await saveRolePermissions(newMatrix);
+    } catch (e) {
+      console.error('Failed to save role permissions to cloud:', e);
+    }
+  };
+
   // Fetch real-time/latest data from Firestore on Mount
   useEffect(() => {
     async function loadCloudData() {
       try {
         setIsLoading(true);
-        const [dbVehicles, dbUsers, dbBookings] = await Promise.all([
+        const [dbVehicles, dbUsers, dbBookings, dbRolePerms] = await Promise.all([
           getVehicles(),
           getUsers(),
           getBookings(),
+          getRolePermissions(),
         ]);
         setVehicles(dbVehicles);
         setUsers(dbUsers);
         setBookings(dbBookings);
+        if (dbRolePerms) {
+          setRolePermissions(dbRolePerms);
+        }
         setIsCloudSynced(true);
 
         // Auto-select currentUser from cloud list if matching local storage email
@@ -507,9 +537,7 @@ export default function App() {
         }).catch(() => {});
       }
       setToastMessage(
-        isLineModuleEnabled
-          ? `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่ง LINE แจ้งเตือนไปยัง Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) เรียบร้อยแล้ว`
-          : `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ Approve 2 พิจารณา`
+        `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) พิจารณา`
       );
     } else if (status === 'Approved') {
       if (isLineModuleEnabled) {
@@ -524,9 +552,7 @@ export default function App() {
         }).catch(() => {});
       }
       setToastMessage(
-        isLineModuleEnabled
-          ? `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) ครบ 2 ขั้นตอน และส่ง LINE แจ้งเตือนผู้จอง (${booking.userName}) เรียบร้อยแล้ว`
-          : `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
+        `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
       );
     } else if (status === 'Completed') {
       setToastMessage(`เสร็จสิ้นภารกิจใบงาน ${jobNo} และบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
@@ -729,6 +755,30 @@ export default function App() {
     ? bookings.find((b) => b.id === lineQuickApproveState.bookingId) || null
     : null;
 
+  // Compute effective permissions for each menu according to RolePermissionsMatrix
+  const calendarPerm = getUserEffectiveMenuPermission(currentUser, 'calendar', rolePermissions);
+  const bookingPerm = getUserEffectiveMenuPermission(currentUser, 'booking', rolePermissions);
+  const vehiclesPerm = getUserEffectiveMenuPermission(currentUser, 'vehicles', rolePermissions);
+  const reportPerm = getUserEffectiveMenuPermission(currentUser, 'report', rolePermissions);
+  const usersPerm = getUserEffectiveMenuPermission(currentUser, 'users', rolePermissions);
+
+  const canAccessMenu = (key: AppMenuKey) => {
+    const perm = getUserEffectiveMenuPermission(currentUser, key, rolePermissions);
+    if (key === 'users' && isUserAdmin(currentUser)) return true;
+    return perm.viewOnly || perm.canEdit;
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!canAccessMenu(activeTab)) {
+      const orderedKeys: AppMenuKey[] = ['calendar', 'booking', 'vehicles', 'report', 'users'];
+      const firstAllowed = orderedKeys.find((k) => canAccessMenu(k));
+      if (firstAllowed && firstAllowed !== activeTab) {
+        setActiveTab(firstAllowed);
+      }
+    }
+  }, [currentUser, rolePermissions, activeTab]);
+
   // If not logged in or login page was explicitly opened, show the Login Page (plus LINE Quick Approve Modal if opened via LINE link)
   if (!currentUser || isLoginPageOpen) {
     return (
@@ -843,90 +893,125 @@ export default function App() {
 
           {/* Nav Links */}
           <nav className="flex-1 px-3 space-y-1.5">
-            <button
-              id="nav-tab-calendar"
-              onClick={() => {
-                setActiveTab('calendar');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'calendar'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <CalendarDays className="w-4 h-4 shrink-0" />
-              <span className="flex-1 text-left">{t.navCalendar}</span>
-            </button>
+            {canAccessMenu('calendar') && (
+              <button
+                id="nav-tab-calendar"
+                onClick={() => {
+                  setActiveTab('calendar');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'calendar'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <CalendarDays className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navCalendar}</span>
+                {calendarPerm.viewOnly && !calendarPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              id="nav-tab-booking"
-              onClick={() => {
-                setActiveTab('booking');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'booking'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4 shrink-0" />
-              <span className="flex-1 text-left">{t.navStatus}</span>
-              {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length > 0 && (
-                <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length}
-                </span>
-              )}
-            </button>
+            {canAccessMenu('booking') && (
+              <button
+                id="nav-tab-booking"
+                onClick={() => {
+                  setActiveTab('booking');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'booking'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navStatus}</span>
+                {bookingPerm.viewOnly && !bookingPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+                {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length > 0 && (
+                  <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length}
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              id="nav-tab-vehicles"
-              onClick={() => {
-                setActiveTab('vehicles');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'vehicles'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Car className="w-4 h-4 shrink-0" />
-              <span>{t.navVehicles} ({vehicles.length})</span>
-            </button>
+            {canAccessMenu('vehicles') && (
+              <button
+                id="nav-tab-vehicles"
+                onClick={() => {
+                  setActiveTab('vehicles');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'vehicles'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Car className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navVehicles} ({vehicles.length})</span>
+                {vehiclesPerm.viewOnly && !vehiclesPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              id="nav-tab-users"
-              onClick={() => {
-                setActiveTab('users');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'users'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span>{t.navUsers}</span>
-            </button>
+            {canAccessMenu('report') && (
+              <button
+                id="nav-tab-report"
+                onClick={() => {
+                  setActiveTab('report');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'report'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <FileText className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navReport}</span>
+                {reportPerm.viewOnly && !reportPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+              </button>
+            )}
 
-            <button
-              id="nav-tab-report"
-              onClick={() => {
-                setActiveTab('report');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'report'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span>{t.navReport}</span>
-            </button>
+            {canAccessMenu('users') && (
+              <button
+                id="nav-tab-users"
+                onClick={() => {
+                  setActiveTab('users');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'users'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navUsers}</span>
+                {usersPerm.viewOnly && !usersPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+              </button>
+            )}
           </nav>
         </div>
 
@@ -1078,6 +1163,8 @@ export default function App() {
                   bookings={bookings}
                   currentUser={currentUser}
                   users={users}
+                  canEdit={calendarPerm.canEdit}
+                  viewOnly={calendarPerm.viewOnly}
                   onSelectUser={handleSelectUser}
                   onAddBooking={handleAddBooking}
                   onUpdateBookingStatus={handleUpdateBookingStatus}
@@ -1102,6 +1189,8 @@ export default function App() {
                   bookings={bookings}
                   users={users}
                   currentUser={currentUser}
+                  canEdit={bookingPerm.canEdit}
+                  viewOnly={bookingPerm.viewOnly}
                   onAddBooking={handleAddBooking}
                   onUpdateBookingStatus={handleUpdateBookingStatus}
                   onDeleteBooking={handleDeleteBooking}
@@ -1123,6 +1212,8 @@ export default function App() {
                   vehicles={vehicles}
                   bookings={bookings}
                   currentUser={currentUser}
+                  canEdit={vehiclesPerm.canEdit}
+                  viewOnly={vehiclesPerm.viewOnly}
                   onAddVehicle={handleAddVehicle}
                   onEditVehicle={handleEditVehicle}
                   onDeleteVehicle={handleDeleteVehicle}
@@ -1133,6 +1224,10 @@ export default function App() {
                 <UserRegistration
                   users={users}
                   currentUser={currentUser}
+                  canEdit={usersPerm.canEdit}
+                  viewOnly={usersPerm.viewOnly}
+                  rolePermissions={rolePermissions}
+                  onUpdateRolePermissions={handleUpdateRolePermissions}
                   onSelectUser={handleSelectUser}
                   onAddUser={handleAddUser}
                   onAddMultipleUsers={handleAddMultipleUsers}
@@ -1150,6 +1245,8 @@ export default function App() {
                   users={users}
                   currentUser={currentUser}
                   language={language}
+                  canEdit={reportPerm.canEdit}
+                  viewOnly={reportPerm.viewOnly}
                 />
               )}
             </motion.div>

@@ -34,6 +34,8 @@ interface VehicleManagementProps {
   vehicles: Vehicle[];
   bookings?: Booking[];
   currentUser: User | null;
+  canEdit?: boolean;
+  viewOnly?: boolean;
   onAddVehicle: (vehicle: Omit<Vehicle, 'id'>) => void;
   onEditVehicle: (vehicle: Vehicle) => void;
   onDeleteVehicle: (vehicleId: string) => void;
@@ -43,10 +45,13 @@ export default function VehicleManagement({
   vehicles,
   bookings = [],
   currentUser,
+  canEdit = true,
+  viewOnly = false,
   onAddVehicle,
   onEditVehicle,
   onDeleteVehicle,
 }: VehicleManagementProps) {
+  const hasEditPermission = canEdit && !viewOnly;
   const [isAdding, setIsAdding] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [formTab, setFormTab] = useState<'general' | 'maintenance'>('general');
@@ -264,18 +269,24 @@ export default function VehicleManagement({
             จัดการข้อมูลรถยนต์ เลขไมล์ วันหมดอายุภาษี รอบเปลี่ยนยาง และระบบแจ้งเตือนการบำรุงรักษา
           </p>
         </div>
-        <button
-          id="btn-add-vehicle"
-          onClick={() => {
-            setEditingVehicle(null);
-            resetForm();
-            setIsAdding(true);
-          }}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>เพิ่มรถยนต์ใหม่</span>
-        </button>
+        {hasEditPermission ? (
+          <button
+            id="btn-add-vehicle"
+            onClick={() => {
+              setEditingVehicle(null);
+              resetForm();
+              setIsAdding(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm cursor-pointer self-start sm:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>เพิ่มรถยนต์ใหม่</span>
+          </button>
+        ) : (
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold rounded-xl self-start sm:self-auto">
+            <span>👁️ โหมดดูได้อย่างเดียว (ตามตารางกำหนดสิทธิ)</span>
+          </div>
+        )}
       </div>
 
       {/* Fleet Alert Banner if any warnings */}
@@ -308,11 +319,11 @@ export default function VehicleManagement({
       )}
 
       {/* Role Reminder */}
-      {!isAdmin && (
+      {!hasEditPermission && (
         <div id="role-admin-warning" className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-800">
-            <span className="font-bold">สิทธิ์การจัดการข้อมูล:</span> บัญชีปัจจุบันไม่มีสิทธิ์ <span className="underline font-semibold">ผู้ดูแลระบบ (Admin)</span> ระบบอนุญาตให้ผู้ดูแลระบบเท่านั้นเป็นผู้ลงทะเบียน ลบ หรือแก้ไขข้อมูลยานพาหนะ
+            <span className="font-bold">โหมดดูได้อย่างเดียว (View Only):</span> บทบาทของคุณถูกกำหนดสิทธิ์เมนู <span className="underline font-semibold">จัดการข้อมูลรถยนต์</span> เป็น <span className="font-bold">ดูได้อย่างเดียว</span> จึงไม่สามารถเพิ่ม แก้ไข หรือลบข้อมูลรถยนต์ได้
           </div>
         </div>
       )}
@@ -636,40 +647,46 @@ export default function VehicleManagement({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 border-t border-gray-100 pt-4 mt-2">
-                  <button
-                    id={`btn-quick-mileage-${vehicle.id}`}
-                    onClick={() => {
-                      setQuickMileageVehicle(vehicle);
-                      setQuickMileageVal(String(vehicle.currentMileage || 0));
-                    }}
-                    className="py-1.5 px-2.5 border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                    title="บันทึกเลขไมล์ปัจจุบันหลังเดินทาง"
-                  >
-                    <Gauge className="w-3.5 h-3.5" />
-                    <span>อัปเดตไมล์</span>
-                  </button>
-                  <button
-                    id={`btn-edit-vehicle-icon-${vehicle.id}`}
-                    onClick={() => {
-                      startEdit(vehicle);
-                    }}
-                    className="flex-1 py-1.5 px-3 border border-gray-200 hover:bg-slate-50 text-gray-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                    <span>แก้ไขข้อมูล/แจ้งเตือน</span>
-                  </button>
-                  <button
-                    id={`btn-delete-vehicle-icon-${vehicle.id}`}
-                    onClick={() => {
-                      setDeletingVehicle(vehicle);
-                    }}
-                    className="py-1.5 px-2.5 border border-red-100 text-red-600 hover:bg-red-50/50 hover:border-red-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    title="ลบรถยนต์"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {hasEditPermission ? (
+                  <div className="flex items-center gap-2 border-t border-gray-100 pt-4 mt-2">
+                    <button
+                      id={`btn-quick-mileage-${vehicle.id}`}
+                      onClick={() => {
+                        setQuickMileageVehicle(vehicle);
+                        setQuickMileageVal(String(vehicle.currentMileage || 0));
+                      }}
+                      className="py-1.5 px-2.5 border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      title="บันทึกเลขไมล์ปัจจุบันหลังเดินทาง"
+                    >
+                      <Gauge className="w-3.5 h-3.5" />
+                      <span>อัปเดตไมล์</span>
+                    </button>
+                    <button
+                      id={`btn-edit-vehicle-icon-${vehicle.id}`}
+                      onClick={() => {
+                        startEdit(vehicle);
+                      }}
+                      className="flex-1 py-1.5 px-3 border border-gray-200 hover:bg-slate-50 text-gray-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>แก้ไขข้อมูล/แจ้งเตือน</span>
+                    </button>
+                    <button
+                      id={`btn-delete-vehicle-icon-${vehicle.id}`}
+                      onClick={() => {
+                        setDeletingVehicle(vehicle);
+                      }}
+                      className="py-1.5 px-2.5 border border-red-100 text-red-600 hover:bg-red-50/50 hover:border-red-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      title="ลบรถยนต์"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center border-t border-gray-100 pt-3 mt-2 text-[11px] text-amber-700 font-semibold">
+                    <span>👁️ ดูข้อมูลได้อย่างเดียว</span>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -679,12 +696,20 @@ export default function VehicleManagement({
       {/* Add / Edit Vehicle Modal Dialog with Tabs */}
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => {
+              setIsAdding(false);
+              setEditingVehicle(null);
+              resetForm();
+            }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
@@ -1129,11 +1154,18 @@ export default function VehicleManagement({
 
       {/* Quick Mileage Update Modal */}
       {quickMileageVehicle && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            setQuickMileageVehicle(null);
+            setQuickMileageVal('');
+          }}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -1197,8 +1229,14 @@ export default function VehicleManagement({
 
       {/* Delete Vehicle Custom Modal */}
       {deletingVehicle && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => setDeletingVehicle(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-3 text-red-600">
               <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center font-bold text-lg shrink-0">
                 🚘

@@ -47,7 +47,7 @@ export function downloadUserExcelTemplate(): void {
       'ฝ่าย': 'ฝ่ายบริหารและตรวจสอบ',
       'เบอร์โทร': '086-777-6655',
       'อีเมล': 'apisit.m@company.com',
-      'บทบาท (User, Approve 1, Approve 2, Admin)': 'Admin, Approve 1, Approve 2, User',
+      'บทบาท (User, Operator, Approve 1, Approve 2, Admin)': 'Admin, Operator, Approve 1, Approve 2, User',
       'รหัสผ่าน (Password)': 'password123',
     },
   ];
@@ -120,6 +120,7 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           ).trim();
 
           const rawRoles = String(
+            row['บทบาท (User, Operator, Approve 1, Approve 2, Admin)'] ||
             row['บทบาท (User, Approve 1, Approve 2, Admin)'] ||
             row['บทบาท (User, Approve, Admin)'] ||
             row['บทบาท'] ||
@@ -137,6 +138,7 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           const roles: UserRole[] = [];
           const lowerRoles = rawRoles.toLowerCase();
           if (lowerRoles.includes('admin') || lowerRoles.includes('ผู้ดูแล')) roles.push('Admin');
+          if (lowerRoles.includes('operator') || lowerRoles.includes('เจ้าหน้าที่')) roles.push('Operator');
           const hasApp2 =
             lowerRoles.includes('approve 2') ||
             lowerRoles.includes('approve2') ||

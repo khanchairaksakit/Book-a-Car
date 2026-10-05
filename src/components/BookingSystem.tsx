@@ -8,6 +8,7 @@ import {
   filterBookingsForUser,
   getBookingDepartment,
   getBookingDivision,
+  canUserApproveBooking,
 } from '../utils/userHelpers';
 import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
@@ -50,6 +51,8 @@ interface BookingSystemProps {
   onOpenLineQuickApprove?: (booking: Booking, stage: 1 | 2, action?: 'approve' | 'reject' | 'review') => void;
   isLineModuleEnabled?: boolean;
   onToggleLineModule?: (enabled: boolean) => void;
+  canEdit?: boolean;
+  viewOnly?: boolean;
 }
 
 const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
@@ -65,7 +68,10 @@ export default function BookingSystem({
   onOpenLineQuickApprove,
   isLineModuleEnabled = true,
   onToggleLineModule,
+  canEdit = true,
+  viewOnly = false,
 }: BookingSystemProps) {
+  const hasEditPermission = canEdit && !viewOnly;
   // Search & filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -343,13 +349,18 @@ export default function BookingSystem({
       {/* Header Banner */}
       <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold text-gray-900">
               รายการจองรถยนต์ส่วนกลาง
             </h2>
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
               อนุมัติ 2 ขั้น (Approve 1 & Approve 2)
             </span>
+            {!hasEditPermission && (
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                🔒 โหมดดูได้อย่างเดียว (View Only)
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 mt-1">
             {isAdmin
@@ -456,19 +467,24 @@ export default function BookingSystem({
         ) : (
           filteredBookings.map((booking) => {
             const isOwner = currentUser?.id === booking.userId;
-            const isAssignedStage1 = Boolean(
-              booking.assignedApproverId && currentUser?.id === booking.assignedApproverId
-            );
+            const isEligibleToApprove =
+              hasEditPermission && canUserApproveBooking(booking, currentUser, users);
             const canApproveStage1Action =
-              booking.status === 'Pending' && (isAssignedStage1 || isAdmin);
+              booking.status === 'Pending' && isEligibleToApprove;
             const canApproveStage2Action =
-              booking.status === 'Pending_Approve2' && (canApproveStage2 || isAdmin);
+              booking.status === 'Pending_Approve2' && isEligibleToApprove;
             const canUserCancel =
-              isOwner && (booking.status === 'Pending' || booking.status === 'Pending_Approve2');
+              hasEditPermission &&
+              isOwner &&
+              (booking.status === 'Pending' || booking.status === 'Pending_Approve2');
             const canRecordDeparture =
-              booking.status === 'Approved' && (isOwner || isAdmin);
+              hasEditPermission &&
+              booking.status === 'Approved' &&
+              (isOwner || isAdmin);
             const canRecordReturn =
-              booking.status === 'Approved' && (isOwner || isAdmin);
+              hasEditPermission &&
+              booking.status === 'Approved' &&
+              (isOwner || isAdmin);
 
             return (
               <div
@@ -499,11 +515,6 @@ export default function BookingSystem({
                       <span className="text-xs text-gray-500 block">
                         {booking.userDepartment || '-'} {booking.userDivision ? `• ${booking.userDivision}` : ''}
                         {booking.userPhone ? ` • 📞 ${booking.userPhone}` : ''}
-                        {isLineModuleEnabled && booking.requesterLineId ? (
-                          <span className="ml-1.5 font-mono text-[10px] font-bold text-[#059440] bg-[#06C755]/10 px-1.5 py-0.2 rounded border border-[#06C755]/30">
-                            💬 LINE User: {booking.requesterLineId}
-                          </span>
-                        ) : null}
                       </span>
                     </div>
                   </div>
@@ -561,11 +572,6 @@ export default function BookingSystem({
                           <div>
                             <span className="font-bold text-gray-900">ขั้นที่ 1 (Approve 1):</span>{' '}
                             <span className="text-gray-600">{booking.assignedApproverName || 'ผู้อนุมัติแผนก'}</span>
-                            {isLineModuleEnabled && booking.assignedApproverLineId && (
-                              <span className="ml-1 font-mono text-[9px] text-[#059440]">
-                                ({booking.assignedApproverLineId})
-                              </span>
-                            )}
                           </div>
                         </div>
                         <div>
@@ -598,11 +604,6 @@ export default function BookingSystem({
                                 ? booking.stage2ApprovedBy
                                 : booking.stage2ApproverName || 'ผู้อนุมัติขั้นสุดท้าย'}
                             </span>
-                            {isLineModuleEnabled && booking.stage2ApproverLineId && (
-                              <span className="ml-1 font-mono text-[9px] text-[#059440]">
-                                ({booking.stage2ApproverLineId})
-                              </span>
-                            )}
                           </div>
                         </div>
                         <div>
@@ -771,26 +772,6 @@ export default function BookingSystem({
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* LINE Notification / Share Button */}
-                    {isLineModuleEnabled && onOpenLineShare && booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
-                      <button
-                        id={`btn-line-share-${booking.id}`}
-                        type="button"
-                        onClick={() => onOpenLineShare(booking)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#06C755] hover:bg-[#05b34c] active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-                        title="ส่งการ์ดแจ้งเตือนพร้อมปุ่มดูรายละเอียดเข้าแชท LINE หรือ LINE Official Account"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5 fill-white" />
-                        <span>
-                          {booking.status === 'Pending'
-                            ? 'ส่งแจ้งเตือนทาง LINE (ขั้นที่ 1)'
-                            : booking.status === 'Pending_Approve2'
-                            ? 'ส่งแจ้งเตือนทาง LINE (ขั้นที่ 2)'
-                            : 'แจ้งผลอนุมัติทาง LINE'}
-                        </span>
-                      </button>
-                    )}
-
                     {/* Stage 1 Approval Action */}
                     {canApproveStage1Action && (
                       <div className="flex items-center gap-2 flex-wrap">
@@ -897,7 +878,7 @@ export default function BookingSystem({
                     )}
 
                     {/* Admin Delete */}
-                    {isAdmin && (
+                    {hasEditPermission && isAdmin && (
                       <button
                         id={`btn-delete-booking-${booking.id}`}
                         type="button"
@@ -919,12 +900,16 @@ export default function BookingSystem({
       {/* MODAL 1: Departure Checklist (บันทึกก่อนออกเดินทาง) */}
       <AnimatePresence>
         {departureBooking && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setDepartureBooking(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[90vh] flex flex-col z-10"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2.5">
@@ -1113,12 +1098,16 @@ export default function BookingSystem({
       {/* MODAL 2: Return Checklist & Complete Mission (เสร็จสิ้นภารกิจ & คืนรถ) */}
       <AnimatePresence>
         {returnBooking && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setReturnBooking(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[92vh] flex flex-col z-10"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2.5">
@@ -1487,12 +1476,16 @@ export default function BookingSystem({
       {/* Reject with Reason Modal (when LINE module is off or standard web reject) */}
       <AnimatePresence>
         {rejectingBookingState && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            onClick={() => setRejectingBookingState(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-rose-700 text-base">
@@ -1563,12 +1556,16 @@ export default function BookingSystem({
       {/* Delete Confirmation Modal for Admin */}
       <AnimatePresence>
         {deletingBooking && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            onClick={() => setDeletingBooking(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
                 <Trash2 className="w-6 h-6" />

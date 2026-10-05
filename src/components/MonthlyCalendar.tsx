@@ -1,11 +1,10 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Vehicle, Booking, User, BookingStatus, FuelLevel } from '../types';
 import {
   isUserAdmin,
   canUserViewBooking,
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
-  isUserApprover1,
 } from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
@@ -67,6 +66,8 @@ interface MonthlyCalendarProps {
   onOpenLineQuickApprove?: (booking: Booking, stage: 1 | 2, action?: 'approve' | 'reject' | 'review') => void;
   isLineModuleEnabled?: boolean;
   onUpdateUserLineId?: (userId: string, lineId: string) => void;
+  canEdit?: boolean;
+  viewOnly?: boolean;
 }
 
 const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
@@ -85,7 +86,10 @@ export default function MonthlyCalendar({
   onOpenLineQuickApprove,
   isLineModuleEnabled = true,
   onUpdateUserLineId,
+  canEdit = true,
+  viewOnly = false,
 }: MonthlyCalendarProps) {
+  const hasEditPermission = canEdit && !viewOnly;
   // Real-time current date
   const realTodayStr = getRealTodayStr();
   const todayDate = new Date();
@@ -276,21 +280,25 @@ export default function MonthlyCalendar({
     });
   };
 
-  // Eligible approvers: users with 'Approve 1' permission in same department/division (or all Approve 1 if toggled)
-  const sameDeptApprovers = useMemo(
+  // Eligible approvers: strictly users with 'Approve 1' permission in same department or division ONLY
+  const eligibleApprovers = useMemo(
     () => getEligibleStage1Approvers(users, currentUser),
     [users, currentUser]
   );
 
-  const allStage1Approvers = useMemo(
-    () => users.filter((u) => isUserApprover1(u)),
-    [users]
-  );
-
-  const eligibleApprovers = useMemo(
-    () => (showAllDeptApprovers ? allStage1Approvers : sameDeptApprovers),
-    [showAllDeptApprovers, allStage1Approvers, sameDeptApprovers]
-  );
+  // Ensure selectedApproverId always belongs to the current user's eligible department/division approvers
+  useEffect(() => {
+    if (eligibleApprovers.length > 0) {
+      if (!eligibleApprovers.some((a) => a.id === selectedApproverId)) {
+        const preferred =
+          eligibleApprovers.find((a) => a.id !== currentUser?.id) ||
+          eligibleApprovers[0];
+        setSelectedApproverId(preferred.id);
+      }
+    } else if (selectedApproverId !== '') {
+      setSelectedApproverId('');
+    }
+  }, [eligibleApprovers, currentUser, selectedApproverId]);
 
   const eligibleStage2Approvers = useMemo(
     () => getEligibleStage2Approvers(users, currentUser),
@@ -495,6 +503,7 @@ export default function MonthlyCalendar({
 
   // Open booking modal for a specific date (Strictly prevents booking in the past)
   const handleOpenBookingModal = (dateStr?: string, vehicleId?: string) => {
+    if (!hasEditPermission) return;
     const todayStr = getRealTodayStr();
     let targetDate = dateStr || selectedDateStr || todayStr;
     // Strict requirement: ห้ามจองย้อนหลัง! If user tries a past date, lock to today
@@ -608,11 +617,9 @@ export default function MonthlyCalendar({
       return;
     }
 
-    const chosenApprover =
-      allStage1Approvers.find((u) => u.id === selectedApproverId) ||
-      eligibleApprovers.find((u) => u.id === selectedApproverId);
+    const chosenApprover = eligibleApprovers.find((u) => u.id === selectedApproverId);
     if (!chosenApprover) {
-      setBookingError('ไม่พบข้อมูลผู้อนุมัติขั้นที่ 1 ที่ระบุ กรุณาเลือกใหม่อีกครั้ง');
+      setBookingError('ไม่พบข้อมูลผู้อนุมัติขั้นที่ 1 ในแผนกหรือฝ่ายของคุณ กรุณาเลือกผู้อนุมัติใหม่อีกครั้ง');
       return;
     }
 
@@ -749,20 +756,26 @@ export default function MonthlyCalendar({
               </div>
             ) : null}
 
-            <button
-              id="btn-quick-book-today"
-              onClick={() => handleOpenBookingModal(realTodayStr)}
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-900/30 flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
-            >
-              <Plus className="w-4 h-4" />
-              <span>กดจองรถทันที</span>
-            </button>
+            {hasEditPermission ? (
+              <button
+                id="btn-quick-book-today"
+                onClick={() => handleOpenBookingModal(realTodayStr)}
+                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-900/30 flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>กดจองรถทันที</span>
+              </button>
+            ) : (
+              <div className="px-3.5 py-2 bg-amber-500/20 border border-amber-300/40 text-amber-100 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                <span>🔒 โหมดดูได้อย่างเดียว (View Only)</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* User Active Approved Missions Banner & Prominent "เสร็จสิ้นภารกิจ" button */}
-      {myActiveBookings.length > 0 && (
+      {hasEditPermission && myActiveBookings.length > 0 && (
         <div id="user-active-missions-section" className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
@@ -877,6 +890,8 @@ export default function MonthlyCalendar({
         onSelectDate={handleSelectDate}
         onOpenBookingModal={handleOpenBookingModal}
         currentUser={currentUser}
+        canEdit={canEdit}
+        viewOnly={viewOnly}
       />
 
       {/* 3. Month Controls & Legend Bar */}
@@ -1042,7 +1057,7 @@ export default function MonthlyCalendar({
                     )}
 
                     {/* Quick Book button on cell (Only shown for today and future dates) */}
-                    {!day.isPast && (
+                    {hasEditPermission && !day.isPast && (
                       <button
                         id={`btn-cell-book-${day.dateStr}`}
                         type="button"
@@ -1104,15 +1119,17 @@ export default function MonthlyCalendar({
                 </div>
 
                 {/* Bottom hover action: Quick Book CTA */}
-                <div className="pt-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between text-[10px] text-indigo-600 font-semibold border-t border-indigo-100">
-                  <span className="flex items-center gap-0.5">
-                    <Plus className="w-3 h-3" />
-                    <span>จองรถ</span>
-                  </span>
-                  <span className="hidden sm:inline text-gray-400 font-normal text-[9px]">
-                    คลิกเพื่อจอง
-                  </span>
-                </div>
+                {hasEditPermission && !day.isPast && (
+                  <div className="pt-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between text-[10px] text-indigo-600 font-semibold border-t border-indigo-100">
+                    <span className="flex items-center gap-0.5">
+                      <Plus className="w-3 h-3" />
+                      <span>จองรถ</span>
+                    </span>
+                    <span className="hidden sm:inline text-gray-400 font-normal text-[9px]">
+                      คลิกเพื่อจอง
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1122,12 +1139,16 @@ export default function MonthlyCalendar({
       {/* 4. Quick Booking Modal (เมื่อกดที่วันที่ต้องการ จะเปิดให้จองรถได้เลยทันที) */}
       <AnimatePresence>
         {isBookingModalOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+            onClick={() => setIsBookingModalOpen(false)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
               <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-700 to-indigo-900 text-white flex items-center justify-between shrink-0">
@@ -1467,13 +1488,13 @@ export default function MonthlyCalendar({
                   </div>
                 </div>
 
-                {/* 4. Choose Approver 1 (เลือกผู้อนุมัติได้ตามสิทธิ์ Approve 1) */}
+                {/* 4. Choose Approver 1 (เฉพาะผู้อนุมัติในแผนกหรือฝ่ายเดียวกันเท่านั้น) */}
                 <div className="space-y-3 pt-2 border-t border-gray-100" id="booking-approver-selection-section">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                     <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-indigo-600" />
                       <span>
-                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1 ตามสิทธิ์ที่ได้รับ){' '}
+                        เลือกผู้อนุมัติขั้นที่ 1 (เฉพาะแผนก/ฝ่ายเดียวกัน){' '}
                         <span className="text-red-500">*</span>
                       </span>
                     </label>
@@ -1484,53 +1505,62 @@ export default function MonthlyCalendar({
                     </div>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    ดึงรายชื่อผู้มีสิทธิ์ <strong>Approve 1</strong> จากหน้ากำหนดผู้ใช้งานและบทบาทหน้าที่
+                    แสดงเฉพาะผู้มีสิทธิ์ <strong>Approve 1</strong> ที่สังกัดในแผนกหรือฝ่ายเดียวกับผู้ขอจอง ({currentUser?.department || '-'}{currentUser?.division ? ` • ${currentUser.division}` : ''}) เท่านั้น
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {eligibleApprovers.map((approver) => {
-                      const isSelected = selectedApproverId === approver.id;
+                  {eligibleApprovers.length === 0 ? (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        ไม่พบผู้อนุมัติขั้นที่ 1 (Approve 1) ในแผนกหรือฝ่ายของคุณ ({currentUser?.department || '-'}{currentUser?.division ? ` / ${currentUser.division}` : ''}) กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดผู้อนุมัติประจำแผนก/ฝ่าย
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {eligibleApprovers.map((approver) => {
+                        const isSelected = selectedApproverId === approver.id;
 
-                      return (
-                        <div
-                          key={approver.id}
-                          id={`approver-card-${approver.id}`}
-                          onClick={() => setSelectedApproverId(approver.id)}
-                          className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 ${
-                            isSelected
-                              ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-600/30 shadow-xs'
-                              : 'border-gray-200 hover:border-indigo-300 bg-white hover:bg-slate-50/50'
-                          }`}
-                        >
-                          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-2xs">
-                            {approver.name.substring(0, 2)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-bold text-gray-900 truncate block">
-                                {approver.name}{' '}
-                                {approver.employeeCode ? (
-                                  <span className="text-[10px] font-mono text-gray-500 font-normal">
-                                    [{approver.employeeCode}]
-                                  </span>
-                                ) : null}
-                              </span>
-                              {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                        return (
+                          <div
+                            key={approver.id}
+                            id={`approver-card-${approver.id}`}
+                            onClick={() => setSelectedApproverId(approver.id)}
+                            className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 ${
+                              isSelected
+                                ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-600/30 shadow-xs'
+                                : 'border-gray-200 hover:border-indigo-300 bg-white hover:bg-slate-50/50'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-2xs">
+                              {approver.name.substring(0, 2)}
                             </div>
-                            <span className="text-[11px] text-gray-600 block truncate font-medium">
-                              {approver.department}
-                              {approver.division ? ` • ${approver.division}` : ''}
-                            </span>
-                            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                              <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
-                                Approve 1
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold text-gray-900 truncate block">
+                                  {approver.name}{' '}
+                                  {approver.employeeCode ? (
+                                    <span className="text-[10px] font-mono text-gray-500 font-normal">
+                                      [{approver.employeeCode}]
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                              </div>
+                              <span className="text-[11px] text-gray-600 block truncate font-medium">
+                                {approver.department}
+                                {approver.division ? ` • ${approver.division}` : ''}
                               </span>
+                              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
+                                  Approve 1
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* 5. Purpose & Destination */}
@@ -1626,12 +1656,16 @@ export default function MonthlyCalendar({
       {/* 5. Day Bookings Details Drawer / Modal */}
       <AnimatePresence>
         {viewingDayBookings && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            onClick={() => setViewingDayBookings(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1719,7 +1753,11 @@ export default function MonthlyCalendar({
                 >
                   ปิด
                 </button>
-                {viewingDayBookings && !isDateInPast(viewingDayBookings) ? (
+                {!hasEditPermission ? (
+                  <span className="text-[11px] text-amber-700 font-medium">
+                    🔒 สิทธิ์ดูได้อย่างเดียว
+                  </span>
+                ) : viewingDayBookings && !isDateInPast(viewingDayBookings) ? (
                   <button
                     onClick={() => {
                       const date = viewingDayBookings;
@@ -1745,12 +1783,16 @@ export default function MonthlyCalendar({
       {/* MODAL: Departure Checklist (บันทึกข้อมูลก่อนออกเดินทาง) */}
       <AnimatePresence>
         {departureBooking && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setDepartureBooking(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[92vh] flex flex-col z-10"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2.5">
@@ -1938,12 +1980,16 @@ export default function MonthlyCalendar({
       {/* MODAL: Return Checklist & Complete Mission (เสร็จสิ้นภารกิจ & คืนรถ) */}
       <AnimatePresence>
         {returnBooking && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setReturnBooking(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[92vh] flex flex-col z-10"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2.5">
@@ -2271,8 +2317,14 @@ export default function MonthlyCalendar({
 
       {/* Photo Preview Modal */}
       {viewingPhoto && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => setViewingPhoto(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b pb-2">
               <span className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
                 <Camera className="w-4 h-4 text-indigo-600" />

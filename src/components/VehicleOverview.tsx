@@ -26,6 +26,8 @@ interface VehicleOverviewProps {
   onSelectDate: (dateStr: string) => void;
   onOpenBookingModal: (dateStr: string, vehicleId?: string) => void;
   currentUser: User | null;
+  canEdit?: boolean;
+  viewOnly?: boolean;
 }
 
 const VEHICLE_TYPE_LABELS: Record<VehicleType, string> = {
@@ -42,7 +44,10 @@ export default function VehicleOverview({
   onSelectDate,
   onOpenBookingModal,
   currentUser,
+  canEdit = true,
+  viewOnly = false,
 }: VehicleOverviewProps) {
+  const hasEditPermission = canEdit && !viewOnly;
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'booked' | 'maintenance'>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
 
@@ -174,7 +179,11 @@ export default function VehicleOverview({
 
           {/* Quick Action Button with anti-past booking rule */}
           <div className="flex items-center gap-2">
-            {isPast ? (
+            {!hasEditPermission ? (
+              <div className="px-3.5 py-2 bg-amber-50 text-amber-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-amber-200">
+                <span>🔒 สิทธิ์ดูได้อย่างเดียว (View Only)</span>
+              </div>
+            ) : isPast ? (
               <div className="px-3.5 py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-200">
                 <span>⚠️ วันที่ผ่านมาแล้ว (ห้ามจองย้อนหลัง)</span>
               </div>
@@ -443,7 +452,16 @@ export default function VehicleOverview({
                 {/* Card Action Button */}
                 <div className="pt-2">
                   {isAvailable ? (
-                    isPast ? (
+                    !hasEditPermission ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-1.5 px-3 bg-slate-100 text-slate-500 rounded-lg text-xs font-medium cursor-not-allowed text-center"
+                        title="สิทธิ์ดูได้อย่างเดียว"
+                      >
+                        🔒 ดูได้อย่างเดียว
+                      </button>
+                    ) : isPast ? (
                       <button
                         type="button"
                         disabled

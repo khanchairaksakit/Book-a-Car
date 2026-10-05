@@ -1,10 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, UserRole } from '../types';
+import {
+  User,
+  UserRole,
+  AppMenuKey,
+  StandardRole,
+  RolePermissionsMatrix,
+} from '../types';
 import { Language } from '../utils/translations';
 import {
   getUserRoles,
   hasRole,
   getRoleBadgeInfo,
+  STANDARD_ROLES,
+  MENU_DEFINITIONS,
+  DEFAULT_ROLE_PERMISSIONS,
+  isUserAdmin,
 } from '../utils/userHelpers';
 import {
   downloadUserExcelTemplate,
@@ -59,6 +69,11 @@ interface UserRegistrationProps {
   onDeleteUser: (userId: string) => void;
   language?: Language;
   isLineModuleEnabled?: boolean;
+  rolePermissions?: RolePermissionsMatrix;
+  onUpdateRolePermissions?: (matrix: RolePermissionsMatrix) => void;
+  canEdit?: boolean;
+  viewOnly?: boolean;
+  onlyShowPermissionsMatrix?: boolean;
 }
 
 export default function UserRegistration({
@@ -71,7 +86,72 @@ export default function UserRegistration({
   onDeleteUser,
   language = 'th',
   isLineModuleEnabled = true,
+  rolePermissions = DEFAULT_ROLE_PERMISSIONS,
+  onUpdateRolePermissions,
+  canEdit = true,
+  viewOnly = false,
+  onlyShowPermissionsMatrix = false,
 }: UserRegistrationProps) {
+  const hasEditPermission = canEdit && !viewOnly;
+  const canModifyPermissionsMatrix = isUserAdmin(currentUser);
+  const [permissionSavedNotice, setPermissionSavedNotice] = useState<string>('');
+
+  const handleToggleMatrixPermission = (
+    role: StandardRole,
+    menuKey: AppMenuKey,
+    field: 'viewOnly' | 'canEdit'
+  ) => {
+    if (!canModifyPermissionsMatrix || !onUpdateRolePermissions) return;
+
+    const currentCell = rolePermissions[role]?.[menuKey] || {
+      viewOnly: false,
+      canEdit: false,
+    };
+
+    let nextCell = { ...currentCell };
+    if (field === 'viewOnly') {
+      const nextViewOnly = !currentCell.viewOnly;
+      nextCell = {
+        viewOnly: nextViewOnly,
+        canEdit: nextViewOnly ? false : currentCell.canEdit,
+      };
+    } else {
+      const nextCanEdit = !currentCell.canEdit;
+      nextCell = {
+        viewOnly: nextCanEdit ? false : currentCell.viewOnly,
+        canEdit: nextCanEdit,
+      };
+    }
+
+    const updatedMatrix: RolePermissionsMatrix = {
+      ...rolePermissions,
+      [role]: {
+        ...rolePermissions[role],
+        [menuKey]: nextCell,
+      },
+    };
+
+    onUpdateRolePermissions(updatedMatrix);
+    const menuLabel = MENU_DEFINITIONS.find((m) => m.key === menuKey)?.label || menuKey;
+    const statusText = nextCell.canEdit
+      ? 'แก้ไขได้'
+      : nextCell.viewOnly
+      ? 'ดูได้อย่างเดียว'
+      : 'ปิดการเข้าถึง';
+    setPermissionSavedNotice(`อัปเดตสิทธิ์ "${role}" ในเมนู "${menuLabel}" เป็น [${statusText}] เรียบร้อยแล้ว`);
+    setTimeout(() => {
+      setPermissionSavedNotice('');
+    }, 3000);
+  };
+
+  const handleResetMatrixPermissions = () => {
+    if (!canModifyPermissionsMatrix || !onUpdateRolePermissions) return;
+    onUpdateRolePermissions(JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS)));
+    setPermissionSavedNotice('รีเซ็ตตารางกำหนดสิทธิกลับเป็นค่าเริ่มต้นเรียบร้อยแล้ว');
+    setTimeout(() => {
+      setPermissionSavedNotice('');
+    }, 3000);
+  };
   const [isEditing, setIsEditing] = useState<User | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
 
@@ -441,92 +521,283 @@ export default function UserRegistration({
   return (
     <div className="space-y-6" id="user-registration-section">
       {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-            <span>{isEn ? 'User Directory & Role Management' : 'กำหนดผู้ใช้งานและบทบาทหน้าที่ (User Management)'}</span>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
-              {users.length} {isEn ? 'Users' : 'บัญชี'}
-            </span>
-          </h2>
-          <p className="text-xs text-gray-500 mt-1">
-            {isEn
-              ? 'Configure employee details, department, division, and multi-roles (User, Approve, Admin). Supports Excel template download & bulk upload.'
-              : 'กำหนดข้อมูลพนักงาน แผนก ฝ่าย และบทบาทการใช้งาน (User, Approve, Admin โดย 1 คนสามารถมีได้หลายบทบาท) พร้อมระบบนำเข้าผ่าน Excel'}
-          </p>
+      {!onlyShowPermissionsMatrix && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2 flex-wrap">
+              <span>{isEn ? 'User Directory & Role Management' : 'กำหนดผู้ใช้งานและตารางกำหนดสิทธิ (User & Permission Management)'}</span>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                {users.length} {isEn ? 'Users' : 'บัญชี'}
+              </span>
+              {!hasEditPermission && (
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                  🔒 โหมดดูได้อย่างเดียว (View Only)
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              {isEn
+                ? 'Configure employee details, department, division, and multi-roles (User, Operator, Approve 1, Approve 2, Admin) along with the Role Permissions Matrix.'
+                : 'กำหนดข้อมูลพนักงาน แผนก ฝ่าย บทบาทการใช้งาน (User, Operator, Approve 1, Approve 2, Admin) และตารางกำหนดสิทธิการใช้งานแต่ละเมนู'}
+            </p>
+          </div>
+
+          {/* Action Buttons: Add, Download Template, Upload Excel */}
+          {hasEditPermission && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Download Template Button */}
+              <button
+                id="btn-download-excel-template"
+                type="button"
+                onClick={downloadUserExcelTemplate}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200 shadow-2xs"
+                title="ดาวน์โหลดไฟล์แบบฟอร์ม Excel (.xlsx) สำหรับกรอกข้อมูลผู้ใช้งาน"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                <span>{isEn ? 'Excel Template' : 'ดาวน์โหลด Template Excel'}</span>
+              </button>
+
+              {/* Upload Excel Button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx, .xls, .csv"
+                onChange={handleExcelFileChange}
+                className="hidden"
+                id="excel-file-uploader-input"
+              />
+              <button
+                id="btn-upload-user-excel"
+                type="button"
+                disabled={importLoading}
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                title="อัปโหลดไฟล์ Excel เพื่อนำเข้ารายชื่อผู้ใช้งานหลายคนพร้อมกัน"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
+              </button>
+
+              {/* Manage Departments and Divisions Button */}
+              <button
+                id="btn-manage-departments-divisions"
+                type="button"
+                onClick={() => setIsDeptDivModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-indigo-200 shadow-2xs"
+                title="กำหนดและจัดการรายชื่อแผนกและฝ่ายเอง"
+              >
+                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>{isEn ? 'Manage Dept & Div' : '🏢 กำหนดแผนกและฝ่าย'}</span>
+                <span className="text-[10px] bg-indigo-200/80 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
+                  {departments.length + divisions.length}
+                </span>
+              </button>
+
+              {/* Add Manual User Button */}
+              {onAddUser && (
+                <button
+                  id="btn-add-user-modal"
+                  onClick={startAddNew}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{isEn ? 'Add User' : 'เพิ่มผู้ใช้งาน'}</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ROLE PERMISSIONS MATRIX TABLE (ตารางกำหนดสิทธิ) */}
+      <div
+        id="role-permissions-matrix-section"
+        className="bg-white rounded-2xl border border-indigo-100 shadow-xs overflow-hidden"
+      >
+        <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Shield className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base sm:text-lg font-bold tracking-tight text-white">
+                ตารางกำหนดสิทธิการใช้งานตามบทบาท (Role Permissions Matrix)
+              </h3>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                5 เมนู × 5 บทบาท
+              </span>
+            </div>
+            <p className="text-xs text-slate-300">
+              ติ๊กเลือกช่อง <strong className="text-amber-300">ดูได้อย่างเดียว</strong> หรือ{' '}
+              <strong className="text-emerald-300">แก้ไขได้</strong> ในแต่ละเมนูและบทบาท ระบบจะปรับสิทธิ์การแสดงผลและการทำงานตามที่เลือกทันที
+            </p>
+          </div>
+
+          {canModifyPermissionsMatrix ? (
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                ✅ สิทธิ์ Admin (ปรับแก้ไขได้)
+              </span>
+              <button
+                id="btn-reset-role-permissions"
+                type="button"
+                onClick={handleResetMatrixPermissions}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold border border-white/15 transition-colors cursor-pointer"
+                title="คืนค่าตารางกำหนดสิทธิกลับเป็นค่ามาตรฐาน"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>รีเซ็ตค่าเริ่มต้น</span>
+              </button>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 text-amber-200 rounded-xl text-xs font-bold border border-amber-400/30 shrink-0 self-start sm:self-auto">
+              <Lock className="w-3.5 h-3.5" />
+              <span>เฉพาะบทบาท Admin เท่านั้นที่ปรับแก้ไขได้</span>
+            </div>
+          )}
         </div>
 
-        {/* Action Buttons: Add, Download Template, Upload Excel */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Download Template Button */}
-          <button
-            id="btn-download-excel-template"
-            type="button"
-            onClick={downloadUserExcelTemplate}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200 shadow-2xs"
-            title="ดาวน์โหลดไฟล์แบบฟอร์ม Excel (.xlsx) สำหรับกรอกข้อมูลผู้ใช้งาน"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-600" />
-            <span>{isEn ? 'Excel Template' : 'ดาวน์โหลด Template Excel'}</span>
-          </button>
+        {permissionSavedNotice && (
+          <div className="px-5 py-2.5 bg-emerald-50 border-b border-emerald-200 text-xs text-emerald-800 flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{permissionSavedNotice}</span>
+          </div>
+        )}
 
-          {/* Upload Excel Button */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx, .xls, .csv"
-            onChange={handleExcelFileChange}
-            className="hidden"
-            id="excel-file-uploader-input"
-          />
-          <button
-            id="btn-upload-user-excel"
-            type="button"
-            disabled={importLoading}
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-            title="อัปโหลดไฟล์ Excel เพื่อนำเข้ารายชื่อผู้ใช้งานหลายคนพร้อมกัน"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
-          </button>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100/90 border-b border-gray-200 text-gray-800">
+                <th className="py-3.5 px-4 font-bold text-xs min-w-[210px] border-r border-gray-200">
+                  เมนูการใช้งาน (Menu)
+                </th>
+                {STANDARD_ROLES.map((role) => {
+                  const badge = getRoleBadgeInfo(role, isEn);
+                  const isCurrentUserRole = currentUser ? getUserRoles(currentUser).includes(role) : false;
+                  return (
+                    <th
+                      key={role}
+                      className={`py-3 px-3 font-bold text-center min-w-[155px] border-r border-gray-200 last:border-r-0 ${
+                        isCurrentUserRole ? 'bg-indigo-50/80' : ''
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badge.bg} ${badge.text} ${badge.border}`}
+                        >
+                          {role}
+                        </span>
+                        {isCurrentUserRole && (
+                          <span className="text-[10px] font-bold text-indigo-700">
+                            (บทบาทของคุณ)
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {MENU_DEFINITIONS.map((menu, idx) => (
+                <tr
+                  key={menu.key}
+                  className={idx % 2 === 0 ? 'bg-white hover:bg-slate-50/70' : 'bg-slate-50/40 hover:bg-slate-50/90'}
+                >
+                  <td className="py-3.5 px-4 border-r border-gray-200 align-middle">
+                    <div className="font-bold text-gray-900 text-xs sm:text-sm">
+                      {menu.label}
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      {menu.description}
+                    </div>
+                  </td>
 
-          {/* Manage Departments and Divisions Button */}
-          <button
-            id="btn-manage-departments-divisions"
-            type="button"
-            onClick={() => setIsDeptDivModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-indigo-200 shadow-2xs"
-            title="กำหนดและจัดการรายชื่อแผนกและฝ่ายเอง"
-          >
-            <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-            <span>{isEn ? 'Manage Dept & Div' : '🏢 กำหนดแผนกและฝ่าย'}</span>
-            <span className="text-[10px] bg-indigo-200/80 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
-              {departments.length + divisions.length}
-            </span>
-          </button>
+                  {STANDARD_ROLES.map((role) => {
+                    const cell = rolePermissions[role]?.[menu.key] || {
+                      viewOnly: false,
+                      canEdit: false,
+                    };
+                    const isCurrentUserRole = currentUser ? getUserRoles(currentUser).includes(role) : false;
+                    return (
+                      <td
+                        key={`${menu.key}-${role}`}
+                        className={`py-3 px-3 border-r border-gray-200 last:border-r-0 align-middle ${
+                          isCurrentUserRole ? 'bg-indigo-50/30' : ''
+                        }`}
+                      >
+                        <div className="flex flex-col gap-2 max-w-[145px] mx-auto">
+                          {/* Checkbox 1: ดูได้อย่างเดียว */}
+                          <label
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all ${
+                              !canModifyPermissionsMatrix
+                                ? 'cursor-not-allowed opacity-75'
+                                : 'cursor-pointer'
+                            } ${
+                              cell.viewOnly
+                                ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold shadow-2xs'
+                                : 'bg-white border-gray-200 text-gray-600 hover:border-amber-200'
+                            }`}
+                          >
+                            <input
+                              id={`perm-check-${menu.key}-${role.replace(/\s+/g, '')}-viewOnly`}
+                              type="checkbox"
+                              checked={cell.viewOnly}
+                              disabled={!canModifyPermissionsMatrix}
+                              onChange={() =>
+                                handleToggleMatrixPermission(role, menu.key, 'viewOnly')
+                              }
+                              className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] leading-tight select-none">
+                              ดูได้อย่างเดียว
+                            </span>
+                          </label>
 
-          {/* Add Manual User Button */}
-          {onAddUser && (
-            <button
-              id="btn-add-user-modal"
-              onClick={startAddNew}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>{isEn ? 'Add User' : 'เพิ่มผู้ใช้งาน'}</span>
-            </button>
-          )}
+                          {/* Checkbox 2: แก้ไขได้ */}
+                          <label
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all ${
+                              !canModifyPermissionsMatrix
+                                ? 'cursor-not-allowed opacity-75'
+                                : 'cursor-pointer'
+                            } ${
+                              cell.canEdit
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-900 font-bold shadow-2xs'
+                                : 'bg-white border-gray-200 text-gray-600 hover:border-emerald-200'
+                            }`}
+                          >
+                            <input
+                              id={`perm-check-${menu.key}-${role.replace(/\s+/g, '')}-canEdit`}
+                              type="checkbox"
+                              checked={cell.canEdit}
+                              disabled={!canModifyPermissionsMatrix}
+                              onChange={() =>
+                                handleToggleMatrixPermission(role, menu.key, 'canEdit')
+                              }
+                              className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] leading-tight select-none">
+                              แก้ไขได้
+                            </span>
+                          </label>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
       {/* Success Notification Banner */}
-      {importSuccessMsg && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 shadow-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span className="font-semibold">{importSuccessMsg}</span>
-        </div>
-      )}
+      {!onlyShowPermissionsMatrix && (
+        <>
+          {importSuccessMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 shadow-xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-semibold">{importSuccessMsg}</span>
+            </div>
+          )}
 
       {/* Active User Banner */}
       {currentUser && (
@@ -626,8 +897,8 @@ export default function UserRegistration({
           </div>
 
           {/* Role Filter */}
-          <div className="flex items-center gap-1">
-            {['All', 'Admin', 'Approve 1', 'Approve 2', 'User'].map((r) => (
+          <div className="flex items-center gap-1 flex-wrap">
+            {['All', 'User', 'Operator', 'Approve 1', 'Approve 2', 'Admin'].map((r) => (
               <button
                 key={r}
                 type="button"
@@ -817,7 +1088,7 @@ export default function UserRegistration({
                         <Phone className="w-3 h-3 text-gray-400" />
                         <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
                       </span>
-                      {isLineModuleEnabled && (
+                      {isLineModuleEnabled && hasEditPermission && (
                         user.lineUserId ? (
                           <button
                             type="button"
@@ -854,24 +1125,26 @@ export default function UserRegistration({
                       </span>
                     )}
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        id={`btn-edit-user-${user.id}`}
-                        onClick={() => startEdit(user)}
-                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
-                        title={isEn ? 'Edit Info & Roles' : 'แก้ไขข้อมูลและบทบาท'}
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        id={`btn-delete-user-${user.id}`}
-                        onClick={() => setDeletingUser(user)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                        title={isEn ? 'Delete Account' : 'ลบผู้ใช้'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {hasEditPermission && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          id={`btn-edit-user-${user.id}`}
+                          onClick={() => startEdit(user)}
+                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
+                          title={isEn ? 'Edit Info & Roles' : 'แก้ไขข้อมูลและบทบาท'}
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          id={`btn-delete-user-${user.id}`}
+                          onClick={() => setDeletingUser(user)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                          title={isEn ? 'Delete Account' : 'ลบผู้ใช้'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -883,12 +1156,16 @@ export default function UserRegistration({
       {/* Add / Edit User Modal Dialog */}
       <AnimatePresence>
         {(isEditing || isAddingNew) && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={resetForm}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8 space-y-4 max-h-[90vh] flex flex-col z-10"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-gray-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2.5">
@@ -1182,7 +1459,31 @@ export default function UserRegistration({
                         </div>
                       </label>
 
-                      {/* Role 2: Approve 1 */}
+                      {/* Role 2: Operator */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
+                          roles.includes('Operator')
+                            ? 'bg-amber-50/70 border-amber-400 shadow-2xs'
+                            : 'border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roles.includes('Operator')}
+                          onChange={() => handleToggleRole('Operator')}
+                          className="mt-0.5 rounded text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-amber-900 block">
+                            Operator (เจ้าหน้าที่ดูแลรถส่วนกลาง)
+                          </span>
+                          <span className="text-[10px] text-amber-700 block">
+                            จัดการข้อมูลรถยนต์ ตรวจสอบสถานะ และดูแลรายงานการใช้รถตามตารางกำหนดสิทธิ
+                          </span>
+                        </div>
+                      </label>
+
+                      {/* Role 3: Approve 1 */}
                       <label
                         className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${
                           roles.includes('Approve 1') || roles.includes('Approve' as any)
@@ -1391,8 +1692,17 @@ export default function UserRegistration({
 
       {/* Excel Import Preview Modal */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] flex flex-col">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            setIsImportModalOpen(false);
+            setParsedRows([]);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center gap-2 text-emerald-700">
                 <FileSpreadsheet className="w-5 h-5" />
@@ -1532,8 +1842,14 @@ export default function UserRegistration({
 
       {/* Delete User Custom Modal */}
       {deletingUser && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => setDeletingUser(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-3 text-red-600">
               <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center font-bold text-lg shrink-0">
                 🗑️
@@ -1597,6 +1913,8 @@ export default function UserRegistration({
         onRenameDivision={handleRenameDivision}
         language={language}
       />
+        </>
+      )}
     </div>
   );
 }

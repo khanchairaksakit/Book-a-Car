@@ -37,7 +37,21 @@ export interface Vehicle {
   tireChangeDate?: string; // วันที่เปลี่ยนยางล่าสุด (YYYY-MM-DD)
 }
 
-export type UserRole = 'User' | 'Approve 1' | 'Approve 2' | 'Admin' | 'Approve';
+export type UserRole = 'User' | 'Operator' | 'Approve 1' | 'Approve 2' | 'Admin' | 'Approve';
+
+export type AppMenuKey = 'calendar' | 'booking' | 'vehicles' | 'report' | 'users';
+
+export interface MenuPermissionSetting {
+  viewOnly: boolean; // ดูได้อย่างเดียว
+  canEdit: boolean;  // แก้ไขได้
+}
+
+export type StandardRole = 'User' | 'Operator' | 'Approve 1' | 'Approve 2' | 'Admin';
+
+export type RolePermissionsMatrix = Record<
+  StandardRole,
+  Record<AppMenuKey, MenuPermissionSetting>
+>;
 
 export interface User {
   id: string;
@@ -47,7 +61,7 @@ export interface User {
   division?: string; // ฝ่าย
   phone: string; // เบอร์โทร
   email: string; // อีเมล
-  roles?: UserRole[]; // บทบาทการใช้งาน (User, Approve 1, Approve 2, Admin)
+  roles?: UserRole[]; // บทบาทการใช้งาน (User, Operator, Approve 1, Approve 2, Admin)
   role?: 'User' | 'Admin'; // legacy fallback
   username?: string; // สำหรับล็อกอินด้วย user
   password?: string; // รหัสผ่านสำหรับล็อกอิน

@@ -101,12 +101,9 @@ export default function LineQuickApproveModal({
     [users, booking?.userId]
   );
 
-  // Eligible Stage 1 approvers (same department / Approve 1 permission)
+  // Eligible Stage 1 approvers (same department/division Approve 1 permission)
   const stage1ApproverCandidates = useMemo(() => {
-    const sameDeptList = getEligibleStage1Approvers(users, requesterUser);
-    if (sameDeptList.length > 0) return sameDeptList;
-    const allApp1 = users.filter((u) => isUserApprover1(u));
-    return allApp1.length > 0 ? allApp1 : users;
+    return getEligibleStage1Approvers(users, requesterUser);
   }, [users, requesterUser]);
 
   // Eligible Stage 2 approvers (Approve 2 permission)
@@ -409,8 +406,14 @@ export default function LineQuickApproveModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-gray-100 overflow-hidden my-auto">
+    <div
+      className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-gray-100 overflow-hidden my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Top Official LINE Header */}
         <div className="p-4 sm:p-5 bg-gradient-to-r from-[#06C755] to-emerald-600 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">

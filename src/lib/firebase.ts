@@ -3,14 +3,21 @@ import {
   getFirestore,
   collection,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   deleteDoc,
   writeBatch,
   getDocFromServer
 } from 'firebase/firestore';
-import { Vehicle, User, Booking } from '../types';
+import { Vehicle, User, Booking, RolePermissionsMatrix } from '../types';
 import { INITIAL_VEHICLES, INITIAL_USERS, INITIAL_BOOKINGS } from '../data/mockData';
+import {
+  DEFAULT_ROLE_PERMISSIONS,
+  normalizeRolePermissionsMatrix,
+  getStoredRolePermissions,
+  saveStoredRolePermissions,
+} from '../utils/userHelpers';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -204,3 +211,45 @@ export async function resetFirestoreData(): Promise<{ vehicles: Vehicle[]; users
     bookings: INITIAL_BOOKINGS
   };
 }
+
+// Role Permissions Matrix CRUD
+export async function getRolePermissions(): Promise<RolePermissionsMatrix> {
+  try {
+    const docRef = doc(db, 'settings', 'role_permissions');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data?.matrix) {
+        const normalized = normalizeRolePermissionsMatrix(data.matrix);
+        saveStoredRolePermissions(normalized);
+        return normalized;
+      }
+    }
+    const localMatrix = getStoredRolePermissions();
+    await setDoc(docRef, {
+      id: 'role_permissions',
+      matrix: localMatrix,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+    return localMatrix;
+  } catch (error) {
+    console.error('Error fetching role permissions from Firestore:', error);
+    return getStoredRolePermissions();
+  }
+}
+
+export async function saveRolePermissions(matrix: RolePermissionsMatrix): Promise<void> {
+  const normalized = normalizeRolePermissionsMatrix(matrix);
+  saveStoredRolePermissions(normalized);
+  try {
+    const docRef = doc(db, 'settings', 'role_permissions');
+    await setDoc(docRef, {
+      id: 'role_permissions',
+      matrix: normalized,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error saving role permissions to Firestore:', error);
+  }
+}
+

@@ -27,6 +27,8 @@ interface FleetReportProps {
   users: User[];
   currentUser: User | null;
   language?: Language;
+  canEdit?: boolean;
+  viewOnly?: boolean;
 }
 
 export default function FleetReport({
@@ -35,6 +37,8 @@ export default function FleetReport({
   users,
   currentUser,
   language = 'th',
+  canEdit = true,
+  viewOnly = false,
 }: FleetReportProps) {
   const isEn = language === 'en';
 
@@ -277,25 +281,33 @@ export default function FleetReport({
         </div>
 
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          <button
-            id="btn-export-excel-report"
-            onClick={handleExportExcel}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer hover:scale-[1.02]"
-            title="ดาวน์โหลดไฟล์ Excel (.xlsx)"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>{isEn ? 'Export Excel' : 'ส่งออก Excel'}</span>
-          </button>
+          {canEdit && !viewOnly ? (
+            <>
+              <button
+                id="btn-export-excel-report"
+                onClick={handleExportExcel}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer hover:scale-[1.02]"
+                title="ดาวน์โหลดไฟล์ Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>{isEn ? 'Export Excel' : 'ส่งออก Excel'}</span>
+              </button>
 
-          <button
-            id="btn-print-fleet-report"
-            onClick={handlePrint}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer hover:scale-[1.02]"
-            title="สั่งพิมพ์รายงาน หรือ บันทึกเป็น PDF"
-          >
-            <Printer className="w-4 h-4" />
-            <span>{isEn ? 'Print Report' : 'พิมพ์รายงาน (Print)'}</span>
-          </button>
+              <button
+                id="btn-print-fleet-report"
+                onClick={handlePrint}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer hover:scale-[1.02]"
+                title="สั่งพิมพ์รายงาน หรือ บันทึกเป็น PDF"
+              >
+                <Printer className="w-4 h-4" />
+                <span>{isEn ? 'Print Report' : 'พิมพ์รายงาน (Print)'}</span>
+              </button>
+            </>
+          ) : (
+            <div className="px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
+              <span>👁️ โหมดดูได้อย่างเดียว (ตามตารางกำหนดสิทธิ)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -718,8 +730,14 @@ export default function FleetReport({
 
       {/* Photo Preview Modal */}
       {viewingPhoto && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3">
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => setViewingPhoto(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b pb-2">
               <span className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
                 <Camera className="w-4 h-4 text-indigo-600" />

@@ -229,8 +229,14 @@ export default function LineShareApprovalModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[93vh] flex flex-col shadow-2xl border border-gray-100 overflow-hidden my-auto">
+    <div
+      className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl max-w-4xl w-full max-h-[93vh] flex flex-col shadow-2xl border border-gray-100 overflow-hidden my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 bg-gradient-to-r from-[#06C755] via-[#05b34c] to-emerald-700 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
