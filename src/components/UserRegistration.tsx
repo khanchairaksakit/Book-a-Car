@@ -631,23 +631,7 @@ export default function UserRegistration({
             </p>
           </div>
 
-          {canModifyPermissionsMatrix ? (
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-              <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                ✅ สิทธิ์ Admin (ปรับแก้ไขได้)
-              </span>
-              <button
-                id="btn-reset-role-permissions"
-                type="button"
-                onClick={handleResetMatrixPermissions}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold border border-white/15 transition-colors cursor-pointer"
-                title="คืนค่าตารางกำหนดสิทธิกลับเป็นค่ามาตรฐาน"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>รีเซ็ตค่าเริ่มต้น</span>
-              </button>
-            </div>
-          ) : (
+          {!canModifyPermissionsMatrix && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 text-amber-200 rounded-xl text-xs font-bold border border-amber-400/30 shrink-0 self-start sm:self-auto">
               <Lock className="w-3.5 h-3.5" />
               <span>เฉพาะบทบาท Admin เท่านั้นที่ปรับแก้ไขได้</span>
@@ -671,13 +655,10 @@ export default function UserRegistration({
                 </th>
                 {STANDARD_ROLES.map((role) => {
                   const badge = getRoleBadgeInfo(role, isEn);
-                  const isCurrentUserRole = currentUser ? getUserRoles(currentUser).includes(role) : false;
                   return (
                     <th
                       key={role}
-                      className={`py-3 px-3 font-bold text-center min-w-[155px] border-r border-gray-200 last:border-r-0 ${
-                        isCurrentUserRole ? 'bg-indigo-50/80' : ''
-                      }`}
+                      className="py-3 px-3 font-bold text-center min-w-[155px] border-r border-gray-200 last:border-r-0"
                     >
                       <div className="flex flex-col items-center gap-1">
                         <span
@@ -685,11 +666,6 @@ export default function UserRegistration({
                         >
                           {role}
                         </span>
-                        {isCurrentUserRole && (
-                          <span className="text-[10px] font-bold text-indigo-700">
-                            (บทบาทของคุณ)
-                          </span>
-                        )}
                       </div>
                     </th>
                   );
@@ -716,13 +692,10 @@ export default function UserRegistration({
                       viewOnly: false,
                       canEdit: false,
                     };
-                    const isCurrentUserRole = currentUser ? getUserRoles(currentUser).includes(role) : false;
                     return (
                       <td
                         key={`${menu.key}-${role}`}
-                        className={`py-3 px-3 border-r border-gray-200 last:border-r-0 align-middle ${
-                          isCurrentUserRole ? 'bg-indigo-50/30' : ''
-                        }`}
+                        className="py-3 px-3 border-r border-gray-200 last:border-r-0 align-middle"
                       >
                         <div className="flex flex-col gap-2 max-w-[145px] mx-auto">
                           {/* Checkbox 1: ดูได้อย่างเดียว */}
