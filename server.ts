@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -39,6 +40,64 @@ const recentLineEvents: RecentLineEvent[] = [];
 const knownGroupIds = new Set<string>();
 if (process.env.LINE_GROUP_ID && process.env.LINE_GROUP_ID.trim()) {
   knownGroupIds.add(process.env.LINE_GROUP_ID.trim());
+}
+
+// Persistent server-side booking store to guarantee zero data loss across users/sessions
+const DATA_DIR = path.join(__dirname, 'data');
+const BOOKINGS_STORE_FILE = path.join(DATA_DIR, 'bookings_store.json');
+
+interface BookingsStoreData {
+  bookings: Record<string, any>;
+  deletedIds: string[];
+}
+
+function readBookingsStore(): BookingsStoreData {
+  try {
+    if (fs.existsSync(BOOKINGS_STORE_FILE)) {
+      const raw = fs.readFileSync(BOOKINGS_STORE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return {
+        bookings: parsed?.bookings && typeof parsed.bookings === 'object' ? parsed.bookings : {},
+        deletedIds: Array.isArray(parsed?.deletedIds) ? parsed.deletedIds : [],
+      };
+    }
+  } catch (err) {
+    console.error('Error reading bookings store:', err);
+  }
+  return { bookings: {}, deletedIds: [] };
+}
+
+function writeBookingsStore(store: BookingsStoreData): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(BOOKINGS_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error writing bookings store:', err);
+  }
+}
+
+let serverBookingsStore: BookingsStoreData = readBookingsStore();
+
+function upsertServerBooking(booking: any): void {
+  if (!booking || !booking.id) return;
+  serverBookingsStore.bookings[booking.id] = {
+    ...(serverBookingsStore.bookings[booking.id] || {}),
+    ...booking,
+    updatedAtServer: new Date().toISOString(),
+  };
+  serverBookingsStore.deletedIds = serverBookingsStore.deletedIds.filter((id) => id !== booking.id);
+  writeBookingsStore(serverBookingsStore);
+}
+
+function deleteServerBooking(bookingId: string): void {
+  if (!bookingId) return;
+  delete serverBookingsStore.bookings[bookingId];
+  if (!serverBookingsStore.deletedIds.includes(bookingId)) {
+    serverBookingsStore.deletedIds.push(bookingId);
+  }
+  writeBookingsStore(serverBookingsStore);
 }
 
 // Default Channel ID & Secret provided by user for AX Car Reservation (@479mbfhu)
@@ -493,6 +552,9 @@ app.post('/api/line/send-approval', async (req, res) => {
       return;
     }
 
+    // Ensure booking is persisted on server immediately
+    upsertServerBooking(booking);
+
     const flexMessage = buildBookingFlexMessage({
       booking,
       stage,
@@ -719,6 +781,47 @@ app.post('/api/line/ack-webhook-action', (req, res) => {
     found.processed = true;
   }
   res.json({ ok: true });
+});
+
+// 5. Server-side Bookings Sync & Persistence Endpoints
+app.get('/api/bookings', (_req, res) => {
+  const list = Object.values(serverBookingsStore.bookings).filter(
+    (b: any) => b && b.id && !serverBookingsStore.deletedIds.includes(b.id)
+  );
+  list.sort(
+    (a: any, b: any) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+  res.json({
+    bookings: list,
+    deletedIds: serverBookingsStore.deletedIds,
+  });
+});
+
+app.post('/api/bookings', (req, res) => {
+  const body = req.body || {};
+  if (Array.isArray(body.bookings)) {
+    for (const b of body.bookings) {
+      if (b && b.id && !serverBookingsStore.deletedIds.includes(b.id)) {
+        upsertServerBooking(b);
+      }
+    }
+    res.json({ ok: true, count: Object.keys(serverBookingsStore.bookings).length });
+    return;
+  }
+  const booking = body.booking || body;
+  if (!booking || !booking.id) {
+    res.status(400).json({ error: 'Invalid booking payload' });
+    return;
+  }
+  upsertServerBooking(booking);
+  res.json({ ok: true, booking: serverBookingsStore.bookings[booking.id] });
+});
+
+app.delete('/api/bookings/:id', (req, res) => {
+  const bookingId = req.params.id;
+  deleteServerBooking(bookingId);
+  res.json({ ok: true, deletedId: bookingId });
 });
 
 async function startServer() {

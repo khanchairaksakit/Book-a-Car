@@ -3,6 +3,7 @@ import { Vehicle, Booking, User, BookingStatus, FuelLevel } from '../types';
 import {
   isUserAdmin,
   canUserViewBooking,
+  canUserApproveBooking,
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
 } from '../utils/userHelpers';
@@ -58,7 +59,7 @@ interface MonthlyCalendarProps {
   currentUser: User | null;
   users: User[];
   onSelectUser?: (user: User) => void;
-  onAddBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
+  onAddBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => void | Promise<void>;
   onUpdateBookingStatus?: (bookingId: string, status: BookingStatus, extraData?: Partial<Booking>) => void;
   onNavigateToBookingList: () => void;
   onNavigateToVehicles: () => void;
@@ -107,15 +108,15 @@ export default function MonthlyCalendar({
     );
   }, [bookings, currentUser]);
 
-  // Pending bookings ready for LINE approval / sharing
+  // Pending bookings ready for approval / status tracking
   const pendingLineBookings = useMemo(() => {
-    if (!currentUser || !isLineModuleEnabled) return [];
+    if (!currentUser) return [];
     return bookings.filter(
       (b) =>
         (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
         canUserViewBooking(b, currentUser, users)
     );
-  }, [bookings, currentUser, users, isLineModuleEnabled]);
+  }, [bookings, currentUser, users]);
 
   // Trip Checklist Modals for departure and return
   const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
@@ -258,6 +259,7 @@ export default function MonthlyCalendar({
   const [passengersCount, setPassengersCount] = useState<number>(1);
   const [bookingError, setBookingError] = useState<string>('');
   const [bookingSuccess, setBookingSuccess] = useState<string>('');
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   // Real-time Camera Capture Modal State
   const [cameraModalConfig, setCameraModalConfig] = useState<{
@@ -280,10 +282,10 @@ export default function MonthlyCalendar({
     });
   };
 
-  // Eligible approvers: strictly users with 'Approve 1' permission in same department or division ONLY
+  // Eligible approvers: users with 'Approve 1' permission (same dept/div prioritized, or all if toggled/fallback)
   const eligibleApprovers = useMemo(
-    () => getEligibleStage1Approvers(users, currentUser),
-    [users, currentUser]
+    () => getEligibleStage1Approvers(users, currentUser, showAllDeptApprovers),
+    [users, currentUser, showAllDeptApprovers]
   );
 
   // Ensure selectedApproverId always belongs to the current user's eligible department/division approvers
@@ -580,8 +582,9 @@ export default function MonthlyCalendar({
   };
 
   // Submit Quick Booking
-  const handleConfirmBooking = (e: React.FormEvent) => {
+  const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingBooking) return;
     setBookingError('');
     setBookingSuccess('');
 
@@ -612,14 +615,14 @@ export default function MonthlyCalendar({
       return;
     }
 
-    if (!selectedApproverId) {
-      setBookingError('กรุณาเลือกผู้อนุมัติการจองรถ');
-      return;
-    }
+    const chosenApprover =
+      eligibleApprovers.find((u) => u.id === selectedApproverId) ||
+      users.find((u) => u.id === selectedApproverId) ||
+      eligibleApprovers[0] ||
+      null;
 
-    const chosenApprover = eligibleApprovers.find((u) => u.id === selectedApproverId);
     if (!chosenApprover) {
-      setBookingError('ไม่พบข้อมูลผู้อนุมัติขั้นที่ 1 ในแผนกหรือฝ่ายของคุณ กรุณาเลือกผู้อนุมัติใหม่อีกครั้ง');
+      setBookingError('กรุณาเลือกผู้อนุมัติการจองรถ');
       return;
     }
 
@@ -673,7 +676,7 @@ export default function MonthlyCalendar({
       endDate: endIso,
       purpose: purpose.trim(),
       destination: destination.trim(),
-      passengersCount: Number(passengersCount) || 1,
+      passengersCount: Math.max(1, Number(passengersCount) || 1),
       status: (isSelfApproval ? 'Approved' : 'Pending') as BookingStatus,
       assignedApproverId: chosenApprover.id,
       assignedApproverName: chosenApprover.name,
@@ -686,20 +689,28 @@ export default function MonthlyCalendar({
       approvedAt: isSelfApproval ? new Date().toISOString() : undefined,
     };
 
-    onAddBooking(newBookingData);
-    setBookingSuccess(
-      isSelfApproval
-        ? `จองรถสำเร็จ (หมายเลขใบงาน: ${jobNumber}) และได้รับการอนุมัติทันทีในฐานะผู้ดูแลระบบ!`
-        : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว (หมายเลขใบงาน: ${jobNumber}) รอคุณ ${chosenApprover.name} (${chosenApprover.division || chosenApprover.department}) พิจารณาอนุมัติขั้นที่ 1`
-    );
+    try {
+      setIsSubmittingBooking(true);
+      await onAddBooking(newBookingData);
+      handleSelectDate(selectedDateStr);
+      setBookingSuccess(
+        isSelfApproval
+          ? `จองรถสำเร็จ (หมายเลขใบงาน: ${jobNumber}) และได้รับการอนุมัติทันทีในฐานะผู้ดูแลระบบ!`
+          : `ส่งคำขอจองรถยนต์เรียบร้อยแล้ว (หมายเลขใบงาน: ${jobNumber}) รอคุณ ${chosenApprover.name} (${chosenApprover.division || chosenApprover.department}) พิจารณาอนุมัติขั้นที่ 1`
+      );
 
-    // Reset fields
-    setTimeout(() => {
-      setIsBookingModalOpen(false);
-      setDestination('');
-      setPurpose('');
-      setBookingSuccess('');
-    }, 1200);
+      setTimeout(() => {
+        setIsBookingModalOpen(false);
+        setDestination('');
+        setPurpose('');
+        setBookingSuccess('');
+        setIsSubmittingBooking(false);
+      }, 900);
+    } catch (err) {
+      console.error('Error submitting booking:', err);
+      setBookingError('เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง');
+      setIsSubmittingBooking(false);
+    }
   };
 
   // Month stats
@@ -882,10 +893,151 @@ export default function MonthlyCalendar({
         </div>
       )}
 
+      {/* Pending Bookings & Quick Approval Section (Visible to Requesters & Approvers immediately) */}
+      {pendingLineBookings.length > 0 && (
+        <div
+          id="pending-approvals-home-section"
+          className="bg-white rounded-2xl border border-amber-200 p-4 sm:p-5 shadow-xs space-y-3"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-100 pb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
+              <h2 className="text-sm sm:text-base font-bold text-gray-900">
+                รายการคำขอจองรถที่รอการพิจารณาอนุมัติ ({pendingLineBookings.length} รายการ)
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToBookingList}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+            >
+              <span>ไปที่หน้าตรวจสอบสถานะและอนุมัติทั้งหมด</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {pendingLineBookings.slice(0, 6).map((b) => {
+              const canApproveThis =
+                hasEditPermission && canUserApproveBooking(b, currentUser, users);
+              const isStage2 = b.status === 'Pending_Approve2';
+              return (
+                <div
+                  key={b.id}
+                  id={`home-pending-card-${b.id}`}
+                  className="p-4 rounded-xl border border-amber-200/90 bg-amber-50/30 flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 text-white">
+                            📄 {getBookingJobNumber(b)}
+                          </span>
+                          <span className="font-bold text-gray-900 text-xs sm:text-sm">
+                            {b.vehicleName}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          ผู้ขอจอง: <strong>{b.userName}</strong> ({b.userDepartment || '-'})
+                        </p>
+                      </div>
+
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${
+                          isStage2
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                        }`}
+                      >
+                        {isStage2
+                          ? `⏳ รอ Approve 2 (${b.stage2ApproverName || 'ขั้นที่ 2'})`
+                          : `⏳ รอ Approve 1 (${b.assignedApproverName || 'ขั้นที่ 1'})`}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-gray-700 bg-white/90 p-2.5 rounded-lg border border-amber-100 space-y-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-mono text-gray-700">
+                        <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span>{formatTripDateTime(b.startDate, b.endDate)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                        <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <span className="truncate">
+                          <strong>ปลายทาง:</strong> {b.destination} • <strong>วัตถุประสงค์:</strong> {b.purpose}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={onNavigateToBookingList}
+                      className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
+                    >
+                      ดูรายละเอียดใบงาน →
+                    </button>
+
+                    {canApproveThis && onUpdateBookingStatus && (
+                      <div className="flex items-center gap-1.5">
+                        {b.status === 'Pending' ? (
+                          <button
+                            id={`btn-home-approve1-${b.id}`}
+                            type="button"
+                            onClick={() =>
+                              onUpdateBookingStatus(b.id, 'Pending_Approve2', {
+                                stage1ApprovedBy: currentUser?.name || 'Approve 1',
+                                stage1ApprovedAt: new Date().toISOString(),
+                              })
+                            }
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>อนุมัติขั้นที่ 1</span>
+                          </button>
+                        ) : (
+                          <button
+                            id={`btn-home-approve2-${b.id}`}
+                            type="button"
+                            onClick={() =>
+                              onUpdateBookingStatus(b.id, 'Approved', {
+                                stage2ApprovedBy: currentUser?.name || 'Approve 2',
+                                stage2ApprovedAt: new Date().toISOString(),
+                              })
+                            }
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>อนุมัติขั้นที่ 2 (อนุมัติใช้รถ)</span>
+                          </button>
+                        )}
+                        {onOpenLineQuickApprove && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenLineQuickApprove(b, b.status === 'Pending' ? 1 : 2, 'reject')
+                            }
+                            className="px-2.5 py-1.5 border border-red-200 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold cursor-pointer"
+                          >
+                            ไม่อนุมัติ
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* 2. ภาพรวมระบบจองรถยนต์ส่วนกลาง (Vehicle Overview placed above the calendar) */}
       <VehicleOverview
         vehicles={vehicles}
         bookings={bookings}
+        users={users}
         selectedDateStr={selectedDateStr}
         onSelectDate={handleSelectDate}
         onOpenBookingModal={handleOpenBookingModal}
@@ -1494,11 +1646,20 @@ export default function MonthlyCalendar({
                     <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-indigo-600" />
                       <span>
-                        เลือกผู้อนุมัติขั้นที่ 1 (เฉพาะแผนก/ฝ่ายเดียวกัน){' '}
+                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1){' '}
                         <span className="text-red-500">*</span>
                       </span>
                     </label>
                     <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDeptApprovers((prev) => !prev)}
+                        className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 cursor-pointer"
+                      >
+                        {showAllDeptApprovers
+                          ? 'แสดงเฉพาะแผนก/ฝ่ายเดียวกัน'
+                          : 'แสดงผู้อนุมัติขั้นที่ 1 ทั้งหมด'}
+                      </button>
                       <span className="text-[10px] text-emerald-700 bg-emerald-50 font-semibold px-2 py-0.5 rounded-full border border-emerald-200 w-fit">
                         ผ่าน Approve 1 แล้วส่งต่อ Approve 2 อัตโนมัติ
                       </span>
@@ -1607,7 +1768,7 @@ export default function MonthlyCalendar({
                         id="input-quick-passengers"
                         type="number"
                         min={1}
-                        max={selectedVehicleObj ? selectedVehicleObj.capacity : 15}
+                        max={20}
                         value={passengersCount}
                         onChange={(e) => setPassengersCount(Number(e.target.value))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-hidden"
@@ -1616,6 +1777,21 @@ export default function MonthlyCalendar({
                     </div>
                   </div>
                 </div>
+
+                {/* Inline Error/Success Alert right above submit button so user always sees it */}
+                {bookingError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{bookingError}</span>
+                  </div>
+                )}
+
+                {bookingSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{bookingSuccess}</span>
+                  </div>
+                )}
 
                 {/* Modal Footer Controls */}
                 <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
@@ -1640,10 +1816,11 @@ export default function MonthlyCalendar({
                     <button
                       id="btn-submit-quick-booking"
                       type="submit"
-                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                      disabled={isSubmittingBooking}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>ยืนยันการจองรถยนต์</span>
+                      <span>{isSubmittingBooking ? 'กำลังบันทึก...' : 'ยืนยันการจองรถยนต์'}</span>
                     </button>
                   </div>
                 </div>

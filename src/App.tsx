@@ -17,6 +17,12 @@ import {
   deleteBooking,
   getRolePermissions,
   saveRolePermissions,
+  subscribeToBookings,
+  subscribeToUsers,
+  subscribeToVehicles,
+  mergeBookingsLists,
+  fetchServerBookings,
+  getDeletedBookingIds,
 } from './lib/firebase';
 
 import BookingSystem from './components/BookingSystem';
@@ -136,7 +142,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.filter((b: Booking) => b.jobNumber && b.jobNumber.startsWith('AX-'));
+          const deletedSet = getDeletedBookingIds();
+          return parsed
+            .filter((b: Booking) => b && b.id && !deletedSet.has(b.id))
+            .map((b: Booking) => ({
+              ...b,
+              jobNumber: getBookingJobNumber(b),
+            }));
         }
       } catch {
         return [];
@@ -202,8 +214,10 @@ export default function App() {
     }
   };
 
-  // Fetch real-time/latest data from Firestore on Mount
+  // Fetch real-time/latest data from Firestore & Server on Mount + Real-time Subscriptions
   useEffect(() => {
+    let isMounted = true;
+
     async function loadCloudData() {
       try {
         setIsLoading(true);
@@ -213,29 +227,85 @@ export default function App() {
           getBookings(),
           getRolePermissions(),
         ]);
+        if (!isMounted) return;
         setVehicles(dbVehicles);
         setUsers(dbUsers);
-        setBookings(dbBookings);
+        setBookings((prev) => mergeBookingsLists([prev, dbBookings]));
         if (dbRolePerms) {
           setRolePermissions(dbRolePerms);
         }
         setIsCloudSynced(true);
 
-        // Auto-select currentUser from cloud list if matching local storage email
-        const savedEmail = currentUser?.email;
-        if (dbUsers.length > 0 && savedEmail) {
-          const matched = dbUsers.find((u) => u.email === savedEmail);
-          if (matched) {
-            setCurrentUser(matched);
-          }
-        }
+        // Sync currentUser with latest cloud user profile (roles, department, division)
+        setCurrentUser((prevUser) => {
+          if (!prevUser || dbUsers.length === 0) return prevUser;
+          const matched = dbUsers.find(
+            (u) =>
+              u.id === prevUser.id ||
+              (prevUser.email && u.email.toLowerCase() === prevUser.email.toLowerCase()) ||
+              (prevUser.username &&
+                u.username &&
+                u.username.toLowerCase() === prevUser.username.toLowerCase())
+          );
+          return matched || prevUser;
+        });
       } catch (error) {
         console.error('Error fetching data from Firestore:', error);
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
+
     loadCloudData();
+
+    const unsubBookings = subscribeToBookings((cloudBookings) => {
+      if (!isMounted) return;
+      setBookings((prev) => mergeBookingsLists([prev, cloudBookings]));
+    });
+
+    const unsubUsers = subscribeToUsers((cloudUsers) => {
+      if (!isMounted) return;
+      setUsers(cloudUsers);
+      setCurrentUser((prevUser) => {
+        if (!prevUser || cloudUsers.length === 0) return prevUser;
+        const matched = cloudUsers.find(
+          (u) =>
+            u.id === prevUser.id ||
+            (prevUser.email && u.email.toLowerCase() === prevUser.email.toLowerCase()) ||
+            (prevUser.username &&
+              u.username &&
+              u.username.toLowerCase() === prevUser.username.toLowerCase())
+        );
+        return matched || prevUser;
+      });
+    });
+
+    const unsubVehicles = subscribeToVehicles((cloudVehicles) => {
+      if (!isMounted) return;
+      setVehicles(cloudVehicles);
+    });
+
+    // Periodic server sync so cross-session/cross-user bookings stay 100% synchronized
+    const syncInterval = setInterval(async () => {
+      if (!isMounted) return;
+      const serverData = await fetchServerBookings();
+      if (!isMounted) return;
+      if (serverData.bookings.length > 0 || serverData.deletedIds.length > 0) {
+        setBookings((prev) =>
+          mergeBookingsLists([prev, serverData.bookings], serverData.deletedIds)
+        );
+      }
+    }, 4000);
+
+    return () => {
+      isMounted = false;
+      unsubBookings();
+      unsubUsers();
+      unsubVehicles();
+      clearInterval(syncInterval);
+    };
   }, []);
 
   // Sync state to local storage for quick offline / startup response
@@ -429,7 +499,7 @@ export default function App() {
     }
   };
 
-  // Handlers for Booking with Firebase persistence
+  // Handlers for Booking with Firebase + Server + LocalStorage persistence
   const handleAddBooking = async (newBookingData: Omit<Booking, 'id' | 'createdAt'>) => {
     const createdAtIso = new Date().toISOString();
     const jobNumber = newBookingData.jobNumber || generateNextJobNumber(bookings, createdAtIso);
@@ -439,9 +509,44 @@ export default function App() {
       jobNumber,
       createdAt: createdAtIso,
     };
-    setBookings([newBooking, ...bookings]);
 
-    // Automatically push notification to Approve 1's LINE ID from User Management
+    // 1. Update React state and persist immediately
+    setBookings((prev) => mergeBookingsLists([prev, [newBooking]]));
+    setToastMessage(
+      newBooking.status === 'Approved'
+        ? `บันทึกและอนุมัติใบงาน ${jobNumber} เรียบร้อยแล้ว`
+        : `บันทึกคำขอจองรถ (ใบงาน ${jobNumber}) เรียบร้อยแล้ว รอคุณ ${newBooking.assignedApproverName || 'ผู้อนุมัติ'} พิจารณา`
+    );
+
+    const todayStr = getRealTodayStr();
+    const start = newBooking.startDate.substring(0, 10);
+    const end = newBooking.endDate.substring(0, 10);
+
+    let matchedApprovedVehicle: Vehicle | undefined;
+    if (newBooking.status === 'Approved' && todayStr >= start && todayStr <= end) {
+      setVehicles((prev) =>
+        prev.map((v) => {
+          if (v.id === newBooking.vehicleId) {
+            const updated: Vehicle = { ...v, status: 'In Use' };
+            matchedApprovedVehicle = updated;
+            return updated;
+          }
+          return v;
+        })
+      );
+    }
+
+    // 2. Persist booking to LocalStorage, Express Server, and Firestore first
+    try {
+      await saveBooking(newBooking);
+      if (matchedApprovedVehicle) {
+        await saveVehicle(matchedApprovedVehicle);
+      }
+    } catch (e) {
+      console.error('Cloud save booking failed', e);
+    }
+
+    // 3. Automatically push notification to Approve 1's LINE ID from User Management
     if (isLineModuleEnabled && newBooking.status === 'Pending') {
       const stage1Approver = users.find((u) => u.id === newBooking.assignedApproverId);
       const targetLineId = newBooking.assignedApproverLineId || stage1Approver?.lineUserId;
@@ -459,35 +564,11 @@ export default function App() {
             );
           } else {
             setToastMessage(
-              `บันทึกใบงาน ${jobNumber} และแจ้งเตือนไปหา ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} เรียบร้อยแล้ว`
+              `บันทึกใบงาน ${jobNumber} และส่งต่อให้ ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} พิจารณาอนุมัติเรียบร้อยแล้ว`
             );
           }
         })
         .catch(() => {});
-    }
-
-    const todayStr = getRealTodayStr();
-    const start = newBooking.startDate.substring(0, 10);
-    const end = newBooking.endDate.substring(0, 10);
-    
-    let updatedVehicles = [...vehicles];
-    if (newBooking.status === 'Approved' && todayStr >= start && todayStr <= end) {
-      updatedVehicles = vehicles.map((v) =>
-        v.id === newBooking.vehicleId ? { ...v, status: 'In Use' } : v
-      );
-      setVehicles(updatedVehicles);
-    }
-
-    try {
-      await saveBooking(newBooking);
-      if (newBooking.status === 'Approved' && todayStr >= start && todayStr <= end) {
-        const matchedVehicle = updatedVehicles.find(v => v.id === newBooking.vehicleId);
-        if (matchedVehicle) {
-          await saveVehicle(matchedVehicle);
-        }
-      }
-    } catch (e) {
-      console.error('Cloud save booking failed', e);
     }
   };
 
@@ -936,9 +1017,19 @@ export default function App() {
                     ดูอย่างเดียว
                   </span>
                 )}
-                {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length > 0 && (
+                {bookings.filter(
+                  (b) =>
+                    (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
+                    canUserViewBooking(b, currentUser, users)
+                ).length > 0 && (
                   <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {bookings.filter((b) => b.status === 'Pending' && canUserViewBooking(b, currentUser, users)).length}
+                    {
+                      bookings.filter(
+                        (b) =>
+                          (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
+                          canUserViewBooking(b, currentUser, users)
+                      ).length
+                    }
                   </span>
                 )}
               </button>

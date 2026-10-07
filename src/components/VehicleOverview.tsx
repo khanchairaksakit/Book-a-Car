@@ -22,6 +22,7 @@ import { getRealTodayStr, isDateInPast, isDateToday } from '../utils/dateHelpers
 interface VehicleOverviewProps {
   vehicles: Vehicle[];
   bookings: Booking[];
+  users?: User[];
   selectedDateStr: string;
   onSelectDate: (dateStr: string) => void;
   onOpenBookingModal: (dateStr: string, vehicleId?: string) => void;
@@ -40,6 +41,7 @@ const VEHICLE_TYPE_LABELS: Record<VehicleType, string> = {
 export default function VehicleOverview({
   vehicles,
   bookings,
+  users = [],
   selectedDateStr,
   onSelectDate,
   onOpenBookingModal,
@@ -95,9 +97,16 @@ export default function VehicleOverview({
   const vehiclesWithDailyStatus = useMemo(() => {
     return vehicles.map((v) => {
       const vBookings = bookingsByVehicleId[v.id] || [];
-      const hasActiveBooking = vBookings.some((b) => b.status === 'Approved' || b.status === 'Pending');
+      const hasActiveBooking = vBookings.some(
+        (b) =>
+          b.status === 'Approved' ||
+          b.status === 'Pending' ||
+          b.status === 'Pending_Approve2'
+      );
       const approvedBooking = vBookings.find((b) => b.status === 'Approved');
-      const pendingBooking = vBookings.find((b) => b.status === 'Pending');
+      const pendingBooking = vBookings.find(
+        (b) => b.status === 'Pending' || b.status === 'Pending_Approve2'
+      );
       const primaryBooking = approvedBooking || pendingBooking;
 
       let dailyStatus: 'Available' | 'In Use' | 'Maintenance' = 'Available';
@@ -121,7 +130,9 @@ export default function VehicleOverview({
   const availableVehicles = vehiclesWithDailyStatus.filter((item) => item.dailyStatus === 'Available').length;
   const bookedVehicles = vehiclesWithDailyStatus.filter((item) => item.dailyStatus === 'In Use').length;
   const maintenanceVehicles = vehiclesWithDailyStatus.filter((item) => item.dailyStatus === 'Maintenance').length;
-  const pendingApprovalsCount = bookingsOnDate.filter((b) => b.status === 'Pending').length;
+  const pendingApprovalsCount = bookingsOnDate.filter(
+    (b) => b.status === 'Pending' || b.status === 'Pending_Approve2'
+  ).length;
 
   // Filtered vehicles for display
   const filteredVehicles = useMemo(() => {
@@ -420,7 +431,7 @@ export default function VehicleOverview({
 
                   {/* Booking Details if In Use */}
                   {isBooked && booking && (() => {
-                    const isAllowed = canUserViewBooking(booking, currentUser);
+                    const isAllowed = canUserViewBooking(booking, currentUser, users);
                     return (
                       <div className="mt-2.5 p-2 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs space-y-1">
                         <div className="flex items-center justify-between text-[11px]">

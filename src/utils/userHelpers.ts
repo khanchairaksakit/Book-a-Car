@@ -337,91 +337,107 @@ export function getBookingDivision(booking: Booking, allUsers?: User[]): string 
 
 /**
  * Retrieves eligible Approver 1 candidates for the given requester.
- * STRICT RULE: เมื่อ user ในแผนกขอจองรถ ผู้อนุมัติในแผนกหรือฝ่ายเดียวกันเท่านั้นที่อนุมัติได้
- * - Priority 1: If there are Approve 1 users in the exact same Department (แผนกเดียวกัน), return ONLY those.
- * - Priority 2: Otherwise, return ONLY Approve 1 users in the same Division (ฝ่ายเดียวกัน).
- * - Never returns Approve 1 users from other unrelated departments or divisions.
+ * - Priority 1: Approve 1 users in the same Department (แผนกเดียวกัน) or same Division (ฝ่ายเดียวกัน).
+ * - Fallback: If the requester's Department/Division has no dedicated Approve 1 user (or includeAll is true),
+ *   returns all Approve 1 users in the organization so booking creation is never blocked.
  */
 export function getEligibleStage1Approvers(
   users: User[],
-  currentUser?: User | null
+  currentUser?: User | null,
+  includeAll?: boolean
 ): User[] {
   const allApprover1Users = users.filter((u) => isUserApprover1(u));
-  if (!currentUser) return [];
+  const fallbackPool =
+    allApprover1Users.length > 0
+      ? allApprover1Users
+      : users.filter((u) => isUserApprover2(u) || isUserAdmin(u));
+
+  if (!currentUser) return fallbackPool;
 
   const currentDept = normalizeOrgUnit(currentUser.department);
   const currentDiv = normalizeOrgUnit(currentUser.division);
   const coreCurrentDept = stripOrgPrefix(currentUser.department);
   const coreCurrentDiv = stripOrgPrefix(currentUser.division);
 
-  // 1. Check exact Department match first (แผนกเดียวกัน)
-  if (currentDept) {
-    const exactDeptMatches = allApprover1Users.filter((u) => {
-      const uDept = normalizeOrgUnit(u.department);
-      const uDiv = normalizeOrgUnit(u.division);
-      if (uDept && uDept === currentDept) return true;
-      if (uDiv && uDiv === currentDept) return true;
-      const coreUDept = stripOrgPrefix(u.department);
-      if (
-        coreCurrentDept &&
-        coreUDept &&
-        coreCurrentDept.length >= 2 &&
-        coreUDept.length >= 2 &&
-        (coreCurrentDept.includes(coreUDept) || coreUDept.includes(coreCurrentDept))
-      ) {
-        return true;
-      }
-      return false;
-    });
+  const exactDeptMatches: User[] = [];
+  const sameDivMatches: User[] = [];
+  const otherApprovers: User[] = [];
 
-    if (exactDeptMatches.length > 0) {
-      return exactDeptMatches;
+  for (const u of fallbackPool) {
+    const uDept = normalizeOrgUnit(u.department);
+    const uDiv = normalizeOrgUnit(u.division);
+    const coreUDept = stripOrgPrefix(u.department);
+    const coreUDiv = stripOrgPrefix(u.division);
+
+    const isDeptMatch =
+      Boolean(currentDept) &&
+      ((uDept && uDept === currentDept) ||
+        (uDiv && uDiv === currentDept) ||
+        (coreCurrentDept &&
+          coreUDept &&
+          coreCurrentDept.length >= 2 &&
+          coreUDept.length >= 2 &&
+          (coreCurrentDept.includes(coreUDept) || coreUDept.includes(coreCurrentDept))));
+
+    const isDivMatch =
+      Boolean(currentDiv) &&
+      ((uDiv && uDiv === currentDiv) ||
+        (uDept && uDept === currentDiv) ||
+        (coreCurrentDiv &&
+          coreUDiv &&
+          coreCurrentDiv.length >= 2 &&
+          coreUDiv.length >= 2 &&
+          (coreCurrentDiv.includes(coreUDiv) || coreUDiv.includes(coreCurrentDiv))));
+
+    if (isDeptMatch) {
+      exactDeptMatches.push(u);
+    } else if (isDivMatch) {
+      sameDivMatches.push(u);
+    } else {
+      otherApprovers.push(u);
     }
   }
 
-  // 2. Fallback to same Division match (ฝ่ายเดียวกัน) when the requester's specific แผนก has no dedicated Approve 1
-  if (currentDiv) {
-    const sameDivMatches = allApprover1Users.filter((u) => {
-      const uDiv = normalizeOrgUnit(u.division);
-      const uDept = normalizeOrgUnit(u.department);
-      if (uDiv && uDiv === currentDiv) return true;
-      if (uDept && uDept === currentDiv) return true;
-      const coreUDiv = stripOrgPrefix(u.division);
-      if (
-        coreCurrentDiv &&
-        coreUDiv &&
-        coreCurrentDiv.length >= 2 &&
-        coreUDiv.length >= 2 &&
-        (coreCurrentDiv.includes(coreUDiv) || coreUDiv.includes(coreCurrentDiv))
-      ) {
-        return true;
-      }
-      return false;
-    });
+  const sameOrgMatches = [...exactDeptMatches, ...sameDivMatches];
 
-    if (sameDivMatches.length > 0) {
-      return sameDivMatches;
-    }
+  if (includeAll) {
+    return [...sameOrgMatches, ...otherApprovers];
   }
 
-  return [];
+  // If same-org matches exist and include at least one approver (or non-self approver), return them
+  const nonSelfSameOrg = sameOrgMatches.filter((u) => u.id !== currentUser.id);
+  if (nonSelfSameOrg.length > 0) {
+    return sameOrgMatches;
+  }
+
+  if (sameOrgMatches.length > 0 && otherApprovers.length === 0) {
+    return sameOrgMatches;
+  }
+
+  // Fallback: include all Approve 1 users (with sameOrgMatches first) so no department is ever blocked from booking
+  return [...sameOrgMatches, ...otherApprovers];
 }
 
 /**
  * Retrieves eligible Approver 2 candidates.
- * Rule: Must strictly possess 'Approve 2' permission.
+ * Rule: Must strictly possess 'Approve 2' permission (or fallback to Admin if none configured).
  */
 export function getEligibleStage2Approvers(
   users: User[],
   currentUser?: User | null
 ): User[] {
   const allApprover2Users = users.filter((u) => isUserApprover2(u));
-  if (!currentUser) return allApprover2Users;
+  const pool =
+    allApprover2Users.length > 0
+      ? allApprover2Users
+      : users.filter((u) => isUserAdmin(u));
+
+  if (!currentUser) return pool;
 
   const currentDept = normalizeOrgUnit(currentUser.department);
   const currentDiv = normalizeOrgUnit(currentUser.division);
 
-  return [...allApprover2Users].sort((a, b) => {
+  return [...pool].sort((a, b) => {
     const aDept = normalizeOrgUnit(a.department);
     const bDept = normalizeOrgUnit(b.department);
     const aDiv = normalizeOrgUnit(a.division);
@@ -439,8 +455,8 @@ export function getEligibleStage2Approvers(
 
 /**
  * Checks whether the current user is permitted to approve/reject the given booking:
- * - Stage 1 (Pending): ONLY Approve 1 in the same department or division as the requester (or Admin) can approve.
- * - Stage 2 (Pending_Approve2): Any user with Approve 2 role (or Admin) can approve.
+ * - Stage 1 (Pending): The assigned Approve 1 user, OR an Approve 1 in the same department/division, OR Admin.
+ * - Stage 2 (Pending_Approve2): Any user with Approve 2 role, OR the assigned Stage 2 approver, OR Admin.
  */
 export function canUserApproveBooking(
   booking: Booking,
@@ -450,8 +466,21 @@ export function canUserApproveBooking(
   if (!currentUser) return false;
   if (isUserAdmin(currentUser)) return true;
 
-  // Stage 1: Waiting for Approve 1 (Must be Approve 1 in same department or division)
+  const normCurrentName = (currentUser.name || '').trim().toLowerCase();
+
+  // Stage 1: Waiting for Approve 1
   if (booking.status === 'Pending') {
+    if (booking.assignedApproverId && currentUser.id === booking.assignedApproverId) {
+      return true;
+    }
+    if (
+      booking.assignedApproverName &&
+      normCurrentName &&
+      booking.assignedApproverName.trim().toLowerCase() === normCurrentName
+    ) {
+      return true;
+    }
+
     if (!isUserApprover1(currentUser)) return false;
 
     const bookingDept = getBookingDepartment(booking, allUsers);
@@ -463,27 +492,46 @@ export function canUserApproveBooking(
       bookingDiv
     );
 
-    if (booking.assignedApproverId) {
-      return currentUser.id === booking.assignedApproverId && isSameOrg;
+    if (isSameOrg) return true;
+
+    // If the booking's department/division has no dedicated Approve 1 in allUsers, allow any Approve 1
+    if (allUsers && allUsers.length > 0) {
+      const hasDedicatedOrgApprover = allUsers.some(
+        (u) =>
+          isUserApprover1(u) &&
+          isSameDeptOrDiv(u.department, u.division, bookingDept, bookingDiv)
+      );
+      if (!hasDedicatedOrgApprover) return true;
     }
-    return isSameOrg;
+
+    return false;
   }
 
   // Stage 2: Waiting for Approve 2
   if (booking.status === 'Pending_Approve2') {
-    return isUserApprover2(currentUser);
+    if (isUserApprover2(currentUser)) return true;
+    if (booking.stage2ApproverId && currentUser.id === booking.stage2ApproverId) {
+      return true;
+    }
+    if (
+      booking.stage2ApproverName &&
+      normCurrentName &&
+      booking.stage2ApproverName.trim().toLowerCase() === normCurrentName
+    ) {
+      return true;
+    }
+    return false;
   }
 
   return false;
 }
 
 /**
- * Checks whether a booking is visible to the given user based on strict role policy:
- * - Admin & Operator: Sees all bookings across all departments/divisions
+ * Checks whether a booking is visible to the given user based on role policy:
+ * - Admin, Operator, Approve 2: Sees all bookings across all departments/divisions
  * - Requester: Always sees their own bookings
- * - Stage 1: Approve 1 user in the same department/division can see and approve
- * - Stage 2: Approve 2 users can see and approve
- * - Approved / Completed: Approvers (Stage 1 in same dept/div & Stage 2), Requester, Admin, Operator
+ * - Assigned Stage 1 or Stage 2 Approver: Always sees bookings assigned to them
+ * - Approve 1: Sees all bookings in their department/division (and any bookings they can approve)
  */
 export function canUserViewBooking(
   booking: Booking,
@@ -492,13 +540,38 @@ export function canUserViewBooking(
 ): boolean {
   if (!currentUser) return false;
 
-  // 1. Admin & Operator have global visibility for monitoring and reporting
-  if (isUserAdmin(currentUser) || isUserOperator(currentUser)) {
+  // 1. Admin, Operator, and Approve 2 have global visibility for monitoring, approving, and reporting
+  if (
+    isUserAdmin(currentUser) ||
+    isUserOperator(currentUser) ||
+    isUserApprover2(currentUser)
+  ) {
     return true;
   }
 
+  const normCurrentName = (currentUser.name || '').trim().toLowerCase();
+
   // 2. The requester always sees their own booking
-  if (booking.userId === currentUser.id) {
+  if (
+    booking.userId === currentUser.id ||
+    (normCurrentName &&
+      booking.userName &&
+      booking.userName.trim().toLowerCase() === normCurrentName)
+  ) {
+    return true;
+  }
+
+  // 3. Explicitly assigned Stage 1 or Stage 2 approver ALWAYS sees the booking
+  if (
+    (booking.assignedApproverId && booking.assignedApproverId === currentUser.id) ||
+    (booking.stage2ApproverId && booking.stage2ApproverId === currentUser.id) ||
+    (normCurrentName &&
+      booking.assignedApproverName &&
+      booking.assignedApproverName.trim().toLowerCase() === normCurrentName) ||
+    (normCurrentName &&
+      booking.stage2ApproverName &&
+      booking.stage2ApproverName.trim().toLowerCase() === normCurrentName)
+  ) {
     return true;
   }
 
@@ -511,32 +584,10 @@ export function canUserViewBooking(
     bookingDiv
   );
 
-  // 3. Stage 1 (Pending): ONLY Approve 1 in the same department/division
-  if (booking.status === 'Pending') {
-    if (!isUserApprover1(currentUser)) return false;
-    if (booking.assignedApproverId) {
-      return currentUser.id === booking.assignedApproverId && isSameOrg;
-    }
-    return isSameOrg;
-  }
-
-  // 4. Stage 2 (Pending_Approve2): Approve 2 users (or Stage 1 approver who approved it)
-  if (booking.status === 'Pending_Approve2') {
-    if (isUserApprover2(currentUser)) return true;
-    if (isUserApprover1(currentUser) && currentUser.id === booking.assignedApproverId && isSameOrg) {
-      return true;
-    }
-  }
-
-  // 5. Approved / Completed / Cancelled: Approvers who participated or same dept/div Approve 1
-  if (
-    booking.status === 'Approved' ||
-    booking.status === 'Completed' ||
-    booking.status === 'Cancelled'
-  ) {
-    if (currentUser.id === booking.assignedApproverId && isSameOrg) return true;
-    if (isUserApprover2(currentUser)) return true;
-    if (isUserApprover1(currentUser) && isSameOrg) return true;
+  // 4. Approve 1 sees all bookings in the same department/division or where they are eligible to approve
+  if (isUserApprover1(currentUser)) {
+    if (isSameOrg) return true;
+    if (canUserApproveBooking(booking, currentUser, allUsers)) return true;
   }
 
   return false;

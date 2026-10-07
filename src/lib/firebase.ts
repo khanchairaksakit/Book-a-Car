@@ -8,7 +8,8 @@ import {
   setDoc,
   deleteDoc,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  onSnapshot,
 } from 'firebase/firestore';
 import { Vehicle, User, Booking, RolePermissionsMatrix } from '../types';
 import { INITIAL_VEHICLES, INITIAL_USERS, INITIAL_BOOKINGS } from '../data/mockData';
@@ -71,9 +72,26 @@ export async function getVehicles(): Promise<Vehicle[]> {
   }
 }
 
+// Helper to strip undefined fields recursively so Firestore setDoc never fails on undefined values
+function cleanFirestoreData<T>(obj: T): T {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => cleanFirestoreData(item)) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, any>)) {
+    if (value !== undefined) {
+      cleaned[key] = cleanFirestoreData(value);
+    }
+  }
+  return cleaned as T;
+}
+
 export async function saveVehicle(vehicle: Vehicle): Promise<void> {
   const docRef = doc(db, 'vehicles', vehicle.id);
-  await setDoc(docRef, vehicle);
+  await setDoc(docRef, cleanFirestoreData(vehicle));
 }
 
 export async function deleteVehicle(vehicleId: string): Promise<void> {
@@ -99,16 +117,22 @@ export async function getUsers(): Promise<User[]> {
     }
     
     const users: User[] = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data() as User;
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as User;
       const initialMatch = INITIAL_USERS.find(
         (u) => u.id === data.id || u.email.toLowerCase() === data.email.toLowerCase()
       );
+      const resolvedRoles =
+        Array.isArray(data.roles) && data.roles.length > 0
+          ? data.roles
+          : data.role === 'Admin'
+          ? ['Admin', 'User']
+          : ['User'];
       users.push({
         ...data,
         employeeCode: data.employeeCode || initialMatch?.employeeCode || `EMP-${data.id.substring(data.id.length - 3)}`,
         division: data.division || initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
-        roles: data.roles || initialMatch?.roles || (data.role === 'Admin' ? ['Admin', 'User'] : ['User']),
+        roles: resolvedRoles as any,
         username: data.username || initialMatch?.username || data.email.split('@')[0],
         password: data.password || initialMatch?.password || 'password123',
       });
@@ -122,7 +146,7 @@ export async function getUsers(): Promise<User[]> {
 
 export async function saveUser(user: User): Promise<void> {
   const docRef = doc(db, 'users', user.id);
-  await setDoc(docRef, user);
+  await setDoc(docRef, cleanFirestoreData(user));
 }
 
 export async function deleteUser(userId: string): Promise<void> {
@@ -130,55 +154,347 @@ export async function deleteUser(userId: string): Promise<void> {
   await deleteDoc(docRef);
 }
 
-// Bookings CRUD and seeding
-export async function getBookings(): Promise<Booking[]> {
+const DELETED_BOOKINGS_STORAGE_KEY = 'car_booking_deleted_booking_ids';
+
+export function getDeletedBookingIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
   try {
-    const colRef = collection(db, 'bookings');
-    const snapshot = await getDocs(colRef);
-    
-    if (snapshot.empty) {
-      return [];
+    const raw = localStorage.getItem(DELETED_BOOKINGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed);
     }
-    
-    const bookings: Booking[] = [];
-    const legacyCleanupBatch = writeBatch(db);
-    let hasLegacyDocs = false;
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
 
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data() as Booking;
-      // Purge any old test/legacy bookings created prior to AX- jobNumber format
-      if (!data.jobNumber || !data.jobNumber.startsWith('AX-')) {
-        legacyCleanupBatch.delete(docSnap.ref);
-        hasLegacyDocs = true;
-        return;
-      }
-      const userMatch = INITIAL_USERS.find((u) => u.id === data.userId);
-      bookings.push({
-        ...data,
-        userDepartment: data.userDepartment || userMatch?.department || '',
-        userDivision: data.userDivision || userMatch?.division || '',
-      });
-    });
-
-    if (hasLegacyDocs) {
-      await legacyCleanupBatch.commit().catch(() => {});
-    }
-
-    return bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  } catch (error) {
-    console.error('Error fetching bookings from Firestore:', error);
-    return [];
+function addDeletedBookingId(bookingId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedBookingIds();
+    set.add(bookingId);
+    localStorage.setItem(DELETED_BOOKINGS_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    // ignore
   }
 }
 
+function getLocalStoredBookings(): Booking[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('car_booking_bookings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((b) => b && b.id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+function saveLocalStoredBookings(bookings: Booking[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('car_booking_bookings', JSON.stringify(bookings));
+  } catch {
+    // ignore
+  }
+}
+
+function getBookingStatusRank(status?: string): number {
+  switch (status) {
+    case 'Completed':
+      return 5;
+    case 'Cancelled':
+      return 4;
+    case 'Approved':
+      return 3;
+    case 'Pending_Approve2':
+      return 2;
+    case 'Pending':
+    default:
+      return 1;
+  }
+}
+
+function getBookingModificationTime(b: Booking): number {
+  const timestamps = [
+    (b as any).updatedAtServer,
+    b.endRecordedAt,
+    b.startRecordedAt,
+    b.approvedAt,
+    b.stage2ApprovedAt,
+    b.stage1ApprovedAt,
+    b.lineNotifiedAt,
+    b.createdAt,
+  ].filter(Boolean) as string[];
+
+  let maxMs = 0;
+  for (const ts of timestamps) {
+    const ms = new Date(ts).getTime();
+    if (!isNaN(ms) && ms > maxMs) maxMs = ms;
+  }
+  return maxMs;
+}
+
+export function normalizeSingleBooking(data: Booking): Booking {
+  const normalizedJobNumber = data.jobNumber
+    ? data.jobNumber.replace(/^JOB-/, 'AX-')
+    : undefined;
+  const userMatch = INITIAL_USERS.find((u) => u.id === data.userId);
+  return {
+    ...data,
+    ...(normalizedJobNumber ? { jobNumber: normalizedJobNumber } : {}),
+    userDepartment: data.userDepartment || userMatch?.department || '',
+    userDivision: data.userDivision || userMatch?.division || '',
+  };
+}
+
+export function mergeBookingsLists(
+  lists: Booking[][],
+  extraDeletedIds?: Iterable<string>
+): Booking[] {
+  const deletedSet = getDeletedBookingIds();
+  if (extraDeletedIds) {
+    for (const id of extraDeletedIds) {
+      deletedSet.add(id);
+    }
+  }
+
+  const map = new Map<string, Booking>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (!raw || !raw.id || deletedSet.has(raw.id)) continue;
+      const item = normalizeSingleBooking(raw);
+      const existing = map.get(item.id);
+      if (!existing) {
+        map.set(item.id, item);
+      } else {
+        const rankNew = getBookingStatusRank(item.status);
+        const rankOld = getBookingStatusRank(existing.status);
+        const timeNew = getBookingModificationTime(item);
+        const timeOld = getBookingModificationTime(existing);
+
+        if (rankNew > rankOld || (rankNew === rankOld && timeNew >= timeOld)) {
+          map.set(item.id, { ...existing, ...item });
+        } else {
+          map.set(item.id, { ...item, ...existing });
+        }
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+}
+
+export async function fetchServerBookings(): Promise<{
+  bookings: Booking[];
+  deletedIds: string[];
+}> {
+  if (typeof window === 'undefined') return { bookings: [], deletedIds: [] };
+  try {
+    const resp = await fetch('/api/bookings');
+    if (resp.ok) {
+      const data = await resp.json();
+      return {
+        bookings: Array.isArray(data?.bookings) ? data.bookings : [],
+        deletedIds: Array.isArray(data?.deletedIds) ? data.deletedIds : [],
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { bookings: [], deletedIds: [] };
+}
+
+// Bookings CRUD and seeding
+export async function getBookings(): Promise<Booking[]> {
+  const localBookings = getLocalStoredBookings();
+
+  const [firestoreResult, serverResult] = await Promise.allSettled([
+    (async () => {
+      const colRef = collection(db, 'bookings');
+      const snapshot = await getDocs(colRef);
+      const list: Booking[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Booking;
+        if (data && data.id) {
+          list.push(normalizeSingleBooking(data));
+        }
+      });
+      return list;
+    })(),
+    fetchServerBookings(),
+  ]);
+
+  const firestoreBookings =
+    firestoreResult.status === 'fulfilled' ? firestoreResult.value : [];
+  const serverBookings =
+    serverResult.status === 'fulfilled' ? serverResult.value.bookings : [];
+  const serverDeletedIds =
+    serverResult.status === 'fulfilled' ? serverResult.value.deletedIds : [];
+
+  for (const delId of serverDeletedIds) {
+    addDeletedBookingId(delId);
+  }
+
+  const merged = mergeBookingsLists(
+    [localBookings, serverBookings, firestoreBookings],
+    serverDeletedIds
+  );
+
+  saveLocalStoredBookings(merged);
+
+  // Backfill any missing bookings to Server & Firestore in the background
+  const firestoreIds = new Set(firestoreBookings.map((b) => b.id));
+  const serverIds = new Set(serverBookings.map((b) => b.id));
+
+  for (const b of merged) {
+    if (!firestoreIds.has(b.id)) {
+      setDoc(doc(db, 'bookings', b.id), cleanFirestoreData(b)).catch(() => {});
+    }
+    if (!serverIds.has(b.id) && typeof window !== 'undefined') {
+      fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking: cleanFirestoreData(b) }),
+      }).catch(() => {});
+    }
+  }
+
+  return merged;
+}
+
+export function subscribeToBookings(onUpdate: (bookings: Booking[]) => void): () => void {
+  const colRef = collection(db, 'bookings');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const firestoreList: Booking[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Booking;
+        if (!data || !data.id) return;
+        firestoreList.push(normalizeSingleBooking(data));
+      });
+      const localList = getLocalStoredBookings();
+      const merged = mergeBookingsLists([localList, firestoreList]);
+      saveLocalStoredBookings(merged);
+      onUpdate(merged);
+    },
+    (error) => {
+      console.error('Error in subscribeToBookings:', error);
+    }
+  );
+}
+
+export function subscribeToUsers(onUpdate: (users: User[]) => void): () => void {
+  const colRef = collection(db, 'users');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      if (snapshot.empty) return;
+      const list: User[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as User;
+        const initialMatch = INITIAL_USERS.find(
+          (u) => u.id === data.id || u.email.toLowerCase() === data.email.toLowerCase()
+        );
+        const resolvedRoles =
+          Array.isArray(data.roles) && data.roles.length > 0
+            ? data.roles
+            : data.role === 'Admin'
+            ? ['Admin', 'User']
+            : ['User'];
+        list.push({
+          ...data,
+          employeeCode:
+            data.employeeCode ||
+            initialMatch?.employeeCode ||
+            `EMP-${data.id.substring(data.id.length - 3)}`,
+          division: data.division || initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
+          roles: resolvedRoles as any,
+          username: data.username || initialMatch?.username || data.email.split('@')[0],
+          password: data.password || initialMatch?.password || 'password123',
+        });
+      });
+      onUpdate(list);
+    },
+    (error) => {
+      console.error('Error in subscribeToUsers:', error);
+    }
+  );
+}
+
+export function subscribeToVehicles(onUpdate: (vehicles: Vehicle[]) => void): () => void {
+  const colRef = collection(db, 'vehicles');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      if (snapshot.empty) return;
+      const list: Vehicle[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as Vehicle);
+      });
+      onUpdate(list);
+    },
+    (error) => {
+      console.error('Error in subscribeToVehicles:', error);
+    }
+  );
+}
+
 export async function saveBooking(booking: Booking): Promise<void> {
-  const docRef = doc(db, 'bookings', booking.id);
-  await setDoc(docRef, booking);
+  const cleaned = cleanFirestoreData(normalizeSingleBooking(booking));
+
+  // 1. Immediately persist to localStorage
+  const currentLocal = getLocalStoredBookings();
+  const mergedLocal = mergeBookingsLists([currentLocal, [cleaned]]);
+  saveLocalStoredBookings(mergedLocal);
+
+  // 2. Persist to both Express Server and Firestore in parallel
+  const tasks: Promise<any>[] = [
+    setDoc(doc(db, 'bookings', cleaned.id), cleaned),
+  ];
+
+  if (typeof window !== 'undefined') {
+    tasks.push(
+      fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking: cleaned }),
+      })
+    );
+  }
+
+  await Promise.allSettled(tasks);
 }
 
 export async function deleteBooking(bookingId: string): Promise<void> {
-  const docRef = doc(db, 'bookings', bookingId);
-  await deleteDoc(docRef);
+  addDeletedBookingId(bookingId);
+  const remaining = getLocalStoredBookings().filter((b) => b.id !== bookingId);
+  saveLocalStoredBookings(remaining);
+
+  const tasks: Promise<any>[] = [
+    deleteDoc(doc(db, 'bookings', bookingId)),
+  ];
+
+  if (typeof window !== 'undefined') {
+    tasks.push(
+      fetch(`/api/bookings/${encodeURIComponent(bookingId)}`, {
+        method: 'DELETE',
+      })
+    );
+  }
+
+  await Promise.allSettled(tasks);
 }
 
 // Reset data in Firestore back to defaults
