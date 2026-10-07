@@ -29,6 +29,11 @@ import {
   addCustomDepartment,
   addCustomDivision,
 } from '../utils/organizationUtils';
+import {
+  getOrganizationSettings,
+  saveOrganizationSettings,
+  subscribeToOrganizationSettings,
+} from '../lib/firebase';
 import DepartmentDivisionModal from './DepartmentDivisionModal';
 import {
   UserCheck,
@@ -63,10 +68,10 @@ interface UserRegistrationProps {
   users: User[];
   currentUser: User | null;
   onSelectUser: (user: User) => void;
-  onAddUser?: (user: Omit<User, 'id'>) => void;
-  onAddMultipleUsers?: (newUsers: Omit<User, 'id'>[]) => void;
-  onEditUser: (user: User) => void;
-  onDeleteUser: (userId: string) => void;
+  onAddUser?: (user: Omit<User, 'id'>) => void | Promise<void>;
+  onAddMultipleUsers?: (newUsers: Omit<User, 'id'>[]) => void | Promise<void>;
+  onEditUser: (user: User) => void | Promise<void>;
+  onDeleteUser: (userId: string) => void | Promise<void>;
   language?: Language;
   isLineModuleEnabled?: boolean;
   rolePermissions?: RolePermissionsMatrix;
@@ -163,6 +168,7 @@ export default function UserRegistration({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
+  const [isUsernameManuallyEdited, setIsUsernameManuallyEdited] = useState(false);
   const [password, setPassword] = useState('password123');
   const [lineUserId, setLineUserId] = useState('');
   const [showFormPassword, setShowFormPassword] = useState(false);
@@ -188,25 +194,44 @@ export default function UserRegistration({
   const [isQuickAddingDiv, setIsQuickAddingDiv] = useState(false);
   const [quickDivInput, setQuickDivInput] = useState('');
 
+  // Sync departments and divisions from Firestore and users
+  useEffect(() => {
+    let mounted = true;
+    getOrganizationSettings(users).then(({ departments: cloudDepts, divisions: cloudDivs }) => {
+      if (!mounted) return;
+      setDepartments(cloudDepts);
+      setDivisions(cloudDivs);
+    });
+
+    const unsub = subscribeToOrganizationSettings(({ departments: cloudDepts, divisions: cloudDivs }) => {
+      if (!mounted) return;
+      if (cloudDepts.length > 0) {
+        setDepartments((prev) => Array.from(new Set([...cloudDepts, ...prev])));
+      }
+      if (cloudDivs.length > 0) {
+        setDivisions((prev) => Array.from(new Set([...cloudDivs, ...prev])));
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsub();
+    };
+  }, []);
+
   // Keep departments and divisions up to date if new users are passed
   useEffect(() => {
     setDepartments((prev) => {
       const merged = getStoredDepartments(users);
-      const combined = Array.from(new Set([...prev, ...merged]));
-      if (combined.length !== prev.length) {
-        saveStoredDepartments(combined);
-        return combined;
-      }
-      return prev;
+      const combined = Array.from(new Set([...merged, ...prev]));
+      saveStoredDepartments(combined);
+      return combined;
     });
     setDivisions((prev) => {
       const merged = getStoredDivisions(users);
-      const combined = Array.from(new Set([...prev, ...merged]));
-      if (combined.length !== prev.length) {
-        saveStoredDivisions(combined);
-        return combined;
-      }
-      return prev;
+      const combined = Array.from(new Set([...merged, ...prev]));
+      saveStoredDivisions(combined);
+      return combined;
     });
   }, [users]);
 
@@ -228,6 +253,7 @@ export default function UserRegistration({
     setPhone('');
     setEmail('');
     setUsername('');
+    setIsUsernameManuallyEdited(false);
     setPassword('password123');
     setLineUserId('');
     setRoles(['User']);
@@ -267,21 +293,26 @@ export default function UserRegistration({
 
   const handleEmailChange = (val: string) => {
     setEmail(val);
-    // If username is empty or matches previous email prefix, auto update username
-    if (!username || username === email.split('@')[0]) {
+    // Only auto-derive username from email if the user has not manually entered a username
+    if (!isUsernameManuallyEdited && (!username || username === email.split('@')[0])) {
       const derived = val.split('@')[0].toLowerCase();
       setUsername(derived);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !department.trim() || !phone.trim() || !email.trim()) {
+    setError('');
+
+    const finalDept = (isQuickAddingDept && quickDeptInput.trim() ? quickDeptInput.trim() : department).trim();
+    const finalDiv = (isQuickAddingDiv && quickDivInput.trim() ? quickDivInput.trim() : division).trim();
+
+    if (!name.trim() || !finalDept || !phone.trim() || !email.trim()) {
       setError(isEn ? 'Please fill in all required fields (*)' : 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่องที่มีดอกจัน (*)');
       return;
     }
 
-    const cleanUsername = (username.trim() || email.split('@')[0] || `user${Date.now() % 10000}`).toLowerCase();
+    const cleanUsername = (username.trim() || name.trim() || email.split('@')[0] || `user${Date.now() % 10000}`).toLowerCase();
     const cleanPassword = password.trim() || 'password123';
     const effectiveRoles = roles.length > 0 ? roles : (['User'] as UserRole[]);
 
@@ -304,23 +335,26 @@ export default function UserRegistration({
 
     const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
 
-    // Auto-register department & division if custom
-    if (department.trim()) {
-      const nextDepts = addCustomDepartment(department.trim(), departments);
+    // Auto-register department & division if custom and persist to cloud
+    let nextDepts = departments;
+    let nextDivs = divisions;
+    if (finalDept) {
+      nextDepts = addCustomDepartment(finalDept, departments);
       setDepartments(nextDepts);
     }
-    if (division.trim()) {
-      const nextDivs = addCustomDivision(division.trim(), divisions);
+    if (finalDiv) {
+      nextDivs = addCustomDivision(finalDiv, divisions);
       setDivisions(nextDivs);
     }
+    saveOrganizationSettings(nextDepts, nextDivs).catch(() => {});
 
     if (isEditing) {
-      onEditUser({
+      await onEditUser({
         ...isEditing,
         employeeCode: employeeCode.trim() || isEditing.employeeCode || `EMP-${String(users.length).padStart(3, '0')}`,
         name: name.trim(),
-        department: department.trim(),
-        division: division.trim(),
+        department: finalDept,
+        division: finalDiv,
         phone: phone.trim(),
         email: email.trim(),
         username: cleanUsername,
@@ -333,11 +367,11 @@ export default function UserRegistration({
       setTimeout(() => setImportSuccessMsg(''), 4000);
       resetForm();
     } else if (isAddingNew && onAddUser) {
-      onAddUser({
+      await onAddUser({
         employeeCode: employeeCode.trim() || `EMP-${String(users.length + 1).padStart(3, '0')}`,
         name: name.trim(),
-        department: department.trim(),
-        division: division.trim(),
+        department: finalDept,
+        division: finalDiv,
         phone: phone.trim(),
         email: email.trim(),
         username: cleanUsername,
@@ -357,6 +391,10 @@ export default function UserRegistration({
   };
 
   const startEdit = (user: User) => {
+    const latestDepts = getStoredDepartments(users);
+    const latestDivs = getStoredDivisions(users);
+    setDepartments(latestDepts);
+    setDivisions(latestDivs);
     setIsAddingNew(false);
     setIsEditing(user);
     setEmployeeCode(user.employeeCode || '');
@@ -366,6 +404,7 @@ export default function UserRegistration({
     setPhone(user.phone);
     setEmail(user.email);
     setUsername(user.username || user.email.split('@')[0]);
+    setIsUsernameManuallyEdited(true);
     setPassword(user.password || 'password123');
     setLineUserId(user.lineUserId || '');
     setRoles(getUserRoles(user));
@@ -373,15 +412,20 @@ export default function UserRegistration({
   };
 
   const startAddNew = () => {
+    const latestDepts = getStoredDepartments(users);
+    const latestDivs = getStoredDivisions(users);
+    setDepartments(latestDepts);
+    setDivisions(latestDivs);
     setIsEditing(null);
     setIsAddingNew(true);
     setEmployeeCode(`EMP-${String(users.length + 1).padStart(3, '0')}`);
     setName('');
-    setDepartment('');
-    setDivision('');
+    setDepartment(latestDepts[0] || '');
+    setDivision(latestDivs[0] || '');
     setPhone('');
     setEmail('');
     setUsername('');
+    setIsUsernameManuallyEdited(false);
     setPassword('password123');
     setLineUserId('');
     setRoles(['User']);
@@ -1260,6 +1304,7 @@ export default function UserRegistration({
                               if (trimmed) {
                                 const updated = addCustomDepartment(trimmed, departments);
                                 setDepartments(updated);
+                                saveOrganizationSettings(updated, divisions).catch(() => {});
                                 setDepartment(trimmed);
                                 setQuickDeptInput('');
                                 setIsQuickAddingDept(false);
@@ -1274,6 +1319,7 @@ export default function UserRegistration({
                             if (trimmed) {
                               const updated = addCustomDepartment(trimmed, departments);
                               setDepartments(updated);
+                              saveOrganizationSettings(updated, divisions).catch(() => {});
                               setDepartment(trimmed);
                               setQuickDeptInput('');
                               setIsQuickAddingDept(false);
@@ -1286,21 +1332,25 @@ export default function UserRegistration({
                       </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <input
+                        <select
                           id="user-input-dept"
-                          type="text"
-                          list="dept-options-list"
                           value={department}
                           onChange={(e) => setDepartment(e.target.value)}
-                          placeholder={isEn ? 'Select or type department...' : 'เลือกหรือพิมพ์ชื่อแผนก...'}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
                           required
-                        />
-                        <datalist id="dept-options-list">
+                        >
+                          <option value="">
+                            {isEn ? '-- Select Department --' : '-- เลือกแผนกจากระบบ --'}
+                          </option>
+                          {department && !departments.includes(department) && (
+                            <option value={department}>{department}</option>
+                          )}
                           {departments.map((dept) => (
-                            <option key={dept} value={dept} />
+                            <option key={dept} value={dept}>
+                              {dept}
+                            </option>
                           ))}
-                        </datalist>
+                        </select>
                       </div>
                     )}
                   </div>
@@ -1354,6 +1404,7 @@ export default function UserRegistration({
                               if (trimmed) {
                                 const updated = addCustomDivision(trimmed, divisions);
                                 setDivisions(updated);
+                                saveOrganizationSettings(departments, updated).catch(() => {});
                                 setDivision(trimmed);
                                 setQuickDivInput('');
                                 setIsQuickAddingDiv(false);
@@ -1368,6 +1419,7 @@ export default function UserRegistration({
                             if (trimmed) {
                               const updated = addCustomDivision(trimmed, divisions);
                               setDivisions(updated);
+                              saveOrganizationSettings(departments, updated).catch(() => {});
                               setDivision(trimmed);
                               setQuickDivInput('');
                               setIsQuickAddingDiv(false);
@@ -1380,20 +1432,24 @@ export default function UserRegistration({
                       </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <input
+                        <select
                           id="user-input-division"
-                          type="text"
-                          list="division-options-list"
                           value={division}
                           onChange={(e) => setDivision(e.target.value)}
-                          placeholder={isEn ? 'Select or type division...' : 'เช่น ฝ่ายพัฒนาธุรกิจและการตลาด'}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900"
-                        />
-                        <datalist id="division-options-list">
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
+                        >
+                          <option value="">
+                            {isEn ? '-- Select Division --' : '-- เลือกฝ่ายจากระบบ --'}
+                          </option>
+                          {division && !divisions.includes(division) && (
+                            <option value={division}>{division}</option>
+                          )}
                           {divisions.map((div) => (
-                            <option key={div} value={div} />
+                            <option key={div} value={div}>
+                              {div}
+                            </option>
                           ))}
-                        </datalist>
+                        </select>
                       </div>
                     )}
                   </div>
@@ -1542,8 +1598,11 @@ export default function UserRegistration({
                       id="user-input-username"
                       type="text"
                       value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="เช่น somchai"
+                      onChange={(e) => {
+                        setIsUsernameManuallyEdited(true);
+                        setUsername(e.target.value);
+                      }}
+                      placeholder="เช่น somchai หรือ admin"
                       className="w-full px-3 py-1.5 border border-indigo-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                       required
                     />
@@ -1877,10 +1936,24 @@ export default function UserRegistration({
         onSaveDepartments={(newDepts) => {
           setDepartments(newDepts);
           saveStoredDepartments(newDepts);
+          saveOrganizationSettings(newDepts, divisions).catch(() => {});
         }}
         onSaveDivisions={(newDivs) => {
           setDivisions(newDivs);
           saveStoredDivisions(newDivs);
+          saveOrganizationSettings(departments, newDivs).catch(() => {});
+        }}
+        onDepartmentAdded={(addedDept) => {
+          if (isAddingNew || isEditing) {
+            setDepartment(addedDept);
+            setIsQuickAddingDept(false);
+          }
+        }}
+        onDivisionAdded={(addedDiv) => {
+          if (isAddingNew || isEditing) {
+            setDivision(addedDiv);
+            setIsQuickAddingDiv(false);
+          }
         }}
         onRenameDepartment={handleRenameDepartment}
         onRenameDivision={handleRenameDivision}

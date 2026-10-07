@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
+import { getUsers } from '../lib/firebase';
 import { translations, Language } from '../utils/translations';
 import {
   Car,
@@ -36,8 +37,25 @@ export default function LoginPage({
 
   const t = translations[language];
 
+  const findMatchingUser = (pool: User[], normalized: string): User | undefined => {
+    return pool.find((u) => {
+      const userUsername = (u.username || '').trim().toLowerCase();
+      const userEmail = (u.email || '').trim().toLowerCase();
+      const emailPrefix = u.email ? u.email.split('@')[0].trim().toLowerCase() : '';
+      const userCode = (u.employeeCode || '').trim().toLowerCase();
+      const userName = (u.name || '').trim().toLowerCase();
+      return (
+        userUsername === normalized ||
+        emailPrefix === normalized ||
+        userEmail === normalized ||
+        userCode === normalized ||
+        userName === normalized
+      );
+    });
+  };
+
   // Handle standard credential verification
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -60,19 +78,39 @@ export default function LoginPage({
       return;
     }
 
+    setIsLoading(true);
     const normalized = trimmedIdentifier.toLowerCase();
-    const targetUser = users.find((u) => {
-      const userUsername = (u.username || u.email.split('@')[0] || '').toLowerCase();
-      const userEmail = (u.email || '').toLowerCase();
-      const userCode = (u.employeeCode || '').toLowerCase();
-      return (
-        userUsername === normalized ||
-        userEmail === normalized ||
-        userCode === normalized
-      );
-    });
+
+    // 1. Check current users prop
+    let targetUser = findMatchingUser(users, normalized);
+
+    // 2. Check localStorage users if not found
+    if (!targetUser) {
+      try {
+        const raw = localStorage.getItem('car_booking_users');
+        if (raw) {
+          const parsed: User[] = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            targetUser = findMatchingUser(parsed, normalized);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Fetch latest users from Firestore if still not found
+    if (!targetUser) {
+      try {
+        const cloudUsers = await getUsers();
+        targetUser = findMatchingUser(cloudUsers, normalized);
+      } catch {
+        // ignore
+      }
+    }
 
     if (!targetUser) {
+      setIsLoading(false);
       setError(
         language === 'th'
           ? 'ไม่พบบัญชีผู้ใช้งานในระบบ กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสพนักงานอีกครั้ง'
@@ -83,6 +121,7 @@ export default function LoginPage({
 
     const expectedPassword = targetUser.password || 'password123';
     if (passwordInput.trim() !== expectedPassword) {
+      setIsLoading(false);
       setError(
         language === 'th'
           ? 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบรหัสผ่านแล้วลองอีกครั้ง'
@@ -91,11 +130,10 @@ export default function LoginPage({
       return;
     }
 
-    setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
-      onLogin(targetUser);
-    }, 250);
+      onLogin(targetUser!);
+    }, 150);
   };
 
   return (

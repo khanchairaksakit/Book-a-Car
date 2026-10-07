@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CameraCaptureModal from './CameraCaptureModal';
+import { compressImageFile } from '../utils/imageCompression';
 
 interface BookingSystemProps {
   vehicles: Vehicle[];
@@ -184,20 +185,21 @@ export default function BookingSystem({
     });
   }, [visibleBookings, searchQuery, statusFilter, users]);
 
-  const getBookingStatusBadge = (st: BookingStatus) => {
+  const getBookingStatusBadge = (booking: Booking) => {
+    const st = booking.status;
     switch (st) {
       case 'Pending':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-            ⏳ รออนุมัติขั้นที่ 1 (Approve 1)
+            ⏳ รอผู้จัดการอนุมัติ
           </span>
         );
       case 'Pending_Approve2':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-            ⏳ รออนุมัติขั้นที่ 2 (Approve 2)
+            ⏳ รอผู้ดูแลรถอนุมัติ
           </span>
         );
       case 'Approved':
@@ -214,13 +216,17 @@ export default function BookingSystem({
             🏁 เสร็จสิ้นภารกิจ (คืนรถแล้ว)
           </span>
         );
-      case 'Cancelled':
+      case 'Cancelled': {
+        const isStage2Reject =
+          booking.rejectedStage === 2 ||
+          (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy));
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            ❌ ไม่อนุมัติ / ยกเลิก
+            ❌ {isStage2Reject ? 'ผู้ดูแลรถอนุมัติ Reject' : 'ผู้จัดการอนุมัติ Reject'}
           </span>
         );
+      }
       default:
         return st;
     }
@@ -276,6 +282,7 @@ export default function BookingSystem({
       startRecordedAt: new Date().toISOString(),
     });
 
+    setStartPhotoPreview('');
     setDepartureBooking(null);
   };
 
@@ -326,22 +333,27 @@ export default function BookingSystem({
       endRecordedAt: new Date().toISOString(),
     });
 
+    setEndPhotoPreview('');
+    setKeyPhotoPreview('');
     setReturnBooking(null);
   };
 
-  // Generic file to base64 helper
-  const handleFileChange = (
+  // Generic file to compressed base64 helper
+  const handleFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>,
     setter: (val: string) => void
   ) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const res = event.target?.result as string;
-      setter(res);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, 800, 0.65);
+      if (compressed) {
+        setter(compressed);
+      }
+    } catch (err) {
+      console.error('Error compressing photo:', err);
+    }
   };
 
   return (
@@ -354,7 +366,7 @@ export default function BookingSystem({
               รายการจองรถยนต์ส่วนกลาง
             </h2>
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-              อนุมัติ 2 ขั้น (Approve 1 & Approve 2)
+              อนุมัติ 2 ขั้น (ผู้จัดการอนุมัติ & ผู้ดูแลรถอนุมัติ)
             </span>
             {!hasEditPermission && (
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
@@ -364,7 +376,7 @@ export default function BookingSystem({
           </div>
           <p className="text-xs text-gray-500 mt-1">
             {isAdmin
-              ? 'ระบบการอนุมัติ 2 ขั้น: ขั้นที่ 1 (Approve 1 ในฝ่าย) → ขั้นที่ 2 (Approve 2 ขั้นสุดท้าย) พร้อมระบบบันทึกไมล์ น้ำมัน และส่งคืนกุญแจ'
+              ? 'ระบบการอนุมัติ 2 ขั้น: ผู้จัดการอนุมัติ → ผู้ดูแลรถอนุมัติ พร้อมระบบบันทึกไมล์ น้ำมัน และส่งคืนกุญแจ'
               : 'ตรวจสอบสถานะคำขอ อนุมัติการใช้รถตามสิทธิ์ และบันทึกข้อมูลไมล์/น้ำมัน/รูปถ่ายเมื่อเสร็จสิ้นภารกิจ'}
           </p>
         </div>
@@ -389,7 +401,7 @@ export default function BookingSystem({
                 : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
             }`}
           >
-            <span>รออนุมัติ 1</span>
+            <span>ผู้จัดการอนุมัติ</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {pending1Count}
             </span>
@@ -402,7 +414,7 @@ export default function BookingSystem({
                 : 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100'
             }`}
           >
-            <span>รออนุมัติ 2</span>
+            <span>ผู้ดูแลรถอนุมัติ</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {pending2Count}
             </span>
@@ -431,6 +443,19 @@ export default function BookingSystem({
             <span>เสร็จสิ้น</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {completedCount}
+            </span>
+          </button>
+          <button
+            onClick={() => setStatusFilter('Cancelled')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+              statusFilter === 'Cancelled'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+            }`}
+          >
+            <span>Reject</span>
+            <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
+              {cancelledCount}
             </span>
           </button>
         </div>
@@ -524,7 +549,7 @@ export default function BookingSystem({
                       <Car className="w-3.5 h-3.5 text-indigo-600" />
                       <span>{booking.vehicleName}</span>
                     </span>
-                    {getBookingStatusBadge(booking.status)}
+                    {getBookingStatusBadge(booking)}
                   </div>
                 </div>
 
@@ -570,22 +595,22 @@ export default function BookingSystem({
                             1
                           </span>
                           <div>
-                            <span className="font-bold text-gray-900">ขั้นที่ 1 (Approve 1):</span>{' '}
-                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้อนุมัติแผนก'}</span>
+                            <span className="font-bold text-gray-900">ผู้จัดการอนุมัติ:</span>{' '}
+                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้จัดการอนุมัติ'}</span>
                           </div>
                         </div>
                         <div>
-                          {booking.stage1ApprovedBy ? (
+                          {booking.stage1ApprovedBy && booking.rejectedStage !== 1 ? (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
                               <Check className="w-3 h-3" /> ผ่านแล้ว
                             </span>
-                          ) : booking.status === 'Cancelled' && (!booking.rejectedStage || booking.rejectedStage === 1) ? (
+                          ) : booking.status === 'Cancelled' ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                              ไม่อนุมัติ
+                              ❌ ผู้จัดการอนุมัติ Reject
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              รอ Approve 1
+                              รอผู้จัดการอนุมัติ
                             </span>
                           )}
                         </div>
@@ -598,11 +623,11 @@ export default function BookingSystem({
                             2
                           </span>
                           <div>
-                            <span className="font-bold text-gray-900">ขั้นที่ 2 (Approve 2):</span>{' '}
+                            <span className="font-bold text-gray-900">ผู้ดูแลรถอนุมัติ:</span>{' '}
                             <span className="text-gray-600">
                               {booking.stage2ApprovedBy
                                 ? booking.stage2ApprovedBy
-                                : booking.stage2ApproverName || 'ผู้อนุมัติขั้นสุดท้าย'}
+                                : booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'}
                             </span>
                           </div>
                         </div>
@@ -611,41 +636,55 @@ export default function BookingSystem({
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
                               <Check className="w-3 h-3" /> อนุมัติครบแล้ว
                             </span>
-                          ) : booking.status === 'Cancelled' && booking.rejectedStage === 2 ? (
+                          ) : booking.status === 'Cancelled' &&
+                            (booking.rejectedStage === 2 ||
+                              (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy))) ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                              ไม่อนุมัติ
+                              ❌ ผู้ดูแลรถอนุมัติ Reject
+                            </span>
+                          ) : booking.status === 'Cancelled' ? (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                              ❌ ผู้จัดการอนุมัติ Reject
                             </span>
                           ) : booking.status === 'Pending_Approve2' ? (
                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 animate-pulse">
-                              รอ Approve 2
+                              รอผู้ดูแลรถอนุมัติ
                             </span>
                           ) : (
-                            <span className="text-[10px] text-gray-400">รอผ่านขั้นที่ 1</span>
+                            <span className="text-[10px] text-gray-400">รอผ่านผู้จัดการอนุมัติ</span>
                           )}
                         </div>
                       </div>
 
                       {/* Rejection Reason Display if Cancelled/Rejected */}
-                      {booking.status === 'Cancelled' && booking.rejectionReason && (
+                      {booking.status === 'Cancelled' && (
                         <div className="mt-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-900 space-y-0.5">
                           <div className="font-bold text-rose-700 flex items-center justify-between">
-                            <span>❌ เหตุผลที่ไม่อนุมัติ:</span>
-                            {booking.rejectedBy && (
-                              <span className="text-[10px] font-medium text-rose-600">
-                                โดย {booking.rejectedBy}
-                              </span>
-                            )}
+                            <span>
+                              ❌ ผู้อนุมัติ Reject:{' '}
+                              {booking.rejectedBy ||
+                                (booking.rejectedStage === 2 ||
+                                (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy))
+                                  ? `${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'} (ผู้ดูแลรถอนุมัติ Reject)`
+                                  : `${booking.assignedApproverName || 'ผู้จัดการอนุมัติ'} (ผู้จัดการอนุมัติ Reject)`)}
+                            </span>
                           </div>
-                          <p className="font-medium text-rose-900">{booking.rejectionReason}</p>
+                          {booking.rejectionReason && (
+                            <p className="font-medium text-rose-900">เหตุผล: {booking.rejectionReason}</p>
+                          )}
                         </div>
                       )}
                     </div>
 
-                    {booking.approverName && (
+                    {booking.status === 'Cancelled' ? (
+                      <div className="text-[10px] font-bold text-rose-600 pt-1 text-right">
+                        สถานะผู้อนุมัติ: Reject
+                      </div>
+                    ) : booking.approverName ? (
                       <div className="text-[10px] text-gray-500 pt-1 text-right">
                         อนุมัติครบสมบูรณ์: {booking.approverName}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -780,14 +819,14 @@ export default function BookingSystem({
                           type="button"
                           onClick={() =>
                             onUpdateBookingStatus(booking.id, 'Pending_Approve2', {
-                              stage1ApprovedBy: currentUser?.name || 'Approve 1',
+                              stage1ApprovedBy: currentUser?.name || 'ผู้จัดการอนุมัติ',
                               stage1ApprovedAt: new Date().toISOString(),
                             })
                           }
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>อนุมัติขั้นที่ 1 (ส่งต่อ Approve 2)</span>
+                          <span>ผู้จัดการอนุมัติ (ส่งต่อผู้ดูแลรถอนุมัติ)</span>
                         </button>
 
                         <button
@@ -813,14 +852,14 @@ export default function BookingSystem({
                           type="button"
                           onClick={() =>
                             onUpdateBookingStatus(booking.id, 'Approved', {
-                              stage2ApprovedBy: currentUser?.name || 'Approve 2',
+                              stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถอนุมัติ',
                               stage2ApprovedAt: new Date().toISOString(),
                             })
                           }
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>อนุมัติขั้นที่ 2 (อนุมัติขั้นสุดท้าย)</span>
+                          <span>ผู้ดูแลรถอนุมัติ (อนุมัติขั้นสุดท้าย)</span>
                         </button>
 
                         <button
@@ -1489,7 +1528,7 @@ export default function BookingSystem({
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-rose-700 text-base">
-                  ❌ ไม่อนุมัติคำขอใช้รถ (ขั้นที่ {rejectingBookingState.stage})
+                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'})
                 </h3>
                 <button
                   type="button"
@@ -1537,7 +1576,7 @@ export default function BookingSystem({
                     }
                     onUpdateBookingStatus(rejectingBookingState.booking.id, 'Cancelled', {
                       rejectionReason: rejectReasonInput.trim(),
-                      rejectedBy: `${currentUser?.name || 'ผู้อนุมัติ'} (Approve ${rejectingBookingState.stage})`,
+                      rejectedBy: `${currentUser?.name || (rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ')} (${rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'} Reject)`,
                       rejectedAt: new Date().toISOString(),
                       rejectedStage: rejectingBookingState.stage,
                     });

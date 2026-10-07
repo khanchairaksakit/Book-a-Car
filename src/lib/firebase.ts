@@ -19,6 +19,13 @@ import {
   getStoredRolePermissions,
   saveStoredRolePermissions,
 } from '../utils/userHelpers';
+import {
+  getStoredDepartments,
+  saveStoredDepartments,
+  getStoredDivisions,
+  saveStoredDivisions,
+} from '../utils/organizationUtils';
+import { compressDataUrlIfNeeded } from '../utils/imageCompression';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -145,8 +152,26 @@ export async function getUsers(): Promise<User[]> {
 }
 
 export async function saveUser(user: User): Promise<void> {
-  const docRef = doc(db, 'users', user.id);
-  await setDoc(docRef, cleanFirestoreData(user));
+  const cleaned = cleanFirestoreData(user);
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('car_booking_users');
+      const list: User[] = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(list)) {
+        const idx = list.findIndex((u) => u.id === cleaned.id);
+        if (idx >= 0) {
+          list[idx] = cleaned;
+        } else {
+          list.push(cleaned);
+        }
+        localStorage.setItem('car_booking_users', JSON.stringify(list));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const docRef = doc(db, 'users', cleaned.id);
+  await setDoc(docRef, cleaned);
 }
 
 export async function deleteUser(userId: string): Promise<void> {
@@ -197,13 +222,65 @@ function getLocalStoredBookings(): Booking[] {
   return [];
 }
 
-function saveLocalStoredBookings(bookings: Booking[]): void {
+export function saveLocalStoredBookings(bookings: Booking[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem('car_booking_bookings', JSON.stringify(bookings));
   } catch {
-    // ignore
+    // If localStorage quota (5MB) is exceeded due to accumulated base64 photos,
+    // keep photos only on the most recent 5 bookings in localStorage while preserving all metadata.
+    try {
+      const lightweight = bookings.map((b, idx) => {
+        if (idx < 5) return b;
+        const copy = { ...b };
+        delete copy.startMileagePhoto;
+        delete copy.endMileagePhoto;
+        delete copy.keyReturnPhoto;
+        return copy;
+      });
+      localStorage.setItem('car_booking_bookings', JSON.stringify(lightweight));
+    } catch {
+      try {
+        const metadataOnly = bookings.map((b) => {
+          const copy = { ...b };
+          delete copy.startMileagePhoto;
+          delete copy.endMileagePhoto;
+          delete copy.keyReturnPhoto;
+          return copy;
+        });
+        localStorage.setItem('car_booking_bookings', JSON.stringify(metadataOnly));
+      } catch {
+        // ignore
+      }
+    }
   }
+}
+
+export function areBookingListsEqual(a: Booking[], b: Booking[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.status !== y.status ||
+      x.startMileage !== y.startMileage ||
+      x.endMileage !== y.endMileage ||
+      x.startFuelLevel !== y.startFuelLevel ||
+      x.endFuelLevel !== y.endFuelLevel ||
+      Boolean(x.startMileagePhoto) !== Boolean(y.startMileagePhoto) ||
+      Boolean(x.endMileagePhoto) !== Boolean(y.endMileagePhoto) ||
+      Boolean(x.keyReturnPhoto) !== Boolean(y.keyReturnPhoto) ||
+      x.stage1ApprovedBy !== y.stage1ApprovedBy ||
+      x.stage2ApprovedBy !== y.stage2ApprovedBy ||
+      x.rejectionReason !== y.rejectionReason ||
+      x.lineNotifiedAt !== y.lineNotifiedAt
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function getBookingStatusRank(status?: string): number {
@@ -452,7 +529,19 @@ export function subscribeToVehicles(onUpdate: (vehicles: Vehicle[]) => void): ()
 }
 
 export async function saveBooking(booking: Booking): Promise<void> {
-  const cleaned = cleanFirestoreData(normalizeSingleBooking(booking));
+  const normalized = normalizeSingleBooking(booking);
+  const [startPhoto, endPhoto, keyPhoto] = await Promise.all([
+    compressDataUrlIfNeeded(normalized.startMileagePhoto, 800, 0.62),
+    compressDataUrlIfNeeded(normalized.endMileagePhoto, 800, 0.62),
+    compressDataUrlIfNeeded(normalized.keyReturnPhoto, 800, 0.62),
+  ]);
+
+  const cleaned = cleanFirestoreData({
+    ...normalized,
+    ...(startPhoto ? { startMileagePhoto: startPhoto } : {}),
+    ...(endPhoto ? { endMileagePhoto: endPhoto } : {}),
+    ...(keyPhoto ? { keyReturnPhoto: keyPhoto } : {}),
+  });
 
   // 1. Immediately persist to localStorage
   const currentLocal = getLocalStoredBookings();
@@ -567,5 +656,87 @@ export async function saveRolePermissions(matrix: RolePermissionsMatrix): Promis
   } catch (error) {
     console.error('Error saving role permissions to Firestore:', error);
   }
+}
+
+// Organization Settings (Departments & Divisions) Cloud Persistence
+export async function getOrganizationSettings(
+  existingUsers?: User[]
+): Promise<{ departments: string[]; divisions: string[] }> {
+  const localDepts = getStoredDepartments(existingUsers);
+  const localDivs = getStoredDivisions(existingUsers);
+  try {
+    const docRef = doc(db, 'settings', 'organization');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const cloudDepts = Array.isArray(data?.departments) ? data.departments : [];
+      const cloudDivs = Array.isArray(data?.divisions) ? data.divisions : [];
+      const mergedDepts = Array.from(
+        new Set([...cloudDepts, ...localDepts].map((d: string) => (d || '').trim()).filter(Boolean))
+      );
+      const mergedDivs = Array.from(
+        new Set([...cloudDivs, ...localDivs].map((d: string) => (d || '').trim()).filter(Boolean))
+      );
+      saveStoredDepartments(mergedDepts);
+      saveStoredDivisions(mergedDivs);
+      return { departments: mergedDepts, divisions: mergedDivs };
+    }
+    await setDoc(docRef, {
+      id: 'organization',
+      departments: localDepts,
+      divisions: localDivs,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+    return { departments: localDepts, divisions: localDivs };
+  } catch (error) {
+    console.error('Error fetching organization settings from Firestore:', error);
+    return { departments: localDepts, divisions: localDivs };
+  }
+}
+
+export async function saveOrganizationSettings(
+  departments: string[],
+  divisions: string[]
+): Promise<void> {
+  const cleanDepts = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
+  const cleanDivs = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
+  saveStoredDepartments(cleanDepts);
+  saveStoredDivisions(cleanDivs);
+  try {
+    const docRef = doc(db, 'settings', 'organization');
+    await setDoc(docRef, {
+      id: 'organization',
+      departments: cleanDepts,
+      divisions: cleanDivs,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error saving organization settings to Firestore:', error);
+  }
+}
+
+export function subscribeToOrganizationSettings(
+  onUpdate: (data: { departments: string[]; divisions: string[] }) => void
+): () => void {
+  const docRef = doc(db, 'settings', 'organization');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const departments = Array.isArray(data?.departments)
+        ? data.departments.map((d: string) => (d || '').trim()).filter(Boolean)
+        : [];
+      const divisions = Array.isArray(data?.divisions)
+        ? data.divisions.map((d: string) => (d || '').trim()).filter(Boolean)
+        : [];
+      if (departments.length > 0) saveStoredDepartments(departments);
+      if (divisions.length > 0) saveStoredDivisions(divisions);
+      onUpdate({ departments, divisions });
+    },
+    (error) => {
+      console.error('Error in subscribeToOrganizationSettings:', error);
+    }
+  );
 }
 

@@ -106,10 +106,9 @@ export default function LineQuickApproveModal({
     return getEligibleStage1Approvers(users, requesterUser);
   }, [users, requesterUser]);
 
-  // Eligible Stage 2 approvers (Approve 2 permission)
+  // Eligible Stage 2 approvers (strictly Approve 2 permission)
   const stage2ApproverCandidates = useMemo(() => {
-    const list = users.filter((u) => isUserApprover2(u));
-    return list.length > 0 ? list : users;
+    return users.filter((u) => isUserApprover2(u));
   }, [users]);
 
   useEffect(() => {
@@ -162,8 +161,8 @@ export default function LineQuickApproveModal({
       }
     } else if (booking.status === 'Pending_Approve2') {
       const stage2User =
-        users.find((u) => u.id === booking.stage2ApproverId) ||
-        (currentUser && (isUserApprover2(currentUser) || isUserAdmin(currentUser))
+        users.find((u) => u.id === booking.stage2ApproverId && isUserApprover2(u)) ||
+        (currentUser && isUserApprover2(currentUser)
           ? currentUser
           : stage2ApproverCandidates[0]);
       if (stage2User) {
@@ -174,7 +173,7 @@ export default function LineQuickApproveModal({
         );
       } else {
         setSelectedApproverId('');
-        setSelectedApproverName(booking.stage2ApproverName || 'Approve 2');
+        setSelectedApproverName(booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ');
         setSelectedApproverLineId(booking.stage2ApproverLineId || '');
       }
     }
@@ -458,12 +457,12 @@ export default function LineQuickApproveModal({
 
               {booking.status === 'Pending' && (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
-                  ⏳ รอ Approve 1
+                  ⏳ รอผู้จัดการอนุมัติ
                 </span>
               )}
               {booking.status === 'Pending_Approve2' && (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
-                  ⏳ รอ Approve 2 อนุมัติ
+                  ⏳ รอผู้ดูแลรถอนุมัติ
                 </span>
               )}
               {isAlreadyApproved && (
@@ -473,7 +472,11 @@ export default function LineQuickApproveModal({
               )}
               {isAlreadyRejected && (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
-                  ❌ ไม่อนุมัติ
+                  ❌{' '}
+                  {booking.rejectedStage === 2 ||
+                  (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy))
+                    ? 'ผู้ดูแลรถอนุมัติ Reject'
+                    : 'ผู้จัดการอนุมัติ Reject'}
                 </span>
               )}
             </div>
@@ -542,22 +545,22 @@ export default function LineQuickApproveModal({
             <div className="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
               <div
                 className={`p-2.5 rounded-xl border ${
-                  booking.stage1ApprovedBy
+                  booking.stage1ApprovedBy && booking.rejectedStage !== 1
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : isAlreadyRejected && booking.rejectedStage === 1
+                    : isAlreadyRejected
                     ? 'bg-rose-50 border-rose-200 text-rose-800'
                     : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold">ขั้นที่ 1 (Approve 1)</span>
+                  <span className="font-bold">ผู้จัดการอนุมัติ</span>
                 </div>
                 <span className="text-[10px] block truncate mt-0.5 font-medium">
-                  {booking.stage1ApprovedBy
+                  {booking.stage1ApprovedBy && booking.rejectedStage !== 1
                     ? `✅ ${booking.stage1ApprovedBy}`
-                    : isAlreadyRejected && booking.rejectedStage === 1
-                    ? `❌ ไม่อนุมัติโดย ${booking.rejectedBy}`
-                    : `รอคุณ ${booking.assignedApproverName || 'Approve 1'}`}
+                    : isAlreadyRejected
+                    ? `❌ Reject (${booking.rejectedBy || booking.assignedApproverName || 'ผู้จัดการอนุมัติ'})`
+                    : `รอคุณ ${booking.assignedApproverName || 'ผู้จัดการอนุมัติ'}`}
                 </span>
                 <span className="text-[9px] opacity-80 block truncate mt-0.5">
                   LINE ID: {booking.assignedApproverLineId || selectedApproverLineId || '-'}
@@ -568,7 +571,7 @@ export default function LineQuickApproveModal({
                 className={`p-2.5 rounded-xl border ${
                   booking.stage2ApprovedBy || isAlreadyApproved
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : isAlreadyRejected && booking.rejectedStage === 2
+                    : isAlreadyRejected
                     ? 'bg-rose-50 border-rose-200 text-rose-800'
                     : isStage2Pending
                     ? 'bg-blue-50 border-blue-200 text-blue-800'
@@ -576,16 +579,20 @@ export default function LineQuickApproveModal({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold">ขั้นที่ 2 (Approve 2 ขั้นสุดท้าย)</span>
+                  <span className="font-bold">ผู้ดูแลรถอนุมัติ</span>
                 </div>
                 <span className="text-[10px] block truncate mt-0.5 font-medium">
                   {booking.stage2ApprovedBy
                     ? `✅ ${booking.stage2ApprovedBy}`
-                    : isAlreadyRejected && booking.rejectedStage === 2
-                    ? `❌ ไม่อนุมัติโดย ${booking.rejectedBy}`
+                    : isAlreadyRejected &&
+                      (booking.rejectedStage === 2 ||
+                        (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy)))
+                    ? `❌ Reject (${booking.rejectedBy || booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'})`
+                    : isAlreadyRejected
+                    ? `❌ ผู้จัดการอนุมัติ Reject`
                     : isStage2Pending
-                    ? `⏳ รอคุณ ${booking.stage2ApproverName || 'Approve 2'} อนุมัติ`
-                    : `รอส่งต่อคุณ ${booking.stage2ApproverName || stage2TargetUser?.name || 'Approve 2'}`}
+                    ? `⏳ รอคุณ ${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'} อนุมัติ`
+                    : `รอส่งต่อคุณ ${booking.stage2ApproverName || stage2TargetUser?.name || 'ผู้ดูแลรถอนุมัติ'}`}
                 </span>
                 <span className="text-[9px] opacity-80 block truncate mt-0.5">
                   LINE ID: {booking.stage2ApproverLineId || nextStage2ApproverLineId || '-'}

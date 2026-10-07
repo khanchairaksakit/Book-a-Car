@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, X, RefreshCw, Check, AlertCircle, Upload, SwitchCamera, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { compressImageFile } from '../utils/imageCompression';
 
 interface CameraCaptureModalProps {
   isOpen: boolean;
@@ -161,8 +162,12 @@ export default function CameraCaptureModal({
     setTimeout(() => setFlashEffect(false), 200);
 
     const canvas = document.createElement('canvas');
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+    const rawWidth = video.videoWidth || 1280;
+    const rawHeight = video.videoHeight || 720;
+    const maxDim = 800;
+    const scale = Math.min(1, maxDim / Math.max(rawWidth, rawHeight));
+    const width = Math.max(1, Math.round(rawWidth * scale));
+    const height = Math.max(1, Math.round(rawHeight * scale));
     canvas.width = width;
     canvas.height = height;
 
@@ -176,7 +181,9 @@ export default function CameraCaptureModal({
     }
 
     ctx.drawImage(video, 0, 0, width, height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
+    canvas.width = 0;
+    canvas.height = 0;
 
     // Stop stream while viewing preview
     if (stream) {
@@ -202,13 +209,13 @@ export default function CameraCaptureModal({
   };
 
   // Fallback: upload file from disk
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
+    try {
+      const dataUrl = await compressImageFile(file, 800, 0.65);
       if (dataUrl) {
         setCapturedPreview(dataUrl);
         if (stream) {
@@ -216,8 +223,9 @@ export default function CameraCaptureModal({
           setStream(null);
         }
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error compressing camera file upload:', err);
+    }
   };
 
   if (!isOpen) return null;

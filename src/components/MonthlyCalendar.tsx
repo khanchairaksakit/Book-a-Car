@@ -9,6 +9,7 @@ import {
 } from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
+import { compressImageFile } from '../utils/imageCompression';
 import {
   getRealTodayStr,
   isDateInPast,
@@ -177,6 +178,7 @@ export default function MonthlyCalendar({
       startRecordedAt: new Date().toISOString(),
     });
 
+    setStartPhotoPreview('');
     setDepartureBooking(null);
   };
 
@@ -227,22 +229,27 @@ export default function MonthlyCalendar({
       endRecordedAt: new Date().toISOString(),
     });
 
+    setEndPhotoPreview('');
+    setKeyPhotoPreview('');
     setReturnBooking(null);
   };
 
-  // Generic file to base64 helper
-  const handleFileChange = (
+  // Generic file to compressed base64 helper
+  const handleFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>,
     setter: (val: string) => void
   ) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const res = event.target?.result as string;
-      setter(res);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, 800, 0.65);
+      if (compressed) {
+        setter(compressed);
+      }
+    } catch (err) {
+      console.error('Error compressing photo:', err);
+    }
   };
 
   // Booking Modal States
@@ -730,10 +737,6 @@ export default function MonthlyCalendar({
       <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-md border border-indigo-700/50">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white/10 rounded-full text-xs font-semibold backdrop-blur-xs text-indigo-200">
-              <CalendarDays className="w-3.5 h-3.5 text-indigo-300" />
-              <span>ปฏิทินจองรถส่วนกลาง • หน้าแรกของระบบ</span>
-            </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
               <span>ปฏิทินประจำเดือน {thaiMonths[currentMonth]} {currentYear + 543}</span>
             </h1>
@@ -951,8 +954,8 @@ export default function MonthlyCalendar({
                         }`}
                       >
                         {isStage2
-                          ? `⏳ รอ Approve 2 (${b.stage2ApproverName || 'ขั้นที่ 2'})`
-                          : `⏳ รอ Approve 1 (${b.assignedApproverName || 'ขั้นที่ 1'})`}
+                          ? `⏳ รอผู้ดูแลรถอนุมัติ (${b.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'})`
+                          : `⏳ รอผู้จัดการอนุมัติ (${b.assignedApproverName || 'ผู้จัดการอนุมัติ'})`}
                       </span>
                     </div>
 
@@ -987,14 +990,14 @@ export default function MonthlyCalendar({
                             type="button"
                             onClick={() =>
                               onUpdateBookingStatus(b.id, 'Pending_Approve2', {
-                                stage1ApprovedBy: currentUser?.name || 'Approve 1',
+                                stage1ApprovedBy: currentUser?.name || 'ผู้จัดการอนุมัติ',
                                 stage1ApprovedAt: new Date().toISOString(),
                               })
                             }
                             className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>อนุมัติขั้นที่ 1</span>
+                            <span>ผู้จัดการอนุมัติ</span>
                           </button>
                         ) : (
                           <button
@@ -1002,14 +1005,14 @@ export default function MonthlyCalendar({
                             type="button"
                             onClick={() =>
                               onUpdateBookingStatus(b.id, 'Approved', {
-                                stage2ApprovedBy: currentUser?.name || 'Approve 2',
+                                stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถอนุมัติ',
                                 stage2ApprovedAt: new Date().toISOString(),
                               })
                             }
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>อนุมัติขั้นที่ 2 (อนุมัติใช้รถ)</span>
+                            <span>ผู้ดูแลรถอนุมัติ</span>
                           </button>
                         )}
                         {onOpenLineQuickApprove && (
@@ -1885,10 +1888,22 @@ export default function MonthlyCalendar({
                                 ? 'bg-indigo-100 text-indigo-700'
                                 : b.status === 'Completed'
                                 ? 'bg-emerald-100 text-emerald-700'
+                                : b.status === 'Cancelled'
+                                ? 'bg-rose-100 text-rose-700'
+                                : b.status === 'Pending_Approve2'
+                                ? 'bg-blue-100 text-blue-700'
                                 : 'bg-amber-100 text-amber-700'
                             }`}
                           >
-                            {b.status === 'Approved' ? 'อนุมัติแล้ว' : b.status === 'Completed' ? 'เสร็จสิ้น' : 'รออนุมัติ'}
+                            {b.status === 'Approved'
+                              ? 'อนุมัติแล้ว'
+                              : b.status === 'Completed'
+                              ? 'เสร็จสิ้น'
+                              : b.status === 'Cancelled'
+                              ? 'Reject'
+                              : b.status === 'Pending_Approve2'
+                              ? 'รอผู้ดูแลรถอนุมัติ'
+                              : 'รอผู้จัดการอนุมัติ'}
                           </span>
                         </div>
                         <div className="text-gray-700 font-medium">

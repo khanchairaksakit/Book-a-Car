@@ -389,26 +389,26 @@ export default function LineShareApprovalModal({
                   <div className="pt-2 border-t border-gray-100 space-y-1 text-[10px]">
                     <div
                       className={`font-bold flex items-center gap-1 ${
-                        booking.stage1ApprovedBy
+                        booking.stage1ApprovedBy && booking.rejectedStage !== 1
                           ? 'text-emerald-600'
-                          : isRejected && booking.rejectedStage === 1
+                          : isRejected
                           ? 'text-rose-600'
                           : 'text-amber-600'
                       }`}
                     >
                       <span>
-                        {booking.stage1ApprovedBy
-                          ? `✅ ขั้นที่ 1: อนุมัติโดย ${booking.stage1ApprovedBy}`
-                          : isRejected && booking.rejectedStage === 1
-                          ? `❌ ขั้นที่ 1: ไม่อนุมัติโดย ${booking.rejectedBy}`
-                          : `⏳ ขั้นที่ 1: รอ ${booking.assignedApproverName || 'Approve 1'} (${approve1LineId || '-'})`}
+                        {booking.stage1ApprovedBy && booking.rejectedStage !== 1
+                          ? `✅ ผู้จัดการอนุมัติ: อนุมัติโดย ${booking.stage1ApprovedBy}`
+                          : isRejected
+                          ? `❌ ผู้จัดการอนุมัติ: Reject (${booking.rejectedBy || booking.assignedApproverName || 'ผู้จัดการอนุมัติ'})`
+                          : `⏳ ผู้จัดการอนุมัติ: รอ ${booking.assignedApproverName || 'ผู้จัดการอนุมัติ'} (${approve1LineId || '-'})`}
                       </span>
                     </div>
                     <div
                       className={`font-bold flex items-center gap-1 ${
                         booking.stage2ApprovedBy
                           ? 'text-emerald-600'
-                          : isRejected && booking.rejectedStage === 2
+                          : isRejected
                           ? 'text-rose-600'
                           : isStage2
                           ? 'text-blue-600'
@@ -417,12 +417,16 @@ export default function LineShareApprovalModal({
                     >
                       <span>
                         {booking.stage2ApprovedBy
-                          ? `✅ ขั้นที่ 2: อนุมัติโดย ${booking.stage2ApprovedBy}`
-                          : isRejected && booking.rejectedStage === 2
-                          ? `❌ ขั้นที่ 2: ไม่อนุมัติโดย ${booking.rejectedBy}`
+                          ? `✅ ผู้ดูแลรถอนุมัติ: อนุมัติโดย ${booking.stage2ApprovedBy}`
+                          : isRejected &&
+                            (booking.rejectedStage === 2 ||
+                              (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy)))
+                          ? `❌ ผู้ดูแลรถอนุมัติ: Reject (${booking.rejectedBy || booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'})`
+                          : isRejected
+                          ? `❌ ผู้จัดการอนุมัติ Reject`
                           : isStage2
-                          ? `⏳ ขั้นที่ 2: รอ ${targetApproverLabel} (${approve2LineId || '-'})`
-                          : `⚪ ขั้นที่ 2: รอส่งต่อ ${booking.stage2ApproverName || stage2Approver?.name || 'Approve 2'}`}
+                          ? `⏳ ผู้ดูแลรถอนุมัติ: รอ ${targetApproverLabel} (${approve2LineId || '-'})`
+                          : `⚪ ผู้ดูแลรถอนุมัติ: รอผ่านผู้จัดการอนุมัติ (${booking.stage2ApproverName || stage2Approver?.name || 'ผู้ดูแลรถอนุมัติ'})`}
                       </span>
                     </div>
 

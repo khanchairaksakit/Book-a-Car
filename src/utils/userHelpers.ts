@@ -337,6 +337,7 @@ export function getBookingDivision(booking: Booking, allUsers?: User[]): string 
 
 /**
  * Retrieves eligible Approver 1 candidates for the given requester.
+ * - Strictly requires 'Approve 1' role.
  * - Priority 1: Approve 1 users in the same Department (แผนกเดียวกัน) or same Division (ฝ่ายเดียวกัน).
  * - Fallback: If the requester's Department/Division has no dedicated Approve 1 user (or includeAll is true),
  *   returns all Approve 1 users in the organization so booking creation is never blocked.
@@ -347,12 +348,7 @@ export function getEligibleStage1Approvers(
   includeAll?: boolean
 ): User[] {
   const allApprover1Users = users.filter((u) => isUserApprover1(u));
-  const fallbackPool =
-    allApprover1Users.length > 0
-      ? allApprover1Users
-      : users.filter((u) => isUserApprover2(u) || isUserAdmin(u));
-
-  if (!currentUser) return fallbackPool;
+  if (!currentUser) return allApprover1Users;
 
   const currentDept = normalizeOrgUnit(currentUser.department);
   const currentDiv = normalizeOrgUnit(currentUser.division);
@@ -363,7 +359,7 @@ export function getEligibleStage1Approvers(
   const sameDivMatches: User[] = [];
   const otherApprovers: User[] = [];
 
-  for (const u of fallbackPool) {
+  for (const u of allApprover1Users) {
     const uDept = normalizeOrgUnit(u.department);
     const uDiv = normalizeOrgUnit(u.division);
     const coreUDept = stripOrgPrefix(u.department);
@@ -420,28 +416,24 @@ export function getEligibleStage1Approvers(
 
 /**
  * Retrieves eligible Approver 2 candidates.
- * Rule: Must strictly possess 'Approve 2' permission (or fallback to Admin if none configured).
+ * Rule: Must strictly possess 'Approve 2' permission.
  */
 export function getEligibleStage2Approvers(
   users: User[],
   currentUser?: User | null
 ): User[] {
   const allApprover2Users = users.filter((u) => isUserApprover2(u));
-  const pool =
-    allApprover2Users.length > 0
-      ? allApprover2Users
-      : users.filter((u) => isUserAdmin(u));
 
-  if (!currentUser) return pool;
+  if (!currentUser) return allApprover2Users;
 
   const currentDept = normalizeOrgUnit(currentUser.department);
   const currentDiv = normalizeOrgUnit(currentUser.division);
 
-  return [...pool].sort((a, b) => {
+  return [...allApprover2Users].sort((a, b) => {
     const aDept = normalizeOrgUnit(a.department);
     const bDept = normalizeOrgUnit(b.department);
     const aDiv = normalizeOrgUnit(a.division);
-    const bDiv = normalizeOrgUnit(b.division);
+    const bDiv = normalizeOrgUnit(a.division);
 
     const aScore =
       (currentDept && aDept === currentDept ? 2 : 0) +
@@ -455,8 +447,8 @@ export function getEligibleStage2Approvers(
 
 /**
  * Checks whether the current user is permitted to approve/reject the given booking:
- * - Stage 1 (Pending): The assigned Approve 1 user, OR an Approve 1 in the same department/division, OR Admin.
- * - Stage 2 (Pending_Approve2): Any user with Approve 2 role, OR the assigned Stage 2 approver, OR Admin.
+ * - Stage 1 (Pending): User MUST strictly have 'Approve 1' role AND be the assigned Approve 1 user or in the same department/division.
+ * - Stage 2 (Pending_Approve2): User MUST strictly have 'Approve 2' role. Users without 'Approve 2' (even if Admin) cannot approve Stage 2.
  */
 export function canUserApproveBooking(
   booking: Booking,
@@ -464,12 +456,13 @@ export function canUserApproveBooking(
   allUsers?: User[]
 ): boolean {
   if (!currentUser) return false;
-  if (isUserAdmin(currentUser)) return true;
 
   const normCurrentName = (currentUser.name || '').trim().toLowerCase();
 
-  // Stage 1: Waiting for Approve 1
+  // Stage 1: Waiting for Approve 1 (อนุมัติขั้นแรก) - MUST have 'Approve 1' role
   if (booking.status === 'Pending') {
+    if (!isUserApprover1(currentUser)) return false;
+
     if (booking.assignedApproverId && currentUser.id === booking.assignedApproverId) {
       return true;
     }
@@ -480,8 +473,6 @@ export function canUserApproveBooking(
     ) {
       return true;
     }
-
-    if (!isUserApprover1(currentUser)) return false;
 
     const bookingDept = getBookingDepartment(booking, allUsers);
     const bookingDiv = getBookingDivision(booking, allUsers);
@@ -507,20 +498,10 @@ export function canUserApproveBooking(
     return false;
   }
 
-  // Stage 2: Waiting for Approve 2
+  // Stage 2: Waiting for Approve 2 (ผู้ดูรถอนุมัติ) - MUST strictly have 'Approve 2' role
   if (booking.status === 'Pending_Approve2') {
-    if (isUserApprover2(currentUser)) return true;
-    if (booking.stage2ApproverId && currentUser.id === booking.stage2ApproverId) {
-      return true;
-    }
-    if (
-      booking.stage2ApproverName &&
-      normCurrentName &&
-      booking.stage2ApproverName.trim().toLowerCase() === normCurrentName
-    ) {
-      return true;
-    }
-    return false;
+    if (!isUserApprover2(currentUser)) return false;
+    return true;
   }
 
   return false;

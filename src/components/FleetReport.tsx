@@ -80,12 +80,26 @@ export default function FleetReport({
   };
 
   const getApprover = (b: Booking): string => {
+    if (b.status === 'Cancelled') {
+      if (b.rejectedBy) {
+        return b.rejectedBy.includes('Reject') ? b.rejectedBy : `${b.rejectedBy} (Reject)`;
+      }
+      const isStage2Reject =
+        b.rejectedStage === 2 || (b.rejectedStage !== 1 && Boolean(b.stage1ApprovedBy));
+      return isStage2Reject ? 'ผู้ดูแลรถอนุมัติ Reject' : 'ผู้จัดการอนุมัติ Reject';
+    }
     if (b.approverName) return b.approverName;
     if (b.status === 'Pending') {
-      return b.assignedApproverName ? `รอ ${b.assignedApproverName}` : (isEn ? 'Pending Approval' : 'รอการอนุมัติ');
+      return b.assignedApproverName
+        ? `รอผู้จัดการอนุมัติ (${b.assignedApproverName})`
+        : isEn
+        ? 'Pending Approval'
+        : 'รอผู้จัดการอนุมัติ';
     }
-    if (b.status === 'Cancelled') {
-      return isEn ? 'Rejected / Cancelled' : 'ไม่อนุมัติ / ยกเลิก';
+    if (b.status === 'Pending_Approve2') {
+      return b.stage2ApproverName
+        ? `รอผู้ดูแลรถอนุมัติ (${b.stage2ApproverName})`
+        : 'รอผู้ดูแลรถอนุมัติ';
     }
     return b.assignedApproverName || '-';
   };
@@ -679,9 +693,9 @@ export default function FleetReport({
                       <td className="p-2 border border-gray-300 whitespace-nowrap">
                         <span
                           className={`font-semibold text-[11px] ${
-                            approver.includes('รอการอนุมัติ')
+                            approver.includes('รอ')
                               ? 'text-amber-600'
-                              : approver.includes('ไม่อนุมัติ')
+                              : approver.includes('ไม่อนุมัติ') || approver.includes('Reject') || b.status === 'Cancelled'
                               ? 'text-red-600'
                               : 'text-emerald-700 print:text-black'
                           }`}

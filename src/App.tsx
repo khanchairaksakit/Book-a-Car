@@ -17,12 +17,15 @@ import {
   deleteBooking,
   getRolePermissions,
   saveRolePermissions,
+  getOrganizationSettings,
   subscribeToBookings,
   subscribeToUsers,
   subscribeToVehicles,
   mergeBookingsLists,
   fetchServerBookings,
   getDeletedBookingIds,
+  saveLocalStoredBookings,
+  areBookingListsEqual,
 } from './lib/firebase';
 
 import BookingSystem from './components/BookingSystem';
@@ -184,6 +187,13 @@ export default function App() {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    setUsers((prev) => {
+      const next = prev.some((u) => u.id === user.id)
+        ? prev.map((u) => (u.id === user.id ? user : u))
+        : [...prev, user];
+      localStorage.setItem('car_booking_users', JSON.stringify(next));
+      return next;
+    });
     localStorage.setItem('car_booking_current_user', JSON.stringify(user));
     setIsLoginPageOpen(false);
   };
@@ -226,6 +236,7 @@ export default function App() {
           getUsers(),
           getBookings(),
           getRolePermissions(),
+          getOrganizationSettings(),
         ]);
         if (!isMounted) return;
         setVehicles(dbVehicles);
@@ -262,7 +273,10 @@ export default function App() {
 
     const unsubBookings = subscribeToBookings((cloudBookings) => {
       if (!isMounted) return;
-      setBookings((prev) => mergeBookingsLists([prev, cloudBookings]));
+      setBookings((prev) => {
+        const merged = mergeBookingsLists([prev, cloudBookings]);
+        return areBookingListsEqual(prev, merged) ? prev : merged;
+      });
     });
 
     const unsubUsers = subscribeToUsers((cloudUsers) => {
@@ -293,9 +307,10 @@ export default function App() {
       const serverData = await fetchServerBookings();
       if (!isMounted) return;
       if (serverData.bookings.length > 0 || serverData.deletedIds.length > 0) {
-        setBookings((prev) =>
-          mergeBookingsLists([prev, serverData.bookings], serverData.deletedIds)
-        );
+        setBookings((prev) => {
+          const merged = mergeBookingsLists([prev, serverData.bookings], serverData.deletedIds);
+          return areBookingListsEqual(prev, merged) ? prev : merged;
+        });
       }
     }, 4000);
 
@@ -310,22 +325,34 @@ export default function App() {
 
   // Sync state to local storage for quick offline / startup response
   useEffect(() => {
-    localStorage.setItem('car_booking_vehicles', JSON.stringify(vehicles));
+    try {
+      localStorage.setItem('car_booking_vehicles', JSON.stringify(vehicles));
+    } catch {
+      // ignore quota error
+    }
   }, [vehicles]);
 
   useEffect(() => {
-    localStorage.setItem('car_booking_users', JSON.stringify(users));
+    try {
+      localStorage.setItem('car_booking_users', JSON.stringify(users));
+    } catch {
+      // ignore quota error
+    }
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem('car_booking_bookings', JSON.stringify(bookings));
+    saveLocalStoredBookings(bookings);
   }, [bookings]);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('car_booking_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('car_booking_current_user');
+    try {
+      if (currentUser) {
+        localStorage.setItem('car_booking_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('car_booking_current_user');
+      }
+    } catch {
+      // ignore quota error
     }
   }, [currentUser]);
 
@@ -340,9 +367,12 @@ export default function App() {
       ...newUserData,
       id: `user-${Date.now()}`,
     };
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    setToastMessage(`เพิ่มผู้ใช้งาน "${newUser.name}" เรียบร้อยแล้ว`);
+    setUsers((prev) => {
+      const updatedUsers = [...prev, newUser];
+      localStorage.setItem('car_booking_users', JSON.stringify(updatedUsers));
+      return updatedUsers;
+    });
+    setToastMessage(`เพิ่มผู้ใช้งาน "${newUser.name}" (Username: ${newUser.username}) เรียบร้อยแล้ว`);
     if (!currentUser) {
       setCurrentUser(newUser);
     }
@@ -358,8 +388,11 @@ export default function App() {
       ...userData,
       id: `user-${Date.now()}-${index}`,
     }));
-    const updatedUsers = [...users, ...createdUsers];
-    setUsers(updatedUsers);
+    setUsers((prev) => {
+      const updatedUsers = [...prev, ...createdUsers];
+      localStorage.setItem('car_booking_users', JSON.stringify(updatedUsers));
+      return updatedUsers;
+    });
     try {
       for (const u of createdUsers) {
         await saveUser(u);
@@ -579,13 +612,29 @@ export default function App() {
   ) => {
     let approverName: string | undefined = undefined;
     let approvedAt: string | undefined = undefined;
+    let rejectionMeta: Partial<Booking> = {};
+
+    const existing = bookings.find((b) => b.id === bookingId);
 
     if (status === 'Approved') {
-      const existing = bookings.find((b) => b.id === bookingId);
       const stage1Name = extraData?.stage1ApprovedBy || existing?.stage1ApprovedBy;
-      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'Approve 2';
-      approverName = stage1Name ? `${stage1Name} (Approve 1) & ${stage2Name} (Approve 2)` : `${stage2Name}`;
+      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'ผู้ดูแลรถอนุมัติ';
+      approverName = stage1Name ? `${stage1Name} (ผู้จัดการอนุมัติ) & ${stage2Name} (ผู้ดูแลรถอนุมัติ)` : `${stage2Name}`;
       approvedAt = new Date().toISOString();
+    } else if (status === 'Cancelled') {
+      const inferredStage: 1 | 2 =
+        extraData?.rejectedStage ||
+        (existing?.status === 'Pending_Approve2' || existing?.stage1ApprovedBy ? 2 : 1);
+      const stageLabel = inferredStage === 2 ? 'ผู้ดูแลรถอนุมัติ' : 'ผู้จัดการอนุมัติ';
+      const defaultRejecter =
+        inferredStage === 2
+          ? existing?.stage2ApproverName || currentUser?.name || stageLabel
+          : existing?.assignedApproverName || currentUser?.name || stageLabel;
+      rejectionMeta = {
+        rejectedStage: inferredStage,
+        rejectedBy: extraData?.rejectedBy || `${defaultRejecter} (${stageLabel} Reject)`,
+        rejectedAt: extraData?.rejectedAt || new Date().toISOString(),
+      };
     }
 
     const updatedBookings = bookings.map((b) => {
@@ -594,6 +643,7 @@ export default function App() {
         ...b,
         status,
         ...(approverName ? { approverName, approvedAt } : {}),
+        ...rejectionMeta,
         ...extraData,
       };
     });
@@ -618,7 +668,7 @@ export default function App() {
         }).catch(() => {});
       }
       setToastMessage(
-        `อนุมัติขั้นที่ 1 (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ Approve 2 (${booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2'}) พิจารณา`
+        `ผู้จัดการอนุมัติ (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ผู้ดูแลรถอนุมัติ (${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'}) พิจารณา`
       );
     } else if (status === 'Approved') {
       if (isLineModuleEnabled) {

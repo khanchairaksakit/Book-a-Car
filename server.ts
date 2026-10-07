@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -12,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 interface WebhookActionItem {
   id: string;
@@ -42,9 +43,9 @@ if (process.env.LINE_GROUP_ID && process.env.LINE_GROUP_ID.trim()) {
   knownGroupIds.add(process.env.LINE_GROUP_ID.trim());
 }
 
-// Persistent server-side booking store to guarantee zero data loss across users/sessions
-const DATA_DIR = path.join(__dirname, 'data');
-const BOOKINGS_STORE_FILE = path.join(DATA_DIR, 'bookings_store.json');
+// Persistent server-side booking store in os.tmpdir() to prevent workspace file-watcher freezes
+const BOOKINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_bookings_store.json');
+const LEGACY_BOOKINGS_STORE_FILE = path.join(__dirname, 'data', 'bookings_store.json');
 
 interface BookingsStoreData {
   bookings: Record<string, any>;
@@ -53,8 +54,13 @@ interface BookingsStoreData {
 
 function readBookingsStore(): BookingsStoreData {
   try {
-    if (fs.existsSync(BOOKINGS_STORE_FILE)) {
-      const raw = fs.readFileSync(BOOKINGS_STORE_FILE, 'utf-8');
+    const fileToRead = fs.existsSync(BOOKINGS_STORE_FILE)
+      ? BOOKINGS_STORE_FILE
+      : fs.existsSync(LEGACY_BOOKINGS_STORE_FILE)
+      ? LEGACY_BOOKINGS_STORE_FILE
+      : null;
+    if (fileToRead) {
+      const raw = fs.readFileSync(fileToRead, 'utf-8');
       const parsed = JSON.parse(raw);
       return {
         bookings: parsed?.bookings && typeof parsed.bookings === 'object' ? parsed.bookings : {},
@@ -68,14 +74,11 @@ function readBookingsStore(): BookingsStoreData {
 }
 
 function writeBookingsStore(store: BookingsStoreData): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(BOOKINGS_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error writing bookings store:', err);
-  }
+  fs.promises
+    .writeFile(BOOKINGS_STORE_FILE, JSON.stringify(store), 'utf-8')
+    .catch((err) => {
+      console.error('Error writing bookings store:', err);
+    });
 }
 
 let serverBookingsStore: BookingsStoreData = readBookingsStore();

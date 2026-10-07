@@ -10,6 +10,8 @@ interface DepartmentDivisionModalProps {
   users: User[];
   onSaveDepartments: (newDepts: string[]) => void;
   onSaveDivisions: (newDivs: string[]) => void;
+  onDepartmentAdded?: (deptName: string) => void;
+  onDivisionAdded?: (divName: string) => void;
   onRenameDepartment?: (oldName: string, newName: string) => void;
   onRenameDivision?: (oldName: string, newName: string) => void;
   language?: 'th' | 'en';
@@ -23,6 +25,8 @@ export default function DepartmentDivisionModal({
   users,
   onSaveDepartments,
   onSaveDivisions,
+  onDepartmentAdded,
+  onDivisionAdded,
   onRenameDepartment,
   onRenameDivision,
   language = 'th',
@@ -73,6 +77,7 @@ export default function DepartmentDivisionModal({
     }
     const updated = [...departments, trimmed];
     onSaveDepartments(updated);
+    if (onDepartmentAdded) onDepartmentAdded(trimmed);
     setNewDepartmentName('');
     setSuccessMsg(isEn ? `Added "${trimmed}" successfully` : `เพิ่มแผนก "${trimmed}" เรียบร้อยแล้ว`);
     setTimeout(() => setSuccessMsg(''), 3000);
@@ -93,9 +98,32 @@ export default function DepartmentDivisionModal({
     }
     const updated = [...divisions, trimmed];
     onSaveDivisions(updated);
+    if (onDivisionAdded) onDivisionAdded(trimmed);
     setNewDivisionName('');
     setSuccessMsg(isEn ? `Added "${trimmed}" successfully` : `เพิ่มฝ่าย "${trimmed}" เรียบร้อยแล้ว`);
     setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
+  const handleDoneAndClose = () => {
+    // Auto-save any typed pending department or division before closing
+    const pendingDept = newDepartmentName.trim();
+    if (pendingDept && !departments.some((d) => d.trim().toLowerCase() === pendingDept.toLowerCase())) {
+      const updatedDepts = [...departments, pendingDept];
+      onSaveDepartments(updatedDepts);
+      if (onDepartmentAdded) onDepartmentAdded(pendingDept);
+      setNewDepartmentName('');
+    }
+    const pendingDiv = newDivisionName.trim();
+    if (pendingDiv && !divisions.some((d) => d.trim().toLowerCase() === pendingDiv.toLowerCase())) {
+      const updatedDivs = [...divisions, pendingDiv];
+      onSaveDivisions(updatedDivs);
+      if (onDivisionAdded) onDivisionAdded(pendingDiv);
+      setNewDivisionName('');
+    }
+    if (editingItem && editingItem.newName.trim()) {
+      handleSaveEdit();
+    }
+    onClose();
   };
 
   const handleDeleteDepartment = (deptName: string) => {
@@ -159,8 +187,8 @@ export default function DepartmentDivisionModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
-      onClick={onClose}
+      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
+      onClick={handleDoneAndClose}
     >
       <div
         className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-gray-100 overflow-hidden"
@@ -185,7 +213,7 @@ export default function DepartmentDivisionModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleDoneAndClose}
             className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
             title="ปิดหน้าต่าง"
           >
@@ -493,7 +521,7 @@ export default function DepartmentDivisionModal({
           </p>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleDoneAndClose}
             className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold cursor-pointer transition-all shadow-xs"
           >
             {isEn ? 'Done' : 'เสร็จสิ้น'}
