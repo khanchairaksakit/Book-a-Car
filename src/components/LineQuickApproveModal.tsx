@@ -899,21 +899,50 @@ export default function LineQuickApproveModal({
                 ผู้อนุมัติสามารถตรวจสอบข้อมูลคำขอใช้รถด้านบน หรือเปิดไปยังเมนู{' '}
                 <strong>ตรวจสอบสถานะ (รายการจองรถยนต์ส่วนกลาง)</strong> ในระบบได้ทันที
               </p>
-              <button
-                type="button"
-                id="btn-go-to-status-menu"
-                onClick={() => {
-                  if (onNavigateToBookingList) {
-                    onNavigateToBookingList();
-                  } else {
-                    onClose();
-                  }
-                }}
-                className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>ไปที่หน้าตรวจสอบสถานะในระบบ</span>
-              </button>
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <button
+                  type="button"
+                  id="btn-go-to-status-menu"
+                  onClick={() => {
+                    if (onNavigateToBookingList) {
+                      onNavigateToBookingList();
+                    } else {
+                      onClose();
+                    }
+                  }}
+                  className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>ไปที่หน้าตรวจสอบสถานะในระบบ</span>
+                </button>
+
+                {currentUser &&
+                  (currentUser.id === booking.userId ||
+                    (currentUser.name &&
+                      booking.userName &&
+                      currentUser.name.trim().toLowerCase() ===
+                        booking.userName.trim().toLowerCase()) ||
+                    isUserAdmin(currentUser)) &&
+                  booking.status !== 'Completed' &&
+                  booking.status !== 'Cancelled' && (
+                    <button
+                      type="button"
+                      id="btn-modal-cancel-booking"
+                      onClick={() => {
+                        onUpdateBookingStatus(booking.id, 'Cancelled', {
+                          rejectedBy: `${currentUser.name || booking.userName} (ผู้จองยกเลิกการจอง)`,
+                          rejectionReason: 'ผู้ขอใช้รถกดยกเลิกการจองด้วยตนเอง',
+                          rejectedAt: new Date().toISOString(),
+                        });
+                        setCompletedStep('rejected');
+                      }}
+                      className="w-full sm:w-auto shrink-0 py-3 px-4 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      <span>ยกเลิกการจอง</span>
+                    </button>
+                  )}
+              </div>
             </div>
           )}
         </div>

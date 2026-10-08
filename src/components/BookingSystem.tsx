@@ -35,6 +35,7 @@ import {
   ArrowRight,
   Sparkles,
   MessageCircle,
+  XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CameraCaptureModal from './CameraCaptureModal';
@@ -165,17 +166,17 @@ export default function BookingSystem({
   const filteredBookings = useMemo(() => {
     return visibleBookings.filter((b) => {
       const q = searchQuery.toLowerCase().trim();
-      const dept = getBookingDepartment(b, users).toLowerCase();
-      const div = getBookingDivision(b, users).toLowerCase();
-      const jobNo = getBookingJobNumber(b).toLowerCase();
+      const dept = (getBookingDepartment(b, users) || '').toLowerCase();
+      const div = (getBookingDivision(b, users) || '').toLowerCase();
+      const jobNo = (getBookingJobNumber(b) || '').toLowerCase();
       const matchSearch =
         !q ||
         jobNo.includes(q) ||
-        b.id.toLowerCase().includes(q) ||
-        b.userName.toLowerCase().includes(q) ||
-        b.destination.toLowerCase().includes(q) ||
-        b.vehicleName.toLowerCase().includes(q) ||
-        b.purpose.toLowerCase().includes(q) ||
+        (b.id || '').toLowerCase().includes(q) ||
+        (b.userName || '').toLowerCase().includes(q) ||
+        (b.destination || '').toLowerCase().includes(q) ||
+        (b.vehicleName || '').toLowerCase().includes(q) ||
+        (b.purpose || '').toLowerCase().includes(q) ||
         dept.includes(q) ||
         div.includes(q) ||
         (b.userPhone && b.userPhone.includes(q));
@@ -513,20 +514,31 @@ export default function BookingSystem({
           </div>
         ) : (
           filteredBookings.map((booking) => {
-            const isOwner = currentUser?.id === booking.userId;
+            const isOwner =
+              Boolean(currentUser) &&
+              (currentUser?.id === booking.userId ||
+                (Boolean(currentUser?.name) &&
+                  Boolean(booking.userName) &&
+                  currentUser!.name.trim().toLowerCase() ===
+                    booking.userName.trim().toLowerCase()));
             const isEligibleToApprove =
               hasEditPermission && canUserApproveBooking(booking, currentUser, users);
             const canApproveStage1Action =
               booking.status === 'Pending' && isEligibleToApprove;
             const canApproveStage2Action =
               booking.status === 'Pending_Approve2' && isEligibleToApprove;
-            // Requirement 6: ห้าม user ลบข้อมูลการยืมรถเอง ต้องสิทธิ admin เท่านั้น
+            // ผู้จอง (User) หรือ Admin สามารถกดยกเลิกการจองได้ (แต่ห้ามลบข้อมูลถาวร ยกเว้น Admin)
+            const canUserCancel =
+              Boolean(currentUser) &&
+              (isOwner || isAdmin) &&
+              booking.status !== 'Completed' &&
+              booking.status !== 'Cancelled';
             const canRecordDeparture =
-              hasEditPermission &&
+              Boolean(currentUser) &&
               booking.status === 'Approved' &&
               (isOwner || isAdmin);
             const canRecordReturn =
-              hasEditPermission &&
+              Boolean(currentUser) &&
               booking.status === 'Approved' &&
               (isOwner || isAdmin);
 
@@ -540,7 +552,7 @@ export default function BookingSystem({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
-                      {booking.userName.substring(0, 2)}
+                      {(booking.userName || 'U').substring(0, 2)}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -923,14 +935,34 @@ export default function BookingSystem({
                       </button>
                     )}
 
+                    {/* User Cancel Booking (ยกเลิกการจองได้ แต่ห้ามลบข้อมูล) */}
+                    {canUserCancel && (
+                      <button
+                        id={`btn-cancel-booking-${booking.id}`}
+                        type="button"
+                        onClick={() =>
+                          onUpdateBookingStatus(booking.id, 'Cancelled', {
+                            rejectedBy: `${currentUser?.name || booking.userName} (ผู้จองยกเลิกการจอง)`,
+                            rejectionReason: 'ผู้ขอใช้รถกดยกเลิกการจองด้วยตนเอง',
+                            rejectedAt: new Date().toISOString(),
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                        title="ยกเลิกใบงานคำขอใช้รถรายการนี้ (ข้อมูลใบงานยังคงอยู่ในระบบ)"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        <span>ยกเลิกการจอง</span>
+                      </button>
+                    )}
+
                     {/* Admin Delete ONLY (Requirement 6: ห้าม user ลบข้อมูลการยืมรถเอง ต้องสิทธิ admin เท่านั้น) */}
-                    {hasEditPermission && isAdmin && (
+                    {isAdmin && (
                       <button
                         id={`btn-delete-booking-${booking.id}`}
                         type="button"
                         onClick={() => setDeletingBooking(booking)}
                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                        title="ลบรายการจอง (เฉพาะ Admin)"
+                        title="ลบรายการจองถาวร (เฉพาะ Admin เท่านั้น)"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

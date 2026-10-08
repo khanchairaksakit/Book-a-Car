@@ -765,7 +765,10 @@ export default function App() {
         `เสร็จสิ้นภารกิจใบงาน ${jobNo}${newMileageText} และส่ง LINE แจ้งเตือน Operator & ผู้ดูแลรถ (Approve 2) เรียบร้อยแล้ว`
       );
     } else if (status === 'Cancelled') {
-      if (isLineModuleEnabled && booking.rejectionReason) {
+      const isUserSelfCancel = Boolean(
+        extraData?.rejectedBy && extraData.rejectedBy.includes('ผู้จองยกเลิก')
+      );
+      if (isLineModuleEnabled && booking.rejectionReason && !isUserSelfCancel) {
         const reqUser = users.find((u) => u.id === booking.userId);
         const targetReqLineId = booking.requesterLineId || reqUser?.lineUserId;
         triggerServerLineApprovalPush({
@@ -777,7 +780,9 @@ export default function App() {
         }).catch(() => {});
       }
       setToastMessage(
-        booking.rejectionReason
+        isUserSelfCancel
+          ? `ยกเลิกการจองใบงาน ${jobNo} เรียบร้อยแล้ว`
+          : booking.rejectionReason
           ? `ไม่อนุมัติใบงาน ${jobNo} (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
           : `ยกเลิก/ปฏิเสธใบงาน ${jobNo} เรียบร้อยแล้ว`
       );
