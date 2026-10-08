@@ -11,6 +11,7 @@ import {
   isUserApprover1,
   isUserApprover2,
   getEligibleStage1Approvers,
+  canUserApproveBooking,
 } from '../utils/userHelpers';
 import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
@@ -48,6 +49,7 @@ interface LineQuickApproveModalProps {
     extraData?: Partial<Booking>
   ) => void;
   onUpdateUserLineId?: (userId: string, lineId: string) => void;
+  onNavigateToBookingList?: () => void;
 }
 
 const QUICK_REJECT_REASONS = [
@@ -67,6 +69,7 @@ export default function LineQuickApproveModal({
   initialApproverId,
   onUpdateBookingStatus,
   onUpdateUserLineId,
+  onNavigateToBookingList,
 }: LineQuickApproveModalProps) {
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
   const [selectedApproverName, setSelectedApproverName] = useState<string>('');
@@ -313,17 +316,18 @@ export default function LineQuickApproveModal({
     syncLineIdsToUsers();
 
     const currentStageNum: 1 | 2 = isStage1Pending ? 1 : 2;
+    const stageRoleLabel = currentStageNum === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ';
     const approverToUse =
       selectedApproverName.trim() ||
       (currentStageNum === 1 ? booking.assignedApproverName : booking.stage2ApproverName) ||
       currentUser?.name ||
-      `Approve ${currentStageNum}`;
+      stageRoleLabel;
 
     const nowIso = new Date().toISOString();
     const extraUpdates: Partial<Booking> = {
       approvedVia: 'LINE',
       rejectionReason: rejectionReason.trim(),
-      rejectedBy: `${approverToUse} (Approve ${currentStageNum})`,
+      rejectedBy: `${approverToUse} (${stageRoleLabel} Reject)`,
       rejectedAt: nowIso,
       rejectedStage: currentStageNum,
       requesterLineId: requesterLineIdInput.trim() || booking.requesterLineId,
@@ -794,29 +798,117 @@ export default function LineQuickApproveModal({
               </div>
             </div>
           ) : (
-            /* Notification Details Info Box (Approvals happen inside the web system) */
+            /* Notification Details & Direct Action Box */
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-indigo-600" />
                   <span>
                     {isStage1Pending
-                      ? `สถานะปัจจุบัน: รอคุณ ${booking.assignedApproverName || 'Approve 1'} พิจารณาในระบบ`
-                      : `สถานะปัจจุบัน: รอคุณ ${booking.stage2ApproverName || 'Approve 2'} พิจารณาอนุมัติขั้นสุดท้ายในระบบ`}
+                      ? `สถานะปัจจุบัน: รอคุณ ${booking.assignedApproverName || 'ผู้จัดการอนุมัติ'} พิจารณาในระบบ`
+                      : `สถานะปัจจุบัน: รอคุณ ${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'} พิจารณาอนุมัติขั้นสุดท้ายในระบบ`}
                   </span>
                 </span>
                 <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
                   แจ้งเตือนผ่าน LINE
                 </span>
               </div>
+
+              {currentUser && canUserApproveBooking(booking, currentUser, users) && (
+                <div className="pt-2 border-t border-slate-100 space-y-3">
+                  {isRejectingMode ? (
+                    <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-rose-800">
+                          ❌ ระบุเหตุผลที่ไม่อนุมัติ ({isStage1Pending ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsRejectingMode(false);
+                            setRejectionError('');
+                          }}
+                          className="text-[11px] text-gray-500 hover:text-gray-800 cursor-pointer"
+                        >
+                          ยกเลิก
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {QUICK_REJECT_REASONS.map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => {
+                              setRejectionReason(r);
+                              setRejectionError('');
+                            }}
+                            className="text-[10px] px-2 py-1 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-100 cursor-pointer"
+                          >
+                            + {r}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={rejectionReason}
+                        onChange={(e) => {
+                          setRejectionReason(e.target.value);
+                          if (e.target.value.trim()) setRejectionError('');
+                        }}
+                        placeholder="กรุณาระบุเหตุผลที่ไม่อนุมัติ เพื่อแจ้งให้ผู้ขอใช้รถทราบ..."
+                        className="w-full p-2.5 bg-white border border-rose-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-500 outline-hidden"
+                      />
+                      {rejectionError && (
+                        <p className="text-xs font-bold text-rose-600">{rejectionError}</p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleConfirmRejectBooking}
+                        className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                      >
+                        ยืนยันไม่อนุมัติคำขอใช้รถ
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={isStage1Pending ? handleApproveStage1 : handleApproveStage2}
+                        className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>
+                          {isStage1Pending
+                            ? 'ผู้จัดการอนุมัติ (ส่งต่อผู้ดูแลรถ)'
+                            : 'ผู้ดูแลรถอนุมัติ (อนุมัติขั้นสุดท้าย)'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsRejectingMode(true)}
+                        className="py-2.5 px-4 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        ไม่อนุมัติ (ระบุเหตุผล)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <p className="text-xs text-gray-600 leading-relaxed">
-                ผู้อนุมัติสามารถตรวจสอบข้อมูลคำขอใช้รถด้านบน และดำเนินการอนุมัติหรือไม่อนุมัติได้ที่เมนู{' '}
-                <strong>ตรวจสอบสถานะ</strong> ในระบบจองรถส่วนกลาง
+                ผู้อนุมัติสามารถตรวจสอบข้อมูลคำขอใช้รถด้านบน หรือเปิดไปยังเมนู{' '}
+                <strong>ตรวจสอบสถานะ (รายการจองรถยนต์ส่วนกลาง)</strong> ในระบบได้ทันที
               </p>
               <button
                 type="button"
                 id="btn-go-to-status-menu"
-                onClick={onClose}
+                onClick={() => {
+                  if (onNavigateToBookingList) {
+                    onNavigateToBookingList();
+                  } else {
+                    onClose();
+                  }
+                }}
                 className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />

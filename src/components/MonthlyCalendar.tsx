@@ -123,6 +123,12 @@ export default function MonthlyCalendar({
   const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
   const [returnBooking, setReturnBooking] = useState<Booking | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<{ url: string; title: string } | null>(null);
+  const [rejectingBookingState, setRejectingBookingState] = useState<{
+    booking: Booking;
+    stage: 1 | 2;
+  } | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [rejectReasonError, setRejectReasonError] = useState('');
 
   // Form states for Departure Checklist
   const [startMileageInput, setStartMileageInput] = useState<string>('');
@@ -1015,17 +1021,21 @@ export default function MonthlyCalendar({
                             <span>ผู้ดูแลรถอนุมัติ</span>
                           </button>
                         )}
-                        {onOpenLineQuickApprove && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenLineQuickApprove(b, b.status === 'Pending' ? 1 : 2, 'reject')
-                            }
-                            className="px-2.5 py-1.5 border border-red-200 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold cursor-pointer"
-                          >
-                            ไม่อนุมัติ
-                          </button>
-                        )}
+                        <button
+                          id={`btn-home-reject-${b.id}`}
+                          type="button"
+                          onClick={() => {
+                            setRejectingBookingState({
+                              booking: b,
+                              stage: b.status === 'Pending' ? 1 : 2,
+                            });
+                            setRejectReasonInput('');
+                            setRejectReasonError('');
+                          }}
+                          className="px-2.5 py-1.5 border border-red-200 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          ไม่อนุมัติ
+                        </button>
                       </div>
                     )}
                   </div>
@@ -2502,6 +2512,89 @@ export default function MonthlyCalendar({
                   )}
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reject with Reason Modal (Directly in MonthlyCalendar so clicking ไม่อนุมัติ never loops) */}
+      <AnimatePresence>
+        {rejectingBookingState && onUpdateBookingStatus && (
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            onClick={() => setRejectingBookingState(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-rose-700 text-base">
+                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setRejectingBookingState(null)}
+                  className="p-1 text-gray-400 hover:text-gray-700 rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-gray-600">
+                ใบงาน <strong>{getBookingJobNumber(rejectingBookingState.booking)}</strong> • คำขอของ{' '}
+                <strong>{rejectingBookingState.booking.userName}</strong> ({rejectingBookingState.booking.vehicleName})
+              </p>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-800">
+                  ระบุเหตุผลที่ไม่อนุมัติ <span className="text-rose-600">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectReasonInput}
+                  onChange={(e) => {
+                    setRejectReasonInput(e.target.value);
+                    if (e.target.value.trim()) setRejectReasonError('');
+                  }}
+                  placeholder="กรุณาระบุเหตุผลที่ไม่อนุมัติ เพื่อแจ้งให้ผู้ขอใช้รถทราบ..."
+                  className="w-full p-3 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-500 outline-hidden"
+                />
+                {rejectReasonError && (
+                  <p className="text-xs font-bold text-rose-600">{rejectReasonError}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectingBookingState(null)}
+                  className="flex-1 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!rejectReasonInput.trim()) {
+                      setRejectReasonError('กรุณาระบุเหตุผลที่ไม่อนุมัติคำขอใช้รถ');
+                      return;
+                    }
+                    const stageLabel =
+                      rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ';
+                    onUpdateBookingStatus(rejectingBookingState.booking.id, 'Cancelled', {
+                      rejectionReason: rejectReasonInput.trim(),
+                      rejectedBy: `${currentUser?.name || stageLabel} (${stageLabel} Reject)`,
+                      rejectedAt: new Date().toISOString(),
+                      rejectedStage: rejectingBookingState.stage,
+                    });
+                    setRejectingBookingState(null);
+                  }}
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
+                >
+                  ยืนยันไม่อนุมัติ
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
