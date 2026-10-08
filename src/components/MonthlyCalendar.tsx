@@ -9,6 +9,7 @@ import {
 } from '../utils/userHelpers';
 import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
+import FuelGaugeGraphic from './FuelGaugeGraphic';
 import { compressImageFile } from '../utils/imageCompression';
 import {
   getRealTodayStr,
@@ -149,20 +150,42 @@ export default function MonthlyCalendar({
   const keyCameraInputRef = useRef<HTMLInputElement>(null);
   const keyFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to get the latest current mileage of the vehicle for a booking
+  const getVehicleLatestMileage = (booking: Booking): number | undefined => {
+    const v = vehicles.find(
+      (veh) =>
+        veh.id === booking.vehicleId ||
+        (booking.plateNumber && veh.plateNumber === booking.plateNumber)
+    );
+    let maxMileage = v?.currentMileage;
+    for (const b of bookings) {
+      if (b.status === 'Cancelled') continue;
+      if (
+        b.vehicleId === booking.vehicleId ||
+        (booking.plateNumber && b.plateNumber === booking.plateNumber)
+      ) {
+        if (typeof b.endMileage === 'number' && (maxMileage === undefined || b.endMileage > maxMileage)) {
+          maxMileage = b.endMileage;
+        }
+      }
+    }
+    return maxMileage;
+  };
+
   // Open Departure Checklist
   const handleOpenDeparture = (booking: Booking) => {
     setDepartureBooking(booking);
     setDepartureError('');
-    const v = vehicles.find((veh) => veh.id === booking.vehicleId);
+    const vehicleMileage = getVehicleLatestMileage(booking);
     setStartMileageInput(
       booking.startMileage !== undefined
         ? String(booking.startMileage)
-        : v?.currentMileage !== undefined
-        ? String(v.currentMileage)
+        : vehicleMileage !== undefined
+        ? String(vehicleMileage)
         : ''
     );
     setStartFuelInput(booking.startFuelLevel || 'เต็มถัง');
-    setStartPhotoPreview(booking.startMileagePhoto || '');
+    setStartPhotoPreview('');
   };
 
   // Submit Departure Checklist
@@ -179,7 +202,6 @@ export default function MonthlyCalendar({
 
     onUpdateBookingStatus(departureBooking.id, departureBooking.status, {
       startMileage: mileageNum,
-      startMileagePhoto: startPhotoPreview || undefined,
       startFuelLevel: startFuelInput,
       startRecordedAt: new Date().toISOString(),
     });
@@ -192,16 +214,17 @@ export default function MonthlyCalendar({
   const handleOpenReturn = (booking: Booking) => {
     setReturnBooking(booking);
     setReturnError('');
-    const baseMileage = booking.startMileage || 0;
+    const vehicleMileage = getVehicleLatestMileage(booking);
+    const baseMileage = booking.startMileage ?? vehicleMileage ?? 0;
     setEndMileageInput(
       booking.endMileage !== undefined
         ? String(booking.endMileage)
         : baseMileage > 0
-        ? String(baseMileage + 10)
+        ? String(baseMileage)
         : ''
     );
-    setEndFuelInput(booking.endFuelLevel || 'เต็มถัง');
-    setEndPhotoPreview(booking.endMileagePhoto || '');
+    setEndFuelInput(booking.endFuelLevel || booking.startFuelLevel || 'เต็มถัง');
+    setEndPhotoPreview('');
     setKeyPhotoPreview(booking.keyReturnPhoto || '');
   };
 
@@ -229,7 +252,6 @@ export default function MonthlyCalendar({
 
     onUpdateBookingStatus(returnBooking.id, 'Completed', {
       endMileage: endMileageNum,
-      endMileagePhoto: endPhotoPreview || undefined,
       endFuelLevel: endFuelInput,
       keyReturnPhoto: keyPhotoPreview,
       endRecordedAt: new Date().toISOString(),
@@ -960,8 +982,8 @@ export default function MonthlyCalendar({
                         }`}
                       >
                         {isStage2
-                          ? `⏳ รอผู้ดูแลรถอนุมัติ (${b.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'})`
-                          : `⏳ รอผู้จัดการอนุมัติ (${b.assignedApproverName || 'ผู้จัดการอนุมัติ'})`}
+                          ? `⏳ รอผู้ดูแลรถ (${b.stage2ApproverName || 'ผู้ดูแลรถ'})`
+                          : `⏳ รอผู้จัดการ (${b.assignedApproverName || 'ผู้จัดการ'})`}
                       </span>
                     </div>
 
@@ -996,14 +1018,14 @@ export default function MonthlyCalendar({
                             type="button"
                             onClick={() =>
                               onUpdateBookingStatus(b.id, 'Pending_Approve2', {
-                                stage1ApprovedBy: currentUser?.name || 'ผู้จัดการอนุมัติ',
+                                stage1ApprovedBy: currentUser?.name || 'ผู้จัดการ',
                                 stage1ApprovedAt: new Date().toISOString(),
                               })
                             }
                             className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>ผู้จัดการอนุมัติ</span>
+                            <span>ผู้จัดการ</span>
                           </button>
                         ) : (
                           <button
@@ -1011,14 +1033,14 @@ export default function MonthlyCalendar({
                             type="button"
                             onClick={() =>
                               onUpdateBookingStatus(b.id, 'Approved', {
-                                stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถอนุมัติ',
+                                stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถ',
                                 stage2ApprovedAt: new Date().toISOString(),
                               })
                             }
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>ผู้ดูแลรถอนุมัติ</span>
+                            <span>ผู้ดูแลรถ</span>
                           </button>
                         )}
                         <button
@@ -1912,8 +1934,8 @@ export default function MonthlyCalendar({
                               : b.status === 'Cancelled'
                               ? 'Reject'
                               : b.status === 'Pending_Approve2'
-                              ? 'รอผู้ดูแลรถอนุมัติ'
-                              : 'รอผู้จัดการอนุมัติ'}
+                              ? 'รอผู้ดูแลรถ'
+                              : 'รอผู้จัดการ'}
                           </span>
                         </div>
                         <div className="text-gray-700 font-medium">
@@ -2026,136 +2048,58 @@ export default function MonthlyCalendar({
               )}
 
               <form onSubmit={handleSaveDeparture} className="flex-1 overflow-y-auto pr-1 space-y-4">
-                {/* 1. ไมล์เริ่มต้น */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-800">
-                    1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="home-input-start-mileage"
-                      type="number"
-                      value={startMileageInput}
-                      onChange={(e) => setStartMileageInput(e.target.value)}
-                      placeholder="เช่น 18200"
-                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      required
-                    />
-                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
-                      km.
-                    </span>
-                  </div>
-
-                  {/* แนบรูปถ่ายไมล์เริ่มต้น */}
-                  <div className="pt-1.5">
-                    {/* Hidden Native Camera Input (Opens phone camera directly) */}
-                    <input
-                      ref={startCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
-                      className="hidden"
-                      id="input-camera-start-mileage"
-                    />
-                    {/* Hidden File Picker Input (Gallery / Device files) */}
-                    <input
-                      ref={startFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
-                      className="hidden"
-                      id="input-file-start-mileage"
-                    />
-                    {startPhotoPreview ? (
-                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-amber-200 group bg-black/5">
-                        <img
-                          src={startPhotoPreview}
-                          alt="Start Mileage Preview"
-                          className="w-full h-full object-cover"
+                {/* 1. ไมล์เริ่มต้น (ดึงข้อมูลจากเลขไมล์ของรถคันนั้นมาแสดง แต่สามารถปรับแก้เองได้) */}
+                {(() => {
+                  const vehLatestMileage = departureBooking
+                    ? getVehicleLatestMileage(departureBooking)
+                    : undefined;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <label className="block text-xs font-bold text-gray-800">
+                          1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
+                        </label>
+                        {vehLatestMileage !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => setStartMileageInput(String(vehLatestMileage))}
+                            className="text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg cursor-pointer transition-colors"
+                          >
+                            🔄 ดึงเลขไมล์รถล่าสุด ({vehLatestMileage.toLocaleString()} km.)
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="home-input-start-mileage"
+                          type="number"
+                          value={startMileageInput}
+                          onChange={(e) => setStartMileageInput(e.target.value)}
+                          placeholder="เช่น 18200"
+                          className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                          required
                         />
-                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => startCameraInputRef.current?.click()}
-                            className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
-                            title="ถ่ายภาพใหม่ด้วยกล้อง"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setStartPhotoPreview('')}
-                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
-                            title="ลบรูป"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                          km.
+                        </span>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          id="btn-open-camera-start-mileage"
-                          onClick={() => startCameraInputRef.current?.click()}
-                          className="w-full py-3.5 px-4 border-2 border-dashed border-amber-400 hover:border-amber-500 bg-amber-50/70 hover:bg-amber-100/70 rounded-2xl text-xs font-bold text-amber-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
-                            <Camera className="w-4 h-4" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์เริ่มต้นทันที</div>
-                            <div className="text-[11px] text-amber-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์</div>
-                          </div>
-                        </button>
-                        <div className="flex items-center justify-between px-1 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => startFileInputRef.current?.click()}
-                            className="text-gray-500 hover:text-amber-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <Upload className="w-3.5 h-3.5 text-amber-600" />
-                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์เริ่มต้น', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันชัดเจน', (img) => setStartPhotoPreview(img))}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <span>📹 กล้องสด (Live Viewfinder)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                      <p className="text-[11px] text-gray-500">
+                        ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
+                      </p>
+                    </div>
+                  );
+                })()}
 
-                {/* 2. น้ำมันเริ่มต้น */}
-                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                {/* 2. น้ำมันเริ่มต้น พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
+                <div className="space-y-2 pt-2 border-t border-gray-100">
                   <label className="block text-xs font-bold text-gray-800">
                     2. น้ำมันเริ่มต้น (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {FUEL_OPTIONS.map((f) => {
-                      const isSel = startFuelInput === f;
-                      return (
-                        <button
-                          key={f}
-                          type="button"
-                          onClick={() => setStartFuelInput(f)}
-                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300/40'
-                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <FuelGaugeGraphic
+                    value={startFuelInput}
+                    onChange={setStartFuelInput}
+                    accentColor="amber"
+                  />
                 </div>
 
                 <div className="flex items-center gap-3 pt-3 border-t border-gray-100 shrink-0">
@@ -2260,124 +2204,28 @@ export default function MonthlyCalendar({
                       value={endMileageInput}
                       onChange={(e) => setEndMileageInput(e.target.value)}
                       placeholder="เช่น 18720"
-                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                       required
                     />
                     <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
                       km.
                     </span>
                   </div>
-
-                  {/* แนบรูปถ่ายไมล์สิ้นสุด */}
-                  <div className="pt-1.5">
-                    {/* Hidden Native Camera Input */}
-                    <input
-                      ref={endCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
-                      className="hidden"
-                      id="input-camera-end-mileage"
-                    />
-                    {/* Hidden File Picker Input */}
-                    <input
-                      ref={endFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
-                      className="hidden"
-                      id="input-file-end-mileage"
-                    />
-                    {endPhotoPreview ? (
-                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-emerald-200 group bg-black/5">
-                        <img
-                          src={endPhotoPreview}
-                          alt="End Mileage Preview"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => endCameraInputRef.current?.click()}
-                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
-                            title="ถ่ายภาพใหม่ด้วยกล้อง"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEndPhotoPreview('')}
-                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
-                            title="ลบรูป"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          id="btn-open-camera-end-mileage"
-                          onClick={() => endCameraInputRef.current?.click()}
-                          className="w-full py-3.5 px-4 border-2 border-dashed border-emerald-400 hover:border-emerald-600 bg-emerald-50/70 hover:bg-emerald-100/70 rounded-2xl text-xs font-bold text-emerald-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                            <Camera className="w-4 h-4" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์สิ้นสุดทันที</div>
-                            <div className="text-[11px] text-emerald-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์ส่งคืน</div>
-                          </div>
-                        </button>
-                        <div className="flex items-center justify-between px-1 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => endFileInputRef.current?.click()}
-                            className="text-gray-500 hover:text-emerald-700 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์สิ้นสุด', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันตอนส่งคืนชัดเจน', (img) => setEndPhotoPreview(img))}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <span>📹 กล้องสด (Live Viewfinder)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    เมื่อยืนยันคืนรถแล้ว เลขไมล์ที่กรอกจะถูกนำไปอัปเดตที่เมนูจัดการข้อมูลรถยนต์โดยอัตโนมัติ
+                  </p>
                 </div>
 
-                {/* 3.2 น้ำมันส่งคืน */}
-                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                {/* 3.2 น้ำมันส่งคืน พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
+                <div className="space-y-2 pt-2 border-t border-gray-100">
                   <label className="block text-xs font-bold text-gray-800">
-                    3.2 น้ำมันเริ่มต้น / สิ้นสุด (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
+                    3.2 น้ำมันเมื่อคืนรถ (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {FUEL_OPTIONS.map((f) => {
-                      const isSel = endFuelInput === f;
-                      return (
-                        <button
-                          key={f}
-                          type="button"
-                          onClick={() => setEndFuelInput(f)}
-                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400/30'
-                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <FuelGaugeGraphic
+                    value={endFuelInput}
+                    onChange={setEndFuelInput}
+                    accentColor="emerald"
+                  />
                 </div>
 
                 {/* 3.3 แนบรูปหลักฐานการคืนกุญแจ (หย่อนลงตู้) - REQUIRED TO UNLOCK OK BUTTON */}
@@ -2533,7 +2381,7 @@ export default function MonthlyCalendar({
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-rose-700 text-base">
-                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'})
+                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการ' : 'ผู้ดูแลรถ'})
                 </h3>
                 <button
                   type="button"
@@ -2581,7 +2429,7 @@ export default function MonthlyCalendar({
                       return;
                     }
                     const stageLabel =
-                      rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ';
+                      rejectingBookingState.stage === 1 ? 'ผู้จัดการ' : 'ผู้ดูแลรถ';
                     onUpdateBookingStatus(rejectingBookingState.booking.id, 'Cancelled', {
                       rejectionReason: rejectReasonInput.trim(),
                       rejectedBy: `${currentUser?.name || stageLabel} (${stageLabel} Reject)`,

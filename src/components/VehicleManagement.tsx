@@ -631,6 +631,28 @@ export default function VehicleManagement({
                                 {latestUsage.destination}
                               </span>
                             </div>
+
+                            {(latestUsage.endMileage !== undefined ||
+                              latestUsage.startMileage !== undefined) && (
+                              <div className="flex items-center justify-between gap-2 text-[11px] pt-1 border-t border-slate-200/60 text-emerald-800">
+                                <span className="flex items-center gap-1 font-semibold">
+                                  <Gauge className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>
+                                    {latestUsage.endMileage !== undefined
+                                      ? 'เลขไมล์คืนรถล่าสุด:'
+                                      : 'เลขไมล์ออกเดินทาง:'}
+                                  </span>
+                                </span>
+                                <span className="font-mono font-bold text-emerald-700">
+                                  {(
+                                    latestUsage.endMileage ??
+                                    latestUsage.startMileage ??
+                                    0
+                                  ).toLocaleString()}{' '}
+                                  กม.
+                                </span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <p className="text-[11px] text-gray-400 italic py-0.5">ยังไม่มีประวัติการใช้งาน</p>

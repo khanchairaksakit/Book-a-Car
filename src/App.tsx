@@ -605,6 +605,46 @@ export default function App() {
     }
   };
 
+  // Auto-sync vehicle currentMileage whenever bookings have a newer/higher recorded endMileage or startMileage
+  useEffect(() => {
+    if (vehicles.length === 0 || bookings.length === 0) return;
+    let hasMileageUpdates = false;
+    const vehiclesToSave: Vehicle[] = [];
+
+    const nextVehicles = vehicles.map((v) => {
+      const relatedBookings = bookings.filter(
+        (b) =>
+          b.status !== 'Cancelled' &&
+          (b.vehicleId === v.id || (b.plateNumber && b.plateNumber === v.plateNumber))
+      );
+      if (relatedBookings.length === 0) return v;
+
+      let maxRecordedMileage = v.currentMileage || 0;
+      for (const b of relatedBookings) {
+        if (typeof b.endMileage === 'number' && b.endMileage > maxRecordedMileage) {
+          maxRecordedMileage = b.endMileage;
+        } else if (typeof b.startMileage === 'number' && b.startMileage > maxRecordedMileage) {
+          maxRecordedMileage = b.startMileage;
+        }
+      }
+
+      if (maxRecordedMileage > (v.currentMileage || 0)) {
+        hasMileageUpdates = true;
+        const updatedVeh: Vehicle = { ...v, currentMileage: maxRecordedMileage };
+        vehiclesToSave.push(updatedVeh);
+        return updatedVeh;
+      }
+      return v;
+    });
+
+    if (hasMileageUpdates) {
+      setVehicles(nextVehicles);
+      for (const veh of vehiclesToSave) {
+        saveVehicle(veh).catch(() => {});
+      }
+    }
+  }, [bookings, vehicles]);
+
   const handleUpdateBookingStatus = async (
     bookingId: string,
     status: BookingStatus,
@@ -618,14 +658,14 @@ export default function App() {
 
     if (status === 'Approved') {
       const stage1Name = extraData?.stage1ApprovedBy || existing?.stage1ApprovedBy;
-      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'ผู้ดูแลรถอนุมัติ';
-      approverName = stage1Name ? `${stage1Name} (ผู้จัดการอนุมัติ) & ${stage2Name} (ผู้ดูแลรถอนุมัติ)` : `${stage2Name}`;
+      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'ผู้ดูแลรถ';
+      approverName = stage1Name ? `${stage1Name} (ผู้จัดการ) & ${stage2Name} (ผู้ดูแลรถ)` : `${stage2Name}`;
       approvedAt = new Date().toISOString();
     } else if (status === 'Cancelled') {
       const inferredStage: 1 | 2 =
         extraData?.rejectedStage ||
         (existing?.status === 'Pending_Approve2' || existing?.stage1ApprovedBy ? 2 : 1);
-      const stageLabel = inferredStage === 2 ? 'ผู้ดูแลรถอนุมัติ' : 'ผู้จัดการอนุมัติ';
+      const stageLabel = inferredStage === 2 ? 'ผู้ดูแลรถ' : 'ผู้จัดการ';
       const defaultRejecter =
         inferredStage === 2
           ? existing?.stage2ApproverName || currentUser?.name || stageLabel
@@ -657,18 +697,18 @@ export default function App() {
       if (isLineModuleEnabled) {
         const stage2Approver =
           users.find((u) => u.id === booking.stage2ApproverId) ||
-          users.find((u) => u.roles?.includes('Approve 2'));
+          users.find((u) => hasRole(u, 'Approve 2'));
         const targetStage2LineId = booking.stage2ApproverLineId || stage2Approver?.lineUserId;
         triggerServerLineApprovalPush({
           booking,
           stage: 2,
           approverUser: stage2Approver,
-          approverName: booking.stage2ApproverName || stage2Approver?.name || 'Approve 2',
+          approverName: booking.stage2ApproverName || stage2Approver?.name || 'ผู้ดูแลรถ',
           targetLineId: targetStage2LineId,
         }).catch(() => {});
       }
       setToastMessage(
-        `ผู้จัดการอนุมัติ (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ผู้ดูแลรถอนุมัติ (${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'}) พิจารณา`
+        `ผู้จัดการอนุมัติ (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ผู้ดูแลรถ (${booking.stage2ApproverName || 'ผู้ดูแลรถ'}) พิจารณา`
       );
     } else if (status === 'Approved') {
       if (isLineModuleEnabled) {
@@ -678,7 +718,7 @@ export default function App() {
           booking,
           stage: 'approved',
           approverUser: reqUser,
-          approverName: booking.stage2ApprovedBy || booking.approverName || 'Approve 2',
+          approverName: booking.stage2ApprovedBy || booking.approverName || 'ผู้ดูแลรถ',
           targetLineId: targetReqLineId,
         }).catch(() => {});
       }
@@ -686,7 +726,44 @@ export default function App() {
         `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
       );
     } else if (status === 'Completed') {
-      setToastMessage(`เสร็จสิ้นภารกิจใบงาน ${jobNo} และบันทึกการส่งคืนรถเรียบร้อยแล้ว`);
+      if (isLineModuleEnabled) {
+        const operatorUsers = users.filter((u) => hasRole(u, 'Operator'));
+        const approve2Users = users.filter(
+          (u) => hasRole(u, 'Approve 2') || u.id === booking.stage2ApproverId
+        );
+        const notifyUsers = Array.from(new Set([...approve2Users, ...operatorUsers]));
+        const targetLineIds = Array.from(
+          new Set(
+            [
+              booking.stage2ApproverLineId,
+              ...notifyUsers.map((u) => u.lineUserId),
+            ]
+              .filter(Boolean)
+              .map((id) => String(id).trim())
+              .filter(Boolean)
+          )
+        );
+        const notifyNames =
+          notifyUsers.map((u) => u.name).join(', ') ||
+          booking.stage2ApproverName ||
+          'Operator & ผู้ดูแลรถ';
+
+        triggerServerLineApprovalPush({
+          booking,
+          stage: 'completed',
+          approverUser: approve2Users[0] || operatorUsers[0] || null,
+          approverName: notifyNames,
+          targetLineId: targetLineIds[0] || booking.stage2ApproverLineId,
+          targetLineIds,
+        }).catch(() => {});
+      }
+      const newMileageText =
+        extraData?.endMileage !== undefined
+          ? ` อัปเดตเลขไมล์รถเป็น ${extraData.endMileage.toLocaleString()} km.`
+          : '';
+      setToastMessage(
+        `เสร็จสิ้นภารกิจใบงาน ${jobNo}${newMileageText} และส่ง LINE แจ้งเตือน Operator & ผู้ดูแลรถ (Approve 2) เรียบร้อยแล้ว`
+      );
     } else if (status === 'Cancelled') {
       if (isLineModuleEnabled && booking.rejectionReason) {
         const reqUser = users.find((u) => u.id === booking.userId);
@@ -706,57 +783,62 @@ export default function App() {
       );
     }
 
-    try {
-      await saveBooking(booking);
+    // Immediately compute atomic vehicle update (both mileage & status) so state never overwrites mileage
+    const todayStr = getRealTodayStr();
+    const start = booking.startDate.substring(0, 10);
+    const end = booking.endDate.substring(0, 10);
+    const newMileageToApply =
+      extraData?.endMileage !== undefined
+        ? extraData.endMileage
+        : extraData?.startMileage !== undefined
+        ? extraData.startMileage
+        : undefined;
 
-      // If mileage is returned in extraData, update vehicle currentMileage
-      if (extraData?.endMileage && booking.vehicleId) {
-        setVehicles((prev) =>
-          prev.map((v) =>
-            v.id === booking.vehicleId ? { ...v, currentMileage: extraData.endMileage } : v
-          )
-        );
-        const vToUpdate = vehicles.find((v) => v.id === booking.vehicleId);
-        if (vToUpdate) {
-          await saveVehicle({ ...vToUpdate, currentMileage: extraData.endMileage });
-        }
-      }
+    let vehicleToSave: Vehicle | undefined;
+    setVehicles((prevVehicles) =>
+      prevVehicles.map((v) => {
+        const isTargetVehicle =
+          v.id === booking.vehicleId ||
+          (booking.plateNumber && v.plateNumber === booking.plateNumber);
+        if (!isTargetVehicle) return v;
 
-      const todayStr = getRealTodayStr();
-      const start = booking.startDate.substring(0, 10);
-      const end = booking.endDate.substring(0, 10);
-
-      let updatedVehicles = [...vehicles];
-      if (status === 'Approved' && todayStr >= start && todayStr <= end) {
-        updatedVehicles = vehicles.map((v) =>
-          v.id === booking.vehicleId ? { ...v, status: 'In Use' } : v
-        );
-        setVehicles(updatedVehicles);
-        const matchedVehicle = updatedVehicles.find((v) => v.id === booking.vehicleId);
-        if (matchedVehicle) {
-          await saveVehicle(matchedVehicle);
-        }
-      } else if (status === 'Cancelled' || status === 'Completed') {
-        const otherActive = updatedBookings.some(
-          (b) =>
-            b.id !== bookingId &&
-            b.vehicleId === booking.vehicleId &&
-            b.status === 'Approved' &&
-            todayStr >= b.startDate.substring(0, 10) &&
-            todayStr <= b.endDate.substring(0, 10)
-        );
-        if (!otherActive) {
-          updatedVehicles = vehicles.map((v) =>
-            v.id === booking.vehicleId && v.status === 'In Use'
-              ? { ...v, status: 'Available' }
-              : v
+        let nextStatus = v.status;
+        if (status === 'Approved' && todayStr >= start && todayStr <= end) {
+          nextStatus = 'In Use';
+        } else if (status === 'Cancelled' || status === 'Completed') {
+          const otherActive = updatedBookings.some(
+            (b) =>
+              b.id !== bookingId &&
+              (b.vehicleId === v.id || (b.plateNumber && b.plateNumber === v.plateNumber)) &&
+              b.status === 'Approved' &&
+              todayStr >= b.startDate.substring(0, 10) &&
+              todayStr <= b.endDate.substring(0, 10)
           );
-          setVehicles(updatedVehicles);
-          const matchedVehicle = updatedVehicles.find((v) => v.id === booking.vehicleId);
-          if (matchedVehicle) {
-            await saveVehicle(matchedVehicle);
+          if (!otherActive && v.status === 'In Use') {
+            nextStatus = 'Available';
           }
         }
+
+        const nextMileage =
+          newMileageToApply !== undefined ? newMileageToApply : v.currentMileage;
+
+        if (nextStatus !== v.status || nextMileage !== v.currentMileage) {
+          const updatedVeh: Vehicle = {
+            ...v,
+            status: nextStatus,
+            ...(nextMileage !== undefined ? { currentMileage: nextMileage } : {}),
+          };
+          vehicleToSave = updatedVeh;
+          return updatedVeh;
+        }
+        return v;
+      })
+    );
+
+    try {
+      await saveBooking(booking);
+      if (vehicleToSave) {
+        await saveVehicle(vehicleToSave);
       }
     } catch (e) {
       console.error('Cloud update booking failed', e);
@@ -764,7 +846,12 @@ export default function App() {
   };
 
   const handleDeleteBooking = async (bookingId: string) => {
-    setBookings(bookings.filter((b) => b.id !== bookingId));
+    if (!isUserAdmin(currentUser)) {
+      setToastMessage('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่มีสิทธิ์ลบข้อมูลการยืมรถ');
+      return;
+    }
+    setBookings((prev) => prev.filter((b) => b.id !== bookingId));
+    setToastMessage('ลบข้อมูลการยืมรถออกจากระบบเรียบร้อยแล้ว');
     try {
       await deleteBooking(bookingId);
     } catch (e) {

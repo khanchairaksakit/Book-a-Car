@@ -69,7 +69,7 @@ export function buildLineDeepLinks(
 
 export function buildLineShareMessage(
   booking: Booking,
-  stage: 1 | 2 | 'approved' | 'rejected',
+  stage: 1 | 2 | 'approved' | 'rejected' | 'completed',
   approverName?: string,
   approverId?: string,
   targetLineId?: string
@@ -80,6 +80,36 @@ export function buildLineShareMessage(
 
   const deptInfo = [booking.userDepartment, booking.userDivision].filter(Boolean).join(' / ');
   const requesterLineLabel = booking.requesterLineId ? ` [LINE ID: ${booking.requesterLineId}]` : '';
+
+  if (stage === 'completed' || booking.status === 'Completed') {
+    const startMiles =
+      booking.startMileage !== undefined ? `${booking.startMileage.toLocaleString()} km.` : '-';
+    const endMiles =
+      booking.endMileage !== undefined ? `${booking.endMileage.toLocaleString()} km.` : '-';
+    const distDiff =
+      booking.startMileage !== undefined &&
+      booking.endMileage !== undefined &&
+      booking.endMileage >= booking.startMileage
+        ? ` (วิ่งรวม ${(booking.endMileage - booking.startMileage).toLocaleString()} km.)`
+        : '';
+
+    return [
+      `🏁 [แจ้งเตือนคืนรถยนต์ส่วนกลาง & เสร็จสิ้นภารกิจ]`,
+      `📄 หมายเลขใบงาน: ${jobNo}`,
+      `เรียน: ผู้ดูแลรถ (${booking.stage2ApproverName || 'Approve 2'}) และเจ้าหน้าที่ Operator`,
+      `━━━━━━━━━━━━━━`,
+      `👤 ผู้คืนรถ: ${booking.userName}${deptInfo ? ` (${deptInfo})` : ''}`,
+      `🚘 รถยนต์ที่คืน: ${booking.vehicleName}`,
+      `📅 วันเวลาเดินทาง: ${formatThaiDateTimeForLine(booking.startDate)} → ${formatThaiDateTimeForLine(booking.endDate)}`,
+      `📍 ปลายทาง: ${booking.destination}`,
+      `🔢 เลขไมล์: ${startMiles} → ${endMiles}${distDiff}`,
+      `⛽ ระดับน้ำมันตอนคืน: ${booking.endFuelLevel || '-'}`,
+      `🔑 สถานะกุญแจ: ✅ แนบรูปถ่ายหย่อนกุญแจลงตู้เรียบร้อยแล้ว`,
+      `━━━━━━━━━━━━━━`,
+      `🔍 ตรวจสอบข้อมูลใบงานและหลักฐานในระบบ:`,
+      `${links.reviewUrl}`,
+    ].join('\n');
+  }
 
   if (stage === 'approved' || booking.status === 'Approved') {
     return [
@@ -94,8 +124,8 @@ export function buildLineShareMessage(
       `📍 ปลายทาง: ${booking.destination} (${booking.passengersCount} คน)`,
       `📝 วัตถุประสงค์: ${booking.purpose}`,
       `━━━━━━━━━━━━━━`,
-      `✔️ ขั้นที่ 1 (Approve 1): ${booking.stage1ApprovedBy || booking.assignedApproverName || '-'}`,
-      `✔️ ขั้นที่ 2 (Approve 2): ${booking.stage2ApprovedBy || booking.stage2ApproverName || '-'}`,
+      `✔️ ขั้นที่ 1 (ผู้จัดการ): ${booking.stage1ApprovedBy || booking.assignedApproverName || '-'}`,
+      `✔️ ขั้นที่ 2 (ผู้ดูแลรถ): ${booking.stage2ApprovedBy || booking.stage2ApproverName || '-'}`,
       `🛡️ สถานะ: อนุมัติสมบูรณ์ พร้อมนำรถออกเดินทาง`,
       `🔗 เปิดดูใบจองและบันทึกไมล์เดินทาง:`,
       `${links.reviewUrl}`,
@@ -104,7 +134,7 @@ export function buildLineShareMessage(
 
   if (stage === 'rejected' || booking.status === 'Cancelled') {
     const rejectedStageLabel = booking.rejectedStage
-      ? `ขั้นที่ ${booking.rejectedStage} (Approve ${booking.rejectedStage})`
+      ? `ขั้นที่ ${booking.rejectedStage} (${booking.rejectedStage === 1 ? 'ผู้จัดการ' : 'ผู้ดูแลรถ'})`
       : 'ผู้อนุมัติ';
     return [
       `❌ [แจ้งผล: ไม่อนุมัติคำขอใช้รถ]`,
@@ -126,14 +156,14 @@ export function buildLineShareMessage(
 
   const stageTitle =
     effectiveStageNum === 2
-      ? `🔵 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 2 (Approve 2)]`
-      : `🟢 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 1 (Approve 1)]`;
+      ? `🔵 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 2 (ผู้ดูแลรถ)]`
+      : `🟢 [แจ้งเตือนคำขอใช้รถส่วนกลาง - ขั้นที่ 1 (ผู้จัดการ)]`;
 
   const targetApproverLabel =
     approverName ||
     (effectiveStageNum === 1
-      ? booking.assignedApproverName || 'ผู้อนุมัติขั้นที่ 1 (Approve 1)'
-      : booking.stage2ApproverName || 'ผู้อนุมัติขั้นที่ 2 (Approve 2)');
+      ? booking.assignedApproverName || 'ผู้จัดการ'
+      : booking.stage2ApproverName || 'ผู้ดูแลรถ');
 
   const resolvedApproverLineId =
     targetLineId ||
@@ -144,7 +174,7 @@ export function buildLineShareMessage(
 
   const stage1Note =
     effectiveStageNum === 2 && booking.stage1ApprovedBy
-      ? `\n✔️ ขั้นที่ 1 (Approve 1) อนุมัติแล้วโดย: ${booking.stage1ApprovedBy}`
+      ? `\n✔️ ขั้นที่ 1 (ผู้จัดการ) อนุมัติแล้วโดย: ${booking.stage1ApprovedBy}`
       : '';
 
   return [
@@ -171,17 +201,18 @@ export function getLineShareUrl(messageText: string): string {
 
 export async function triggerServerLineApprovalPush(params: {
   booking: Booking;
-  stage: 1 | 2 | 'approved' | 'rejected';
+  stage: 1 | 2 | 'approved' | 'rejected' | 'completed';
   approverUser?: User | null;
   approverName?: string;
   targetLineId?: string;
+  targetLineIds?: string[];
 }): Promise<{
   ok: boolean;
   oaPushSuccess: boolean;
   oaPushMode: 'push' | 'broadcast' | 'share_only';
   oaError?: string;
 }> {
-  const { booking, stage, approverUser, approverName, targetLineId } = params;
+  const { booking, stage, approverUser, approverName, targetLineId, targetLineIds } = params;
   const effectiveStageNum: 1 | 2 = stage === 2 || booking.status === 'Pending_Approve2' ? 2 : 1;
   const links = buildLineDeepLinks(booking.id, effectiveStageNum, approverUser?.id);
 
@@ -190,7 +221,7 @@ export async function triggerServerLineApprovalPush(params: {
     approverUser?.lineUserId ||
     (stage === 'approved' || stage === 'rejected'
       ? booking.requesterLineId
-      : stage === 2
+      : stage === 2 || stage === 'completed'
       ? booking.stage2ApproverLineId
       : booking.assignedApproverLineId) ||
     '';
@@ -203,10 +234,13 @@ export async function triggerServerLineApprovalPush(params: {
         booking,
         stage,
         approverLineId: resolvedLineId,
+        targetLineIds: Array.isArray(targetLineIds) ? targetLineIds : undefined,
         approverName:
           approverName ||
           approverUser?.name ||
-          (stage === 2 ? booking.stage2ApproverName : booking.assignedApproverName) ||
+          (stage === 2 || stage === 'completed'
+            ? booking.stage2ApproverName
+            : booking.assignedApproverName) ||
           '',
         approvalUrl: links.approvalUrl,
         rejectUrl: links.rejectUrl,

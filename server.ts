@@ -185,8 +185,12 @@ function buildBookingFlexMessage(params: {
     rejectionReason?: string;
     rejectedBy?: string;
     rejectedStage?: number;
+    startMileage?: number;
+    endMileage?: number;
+    startFuelLevel?: string;
+    endFuelLevel?: string;
   };
-  stage: 1 | 2 | 'approved' | 'rejected';
+  stage: 1 | 2 | 'approved' | 'rejected' | 'completed';
   approverName?: string;
   approvalUrl: string;
   rejectUrl: string;
@@ -206,11 +210,14 @@ function buildBookingFlexMessage(params: {
   };
   const jobNo = computeJobNo();
 
-  const isApprovedDone = stage === 'approved' || booking.status === 'Approved';
+  const isCompletedDone = stage === 'completed' || booking.status === 'Completed';
+  const isApprovedDone = !isCompletedDone && (stage === 'approved' || booking.status === 'Approved');
   const isRejectedDone = stage === 'rejected' || booking.status === 'Cancelled';
   const isStage2 = stage === 2 || booking.status === 'Pending_Approve2';
 
-  const headerBg = isApprovedDone
+  const headerBg = isCompletedDone
+    ? '#0D9488'
+    : isApprovedDone
     ? '#059669'
     : isRejectedDone
     ? '#E11D48'
@@ -218,15 +225,19 @@ function buildBookingFlexMessage(params: {
     ? '#2563EB'
     : '#06C755';
 
-  const headerTitle = isApprovedDone
+  const headerTitle = isCompletedDone
+    ? '🏁 เสร็จสิ้นภารกิจ & คืนรถยนต์ส่วนกลางแล้ว'
+    : isApprovedDone
     ? '✅ อนุมัติคำขอใช้รถเรียบร้อยแล้ว'
     : isRejectedDone
     ? '❌ คำขอใช้รถไม่ได้รับการอนุมัติ'
     : isStage2
-    ? '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 2: Approve 2)'
-    : '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 1: Approve 1)';
+    ? '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 2: ผู้ดูแลรถ)'
+    : '🚗 แจ้งเตือนคำขอใช้รถ (ขั้นที่ 1: ผู้จัดการ)';
 
-  const headerSub = isApprovedDone
+  const headerSub = isCompletedDone
+    ? `แจ้งเตือน Operator & ผู้ดูแลรถ (${approverName || booking.stage2ApproverName || 'Approve 2'})`
+    : isApprovedDone
     ? `เรียนคุณ ${booking.userName}${booking.requesterLineId ? ` (${booking.requesterLineId})` : ''} • พร้อมออกเดินทาง`
     : isRejectedDone
     ? `เรียนคุณ ${booking.userName} • ไม่อนุมัติโดย ${booking.rejectedBy || 'ผู้อนุมัติ'}`
@@ -288,10 +299,10 @@ function buildBookingFlexMessage(params: {
     {
       type: 'text',
       text: booking.stage1ApprovedBy
-        ? `✅ ขั้นที่ 1 (Approve 1): อนุมัติโดย ${booking.stage1ApprovedBy}`
+        ? `✅ ขั้นที่ 1 (ผู้จัดการ): อนุมัติโดย ${booking.stage1ApprovedBy}`
         : isRejectedDone && booking.rejectedStage === 1
-        ? `❌ ขั้นที่ 1 (Approve 1): ไม่อนุมัติโดย ${booking.rejectedBy || booking.assignedApproverName || 'Approve 1'}`
-        : `⏳ ขั้นที่ 1: รอ ${booking.assignedApproverName || 'Approve 1'}`,
+        ? `❌ ขั้นที่ 1 (ผู้จัดการ): ไม่อนุมัติโดย ${booking.rejectedBy || booking.assignedApproverName || 'ผู้จัดการ'}`
+        : `⏳ ขั้นที่ 1 (ผู้จัดการ): รอ ${booking.assignedApproverName || 'ผู้จัดการ'}`,
       size: 'xxs',
       color: booking.stage1ApprovedBy
         ? '#059669'
@@ -304,12 +315,12 @@ function buildBookingFlexMessage(params: {
     {
       type: 'text',
       text: booking.stage2ApprovedBy
-        ? `✅ ขั้นที่ 2 (Approve 2): อนุมัติโดย ${booking.stage2ApprovedBy}`
+        ? `✅ ขั้นที่ 2 (ผู้ดูแลรถ): อนุมัติโดย ${booking.stage2ApprovedBy}`
         : isRejectedDone && booking.rejectedStage === 2
-        ? `❌ ขั้นที่ 2 (Approve 2): ไม่อนุมัติโดย ${booking.rejectedBy || booking.stage2ApproverName || 'Approve 2'}`
+        ? `❌ ขั้นที่ 2 (ผู้ดูแลรถ): ไม่อนุมัติโดย ${booking.rejectedBy || booking.stage2ApproverName || 'ผู้ดูแลรถ'}`
         : isStage2
-        ? `⏳ ขั้นที่ 2: รอ ${booking.stage2ApproverName || 'Approve 2'} อนุมัติขั้นสุดท้าย`
-        : `⚪ ขั้นที่ 2: รอส่งต่อ Approve 2 (${booking.stage2ApproverName || 'Approve 2'})`,
+        ? `⏳ ขั้นที่ 2 (ผู้ดูแลรถ): รอ ${booking.stage2ApproverName || 'ผู้ดูแลรถ'} อนุมัติขั้นสุดท้าย`
+        : `⚪ ขั้นที่ 2 (ผู้ดูแลรถ): รอส่งต่อ (${booking.stage2ApproverName || 'ผู้ดูแลรถ'})`,
       size: 'xxs',
       color: booking.stage2ApprovedBy
         ? '#059669'
@@ -322,6 +333,22 @@ function buildBookingFlexMessage(params: {
       wrap: true,
     },
   ];
+
+  if (isCompletedDone) {
+    const startM =
+      booking.startMileage !== undefined ? `${booking.startMileage.toLocaleString()} km.` : '-';
+    const endM =
+      booking.endMileage !== undefined ? `${booking.endMileage.toLocaleString()} km.` : '-';
+    statusContents.push({
+      type: 'text',
+      text: `🏁 คืนรถแล้ว • ไมล์: ${startM} → ${endM} • น้ำมันคืน: ${booking.endFuelLevel || '-'} • 🔑 หย่อนกุญแจลงตู้เรียบร้อย`,
+      size: 'xs',
+      color: '#0D9488',
+      weight: 'bold',
+      wrap: true,
+      margin: 'xs',
+    });
+  }
 
   if (isRejectedDone && booking.rejectionReason) {
     statusContents.push({
@@ -544,6 +571,7 @@ app.post('/api/line/send-approval', async (req, res) => {
       booking,
       stage = 1,
       approverLineId,
+      targetLineIds,
       approverName,
       approvalUrl,
       rejectUrl,
@@ -568,7 +596,18 @@ app.post('/api/line/send-approval', async (req, res) => {
     });
 
     const token = await getLineAccessToken();
-    const targetTo = (approverLineId || process.env.LINE_GROUP_ID || '').trim();
+    const allTargets = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(targetLineIds) ? targetLineIds : []),
+          approverLineId,
+          process.env.LINE_GROUP_ID,
+        ]
+          .filter(Boolean)
+          .map((t: string) => String(t).trim())
+          .filter(Boolean)
+      )
+    );
 
     let oaPushSuccess = false;
     let oaPushMode: 'push' | 'broadcast' | 'share_only' = 'share_only';
@@ -576,36 +615,45 @@ app.post('/api/line/send-approval', async (req, res) => {
 
     if (token) {
       try {
-        const cleanTarget = targetTo.replace(/^@/, '');
-        const isDirectLineUuid =
-          (cleanTarget.startsWith('U') || cleanTarget.startsWith('C') || cleanTarget.startsWith('R')) &&
-          cleanTarget.length >= 30;
+        let hasNonUuidTarget = allTargets.length === 0;
+        const pushedTargets = new Set<string>();
 
-        if (isDirectLineUuid) {
-          // Push to specific user/group/room UUID
-          const pushResp = await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              to: cleanTarget,
-              messages: [flexMessage],
-            }),
-          });
-          if (pushResp.ok) {
-            oaPushSuccess = true;
-            oaPushMode = 'push';
+        for (const rawTarget of allTargets) {
+          const cleanTarget = rawTarget.replace(/^@/, '');
+          const isDirectLineUuid =
+            (cleanTarget.startsWith('U') ||
+              cleanTarget.startsWith('C') ||
+              cleanTarget.startsWith('R')) &&
+            cleanTarget.length >= 30;
+
+          if (isDirectLineUuid) {
+            pushedTargets.add(cleanTarget);
+            const pushResp = await fetch('https://api.line.me/v2/bot/message/push', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                to: cleanTarget,
+                messages: [flexMessage],
+              }),
+            });
+            if (pushResp.ok) {
+              oaPushSuccess = true;
+              oaPushMode = 'push';
+            } else {
+              const errBody = await pushResp.text();
+              oaError = `LINE Push API (${pushResp.status}): ${errBody}`;
+            }
           } else {
-            const errBody = await pushResp.text();
-            oaError = `LINE Push API (${pushResp.status}): ${errBody}`;
+            hasNonUuidTarget = true;
           }
         }
 
-        // Also push to any joined LINE Groups so approvers in the group receive cards without adding the bot individually
+        // Also push to any joined LINE Groups so approvers/operators in the group receive cards immediately
         for (const gId of knownGroupIds) {
-          if (gId === cleanTarget) continue;
+          if (pushedTargets.has(gId)) continue;
           const groupResp = await fetch('https://api.line.me/v2/bot/message/push', {
             method: 'POST',
             headers: {
@@ -623,8 +671,8 @@ app.post('/api/line/send-approval', async (req, res) => {
           }
         }
 
-        // If target is a regular LINE Search ID (e.g. khanchai_r) or direct push failed, also broadcast to OA followers
-        if (!isDirectLineUuid || !oaPushSuccess) {
+        // If any target is a regular LINE Search ID (e.g. khanchai_r) or direct push failed, also broadcast to OA followers
+        if (hasNonUuidTarget || !oaPushSuccess) {
           const broadcastResp = await fetch('https://api.line.me/v2/bot/message/broadcast', {
             method: 'POST',
             headers: {

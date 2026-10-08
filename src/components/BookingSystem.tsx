@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CameraCaptureModal from './CameraCaptureModal';
+import FuelGaugeGraphic from './FuelGaugeGraphic';
 import { compressImageFile } from '../utils/imageCompression';
 
 interface BookingSystemProps {
@@ -192,14 +193,14 @@ export default function BookingSystem({
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-            ⏳ รอผู้จัดการอนุมัติ
+            ⏳ รอผู้จัดการ
           </span>
         );
       case 'Pending_Approve2':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-            ⏳ รอผู้ดูแลรถอนุมัติ
+            ⏳ รอผู้ดูแลรถ
           </span>
         );
       case 'Approved':
@@ -223,7 +224,7 @@ export default function BookingSystem({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            ❌ {isStage2Reject ? 'ผู้ดูแลรถอนุมัติ Reject' : 'ผู้จัดการอนุมัติ Reject'}
+            ❌ {isStage2Reject ? 'ผู้ดูแลรถ Reject' : 'ผู้จัดการ Reject'}
           </span>
         );
       }
@@ -246,21 +247,43 @@ export default function BookingSystem({
     }
   };
 
+  // Helper to get the latest current mileage of the vehicle for a booking
+  const getVehicleLatestMileage = (booking: Booking): number | undefined => {
+    const v = vehicles.find(
+      (veh) =>
+        veh.id === booking.vehicleId ||
+        (booking.plateNumber && veh.plateNumber === booking.plateNumber)
+    );
+    let maxMileage = v?.currentMileage;
+    for (const b of bookings) {
+      if (b.status === 'Cancelled') continue;
+      if (
+        b.vehicleId === booking.vehicleId ||
+        (booking.plateNumber && b.plateNumber === booking.plateNumber)
+      ) {
+        if (typeof b.endMileage === 'number' && (maxMileage === undefined || b.endMileage > maxMileage)) {
+          maxMileage = b.endMileage;
+        }
+      }
+    }
+    return maxMileage;
+  };
+
   // Open Departure Checklist
   const handleOpenDeparture = (booking: Booking) => {
     setDepartureBooking(booking);
     setDepartureError('');
-    // Prefill with existing or vehicle's mileage
-    const v = vehicles.find((veh) => veh.id === booking.vehicleId);
+    // Prefill with existing or vehicle's current mileage
+    const vehicleMileage = getVehicleLatestMileage(booking);
     setStartMileageInput(
       booking.startMileage !== undefined
         ? String(booking.startMileage)
-        : v?.currentMileage !== undefined
-        ? String(v.currentMileage)
+        : vehicleMileage !== undefined
+        ? String(vehicleMileage)
         : ''
     );
     setStartFuelInput(booking.startFuelLevel || 'เต็มถัง');
-    setStartPhotoPreview(booking.startMileagePhoto || '');
+    setStartPhotoPreview('');
   };
 
   // Submit Departure Checklist
@@ -277,7 +300,6 @@ export default function BookingSystem({
 
     onUpdateBookingStatus(departureBooking.id, departureBooking.status, {
       startMileage: mileageNum,
-      startMileagePhoto: startPhotoPreview || undefined,
       startFuelLevel: startFuelInput,
       startRecordedAt: new Date().toISOString(),
     });
@@ -290,16 +312,17 @@ export default function BookingSystem({
   const handleOpenReturn = (booking: Booking) => {
     setReturnBooking(booking);
     setReturnError('');
-    const baseMileage = booking.startMileage || 0;
+    const vehicleMileage = getVehicleLatestMileage(booking);
+    const baseMileage = booking.startMileage ?? vehicleMileage ?? 0;
     setEndMileageInput(
       booking.endMileage !== undefined
         ? String(booking.endMileage)
         : baseMileage > 0
-        ? String(baseMileage + 10)
+        ? String(baseMileage)
         : ''
     );
-    setEndFuelInput(booking.endFuelLevel || 'เต็มถัง');
-    setEndPhotoPreview(booking.endMileagePhoto || '');
+    setEndFuelInput(booking.endFuelLevel || booking.startFuelLevel || 'เต็มถัง');
+    setEndPhotoPreview('');
     setKeyPhotoPreview(booking.keyReturnPhoto || '');
   };
 
@@ -327,7 +350,6 @@ export default function BookingSystem({
 
     onUpdateBookingStatus(returnBooking.id, 'Completed', {
       endMileage: endMileageNum,
-      endMileagePhoto: endPhotoPreview || undefined,
       endFuelLevel: endFuelInput,
       keyReturnPhoto: keyPhotoPreview,
       endRecordedAt: new Date().toISOString(),
@@ -366,7 +388,7 @@ export default function BookingSystem({
               รายการจองรถยนต์ส่วนกลาง
             </h2>
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-              อนุมัติ 2 ขั้น (ผู้จัดการอนุมัติ & ผู้ดูแลรถอนุมัติ)
+              อนุมัติ 2 ขั้น (ผู้จัดการ & ผู้ดูแลรถ)
             </span>
             {!hasEditPermission && (
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
@@ -376,7 +398,7 @@ export default function BookingSystem({
           </div>
           <p className="text-xs text-gray-500 mt-1">
             {isAdmin
-              ? 'ระบบการอนุมัติ 2 ขั้น: ผู้จัดการอนุมัติ → ผู้ดูแลรถอนุมัติ พร้อมระบบบันทึกไมล์ น้ำมัน และส่งคืนกุญแจ'
+              ? 'ระบบการอนุมัติ 2 ขั้น: ผู้จัดการ → ผู้ดูแลรถ พร้อมระบบบันทึกไมล์ น้ำมัน และส่งคืนกุญแจ'
               : 'ตรวจสอบสถานะคำขอ อนุมัติการใช้รถตามสิทธิ์ และบันทึกข้อมูลไมล์/น้ำมัน/รูปถ่ายเมื่อเสร็จสิ้นภารกิจ'}
           </p>
         </div>
@@ -401,7 +423,7 @@ export default function BookingSystem({
                 : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
             }`}
           >
-            <span>ผู้จัดการอนุมัติ</span>
+            <span>ผู้จัดการ</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {pending1Count}
             </span>
@@ -414,7 +436,7 @@ export default function BookingSystem({
                 : 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100'
             }`}
           >
-            <span>ผู้ดูแลรถอนุมัติ</span>
+            <span>ผู้ดูแลรถ</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {pending2Count}
             </span>
@@ -498,10 +520,7 @@ export default function BookingSystem({
               booking.status === 'Pending' && isEligibleToApprove;
             const canApproveStage2Action =
               booking.status === 'Pending_Approve2' && isEligibleToApprove;
-            const canUserCancel =
-              hasEditPermission &&
-              isOwner &&
-              (booking.status === 'Pending' || booking.status === 'Pending_Approve2');
+            // Requirement 6: ห้าม user ลบข้อมูลการยืมรถเอง ต้องสิทธิ admin เท่านั้น
             const canRecordDeparture =
               hasEditPermission &&
               booking.status === 'Approved' &&
@@ -595,8 +614,8 @@ export default function BookingSystem({
                             1
                           </span>
                           <div>
-                            <span className="font-bold text-gray-900">ผู้จัดการอนุมัติ:</span>{' '}
-                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้จัดการอนุมัติ'}</span>
+                            <span className="font-bold text-gray-900">ผู้จัดการ:</span>{' '}
+                            <span className="text-gray-600">{booking.assignedApproverName || 'ผู้จัดการ'}</span>
                           </div>
                         </div>
                         <div>
@@ -606,11 +625,11 @@ export default function BookingSystem({
                             </span>
                           ) : booking.status === 'Cancelled' ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                              ❌ ผู้จัดการอนุมัติ Reject
+                              ❌ ผู้จัดการ Reject
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              รอผู้จัดการอนุมัติ
+                              รอผู้จัดการ
                             </span>
                           )}
                         </div>
@@ -623,11 +642,11 @@ export default function BookingSystem({
                             2
                           </span>
                           <div>
-                            <span className="font-bold text-gray-900">ผู้ดูแลรถอนุมัติ:</span>{' '}
+                            <span className="font-bold text-gray-900">ผู้ดูแลรถ:</span>{' '}
                             <span className="text-gray-600">
                               {booking.stage2ApprovedBy
                                 ? booking.stage2ApprovedBy
-                                : booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'}
+                                : booking.stage2ApproverName || 'ผู้ดูแลรถ'}
                             </span>
                           </div>
                         </div>
@@ -640,18 +659,18 @@ export default function BookingSystem({
                             (booking.rejectedStage === 2 ||
                               (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy))) ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                              ❌ ผู้ดูแลรถอนุมัติ Reject
+                              ❌ ผู้ดูแลรถ Reject
                             </span>
                           ) : booking.status === 'Cancelled' ? (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                              ❌ ผู้จัดการอนุมัติ Reject
+                              ❌ ผู้จัดการ Reject
                             </span>
                           ) : booking.status === 'Pending_Approve2' ? (
                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 animate-pulse">
-                              รอผู้ดูแลรถอนุมัติ
+                              รอผู้ดูแลรถ
                             </span>
                           ) : (
-                            <span className="text-[10px] text-gray-400">รอผ่านผู้จัดการอนุมัติ</span>
+                            <span className="text-[10px] text-gray-400">รอผ่านผู้จัดการ</span>
                           )}
                         </div>
                       </div>
@@ -665,8 +684,8 @@ export default function BookingSystem({
                               {booking.rejectedBy ||
                                 (booking.rejectedStage === 2 ||
                                 (booking.rejectedStage !== 1 && Boolean(booking.stage1ApprovedBy))
-                                  ? `${booking.stage2ApproverName || 'ผู้ดูแลรถอนุมัติ'} (ผู้ดูแลรถอนุมัติ Reject)`
-                                  : `${booking.assignedApproverName || 'ผู้จัดการอนุมัติ'} (ผู้จัดการอนุมัติ Reject)`)}
+                                  ? `${booking.stage2ApproverName || 'ผู้ดูแลรถ'} (ผู้ดูแลรถ Reject)`
+                                  : `${booking.assignedApproverName || 'ผู้จัดการ'} (ผู้จัดการ Reject)`)}
                             </span>
                           </div>
                           {booking.rejectionReason && (
@@ -819,14 +838,14 @@ export default function BookingSystem({
                           type="button"
                           onClick={() =>
                             onUpdateBookingStatus(booking.id, 'Pending_Approve2', {
-                              stage1ApprovedBy: currentUser?.name || 'ผู้จัดการอนุมัติ',
+                              stage1ApprovedBy: currentUser?.name || 'ผู้จัดการ',
                               stage1ApprovedAt: new Date().toISOString(),
                             })
                           }
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>ผู้จัดการอนุมัติ (ส่งต่อผู้ดูแลรถอนุมัติ)</span>
+                          <span>ผู้จัดการ (ส่งต่อผู้ดูแลรถ)</span>
                         </button>
 
                         <button
@@ -852,14 +871,14 @@ export default function BookingSystem({
                           type="button"
                           onClick={() =>
                             onUpdateBookingStatus(booking.id, 'Approved', {
-                              stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถอนุมัติ',
+                              stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถ',
                               stage2ApprovedAt: new Date().toISOString(),
                             })
                           }
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>ผู้ดูแลรถอนุมัติ (อนุมัติขั้นสุดท้าย)</span>
+                          <span>ผู้ดูแลรถ (อนุมัติขั้นสุดท้าย)</span>
                         </button>
 
                         <button
@@ -904,26 +923,14 @@ export default function BookingSystem({
                       </button>
                     )}
 
-                    {/* User Cancel Own Request */}
-                    {canUserCancel && (
-                      <button
-                        id={`btn-user-cancel-${booking.id}`}
-                        type="button"
-                        onClick={() => onUpdateBookingStatus(booking.id, 'Cancelled')}
-                        className="px-3 py-2 border border-slate-200 hover:bg-red-50 hover:border-red-200 text-slate-600 hover:text-red-600 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-                      >
-                        ยกเลิกคำขอ
-                      </button>
-                    )}
-
-                    {/* Admin Delete */}
+                    {/* Admin Delete ONLY (Requirement 6: ห้าม user ลบข้อมูลการยืมรถเอง ต้องสิทธิ admin เท่านั้น) */}
                     {hasEditPermission && isAdmin && (
                       <button
                         id={`btn-delete-booking-${booking.id}`}
                         type="button"
                         onClick={() => setDeletingBooking(booking)}
                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                        title="ลบรายการจอง"
+                        title="ลบรายการจอง (เฉพาะ Admin)"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -980,136 +987,58 @@ export default function BookingSystem({
               )}
 
               <form onSubmit={handleSaveDeparture} className="flex-1 overflow-y-auto pr-1 space-y-4">
-                {/* 1. ไมล์เริ่มต้น */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-800">
-                    1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="input-start-mileage"
-                      type="number"
-                      value={startMileageInput}
-                      onChange={(e) => setStartMileageInput(e.target.value)}
-                      placeholder="เช่น 18500"
-                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                      required
-                    />
-                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
-                      km.
-                    </span>
-                  </div>
-
-                  {/* แนบรูปถ่ายไมล์เริ่มต้น */}
-                  <div className="pt-1.5">
-                    {/* Hidden Native Camera Input */}
-                    <input
-                      ref={startCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
-                      className="hidden"
-                      id="input-camera-booking-start-mileage"
-                    />
-                    {/* Hidden File Picker Input */}
-                    <input
-                      ref={startFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleFileChange(e, setStartPhotoPreview)}
-                      className="hidden"
-                      id="input-file-booking-start-mileage"
-                    />
-                    {startPhotoPreview ? (
-                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-amber-200 group bg-black/5">
-                        <img
-                          src={startPhotoPreview}
-                          alt="Start Mileage Preview"
-                          className="w-full h-full object-cover"
+                {/* 1. ไมล์เริ่มต้น (ดึงข้อมูลจากเลขไมล์ของรถคันนั้นมาแสดง แต่สามารถปรับแก้เองได้) */}
+                {(() => {
+                  const vehLatestMileage = departureBooking
+                    ? getVehicleLatestMileage(departureBooking)
+                    : undefined;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <label className="block text-xs font-bold text-gray-800">
+                          1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
+                        </label>
+                        {vehLatestMileage !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => setStartMileageInput(String(vehLatestMileage))}
+                            className="text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg cursor-pointer transition-colors"
+                          >
+                            🔄 ดึงเลขไมล์รถล่าสุด ({vehLatestMileage.toLocaleString()} km.)
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="input-start-mileage"
+                          type="number"
+                          value={startMileageInput}
+                          onChange={(e) => setStartMileageInput(e.target.value)}
+                          placeholder="เช่น 18500"
+                          className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                          required
                         />
-                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => startCameraInputRef.current?.click()}
-                            className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
-                            title="ถ่ายภาพใหม่ด้วยกล้อง"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setStartPhotoPreview('')}
-                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
-                            title="ลบรูป"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                          km.
+                        </span>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          id="btn-open-camera-booking-start-mileage"
-                          onClick={() => startCameraInputRef.current?.click()}
-                          className="w-full py-3.5 px-4 border-2 border-dashed border-amber-400 hover:border-amber-500 bg-amber-50/70 hover:bg-amber-100/70 rounded-2xl text-xs font-bold text-amber-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
-                            <Camera className="w-4 h-4" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์เริ่มต้นทันที</div>
-                            <div className="text-[11px] text-amber-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์</div>
-                          </div>
-                        </button>
-                        <div className="flex items-center justify-between px-1 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => startFileInputRef.current?.click()}
-                            className="text-gray-500 hover:text-amber-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <Upload className="w-3.5 h-3.5 text-amber-600" />
-                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์เริ่มต้น', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันชัดเจน', (img) => setStartPhotoPreview(img))}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <span>📹 กล้องสด (Live Viewfinder)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                      <p className="text-[11px] text-gray-500">
+                        ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
+                      </p>
+                    </div>
+                  );
+                })()}
 
-                {/* 2. น้ำมันเริ่มต้น */}
-                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                {/* 2. น้ำมันเริ่มต้น พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
+                <div className="space-y-2 pt-2 border-t border-gray-100">
                   <label className="block text-xs font-bold text-gray-800">
                     2. น้ำมันเริ่มต้น (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {FUEL_OPTIONS.map((f) => {
-                      const isSel = startFuelInput === f;
-                      return (
-                        <button
-                          key={f}
-                          type="button"
-                          onClick={() => setStartFuelInput(f)}
-                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-400/30'
-                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <FuelGaugeGraphic
+                    value={startFuelInput}
+                    onChange={setStartFuelInput}
+                    accentColor="amber"
+                  />
                 </div>
 
                 {/* Footer Buttons */}
@@ -1215,124 +1144,28 @@ export default function BookingSystem({
                       value={endMileageInput}
                       onChange={(e) => setEndMileageInput(e.target.value)}
                       placeholder="เช่น 18720"
-                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                       required
                     />
                     <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
                       km.
                     </span>
                   </div>
-
-                  {/* แนบรูปถ่ายไมล์สิ้นสุด */}
-                  <div className="pt-1.5">
-                    {/* Hidden Native Camera Input */}
-                    <input
-                      ref={endCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
-                      className="hidden"
-                      id="input-camera-booking-end-mileage"
-                    />
-                    {/* Hidden File Picker Input */}
-                    <input
-                      ref={endFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleFileChange(e, setEndPhotoPreview)}
-                      className="hidden"
-                      id="input-file-booking-end-mileage"
-                    />
-                    {endPhotoPreview ? (
-                      <div className="relative w-full h-36 rounded-xl overflow-hidden border border-emerald-200 group bg-black/5">
-                        <img
-                          src={endPhotoPreview}
-                          alt="End Mileage Preview"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => endCameraInputRef.current?.click()}
-                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs shadow-md cursor-pointer flex items-center gap-1 active:scale-95"
-                            title="ถ่ายภาพใหม่ด้วยกล้อง"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span className="text-[10px] font-bold">ถ่ายใหม่</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEndPhotoPreview('')}
-                            className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs shadow-md cursor-pointer active:scale-95"
-                            title="ลบรูป"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          id="btn-open-camera-booking-end-mileage"
-                          onClick={() => endCameraInputRef.current?.click()}
-                          className="w-full py-3.5 px-4 border-2 border-dashed border-emerald-400 hover:border-emerald-600 bg-emerald-50/70 hover:bg-emerald-100/70 rounded-2xl text-xs font-bold text-emerald-900 flex items-center justify-center gap-3 transition-all cursor-pointer shadow-xs active:scale-[0.99]"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                            <Camera className="w-4 h-4" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-xs sm:text-sm text-gray-900">📸 กดเปิดกล้องถ่ายภาพไมล์สิ้นสุดทันที</div>
-                            <div className="text-[11px] text-emerald-700 font-normal">เปิดกล้องจากมือถือหรืออุปกรณ์เพื่อถ่ายรูปหน้าปัดไมล์ส่งคืน</div>
-                          </div>
-                        </button>
-                        <div className="flex items-center justify-between px-1 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => endFileInputRef.current?.click()}
-                            className="text-gray-500 hover:text-emerald-700 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>เลือกรูปจากเครื่อง/คลังภาพ</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openCamera('ถ่ายภาพหน้าปัดไมล์สิ้นสุด', 'กรุณาจัดกล้องให้เห็นตัวเลขไมล์และระดับน้ำมันตอนส่งคืนชัดเจน', (img) => setEndPhotoPreview(img))}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <span>📹 กล้องสด (Live Viewfinder)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    เมื่อยืนยันคืนรถแล้ว เลขไมล์ที่กรอกจะถูกนำไปอัปเดตที่เมนูจัดการข้อมูลรถยนต์โดยอัตโนมัติ
+                  </p>
                 </div>
 
-                {/* 3.2 น้ำมันส่งคืน */}
-                <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                {/* 3.2 น้ำมันส่งคืน พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
+                <div className="space-y-2 pt-2 border-t border-gray-100">
                   <label className="block text-xs font-bold text-gray-800">
                     3.2 น้ำมันส่งคืน (เลือกได้ 1 ตัวเลือก) <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {FUEL_OPTIONS.map((f) => {
-                      const isSel = endFuelInput === f;
-                      return (
-                        <button
-                          key={f}
-                          type="button"
-                          onClick={() => setEndFuelInput(f)}
-                          className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400/30'
-                              : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <FuelGaugeGraphic
+                    value={endFuelInput}
+                    onChange={setEndFuelInput}
+                    accentColor="emerald"
+                  />
                 </div>
 
                 {/* 3.3 แนบรูปหลักฐานการคืนกุญแจ (หย่อนลงตู้) - REQUIRED TO UNLOCK OK BUTTON */}
@@ -1528,7 +1361,7 @@ export default function BookingSystem({
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-rose-700 text-base">
-                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'})
+                  ❌ ไม่อนุมัติคำขอใช้รถ ({rejectingBookingState.stage === 1 ? 'ผู้จัดการ' : 'ผู้ดูแลรถ'})
                 </h3>
                 <button
                   type="button"
@@ -1574,9 +1407,10 @@ export default function BookingSystem({
                       setRejectReasonError('กรุณาระบุเหตุผลที่ไม่อนุมัติคำขอใช้รถ');
                       return;
                     }
+                    const stageLabel = rejectingBookingState.stage === 1 ? 'ผู้จัดการ' : 'ผู้ดูแลรถ';
                     onUpdateBookingStatus(rejectingBookingState.booking.id, 'Cancelled', {
                       rejectionReason: rejectReasonInput.trim(),
-                      rejectedBy: `${currentUser?.name || (rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ')} (${rejectingBookingState.stage === 1 ? 'ผู้จัดการอนุมัติ' : 'ผู้ดูแลรถอนุมัติ'} Reject)`,
+                      rejectedBy: `${currentUser?.name || stageLabel} (${stageLabel} Reject)`,
                       rejectedAt: new Date().toISOString(),
                       rejectedStage: rejectingBookingState.stage,
                     });
@@ -1594,7 +1428,7 @@ export default function BookingSystem({
 
       {/* Delete Confirmation Modal for Admin */}
       <AnimatePresence>
-        {deletingBooking && (
+        {deletingBooking && isAdmin && (
           <div
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
             onClick={() => setDeletingBooking(null)}

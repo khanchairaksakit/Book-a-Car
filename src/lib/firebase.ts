@@ -97,8 +97,26 @@ function cleanFirestoreData<T>(obj: T): T {
 }
 
 export async function saveVehicle(vehicle: Vehicle): Promise<void> {
-  const docRef = doc(db, 'vehicles', vehicle.id);
-  await setDoc(docRef, cleanFirestoreData(vehicle));
+  const cleaned = cleanFirestoreData(vehicle);
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('car_booking_vehicles');
+      const list: Vehicle[] = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(list)) {
+        const idx = list.findIndex((v) => v.id === cleaned.id);
+        if (idx >= 0) {
+          list[idx] = cleaned;
+        } else {
+          list.push(cleaned);
+        }
+        localStorage.setItem('car_booking_vehicles', JSON.stringify(list));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const docRef = doc(db, 'vehicles', cleaned.id);
+  await setDoc(docRef, cleaned);
 }
 
 export async function deleteVehicle(vehicleId: string): Promise<void> {
