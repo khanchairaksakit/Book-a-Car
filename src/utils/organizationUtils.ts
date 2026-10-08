@@ -40,98 +40,95 @@ export const DEFAULT_DIVISIONS: string[] = [
 
 const DEPARTMENTS_STORAGE_KEY = 'car_booking_departments';
 const DIVISIONS_STORAGE_KEY = 'car_booking_divisions';
+const ORG_UPDATED_AT_STORAGE_KEY = 'car_booking_org_updated_at';
+
+export function getStoredOrgUpdatedAt(): string {
+  try {
+    return localStorage.getItem(ORG_UPDATED_AT_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveStoredOrgUpdatedAt(updatedAt: string): void {
+  try {
+    if (updatedAt) {
+      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 /**
- * Retrieves the stored departments, merged with any custom departments already used by existing users
+ * Retrieves the stored departments without resurrecting renamed/deleted items from existingUsers
  */
-export function getStoredDepartments(existingUsers?: User[]): string[] {
-  let list: string[] = [];
+export function getStoredDepartments(_existingUsers?: User[]): string[] {
   try {
     const raw = localStorage.getItem(DEPARTMENTS_STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed.filter((item) => typeof item === 'string' && item.trim().length > 0);
+      if (Array.isArray(parsed)) {
+        const list = parsed
+          .filter((item) => typeof item === 'string' && item.trim().length > 0)
+          .map((d) => d.trim());
+        return Array.from(new Set(list));
       }
     }
   } catch (e) {
     console.error('Error loading stored departments:', e);
   }
 
-  if (list.length === 0) {
-    list = [...DEFAULT_DEPARTMENTS];
-  }
-
-  // Merge any distinct departments from existing users
-  if (existingUsers && Array.isArray(existingUsers)) {
-    existingUsers.forEach((u) => {
-      const dept = (u.department || '').trim();
-      if (dept && dept !== '-' && !list.includes(dept)) {
-        list.push(dept);
-      }
-    });
-  }
-
-  // Deduplicate and trim
-  const cleanSet = new Set(list.map((d) => d.trim()).filter(Boolean));
-  return Array.from(cleanSet);
+  return [...DEFAULT_DEPARTMENTS];
 }
 
 /**
  * Persists the list of custom departments
  */
-export function saveStoredDepartments(departments: string[]): void {
+export function saveStoredDepartments(departments: string[], updatedAt?: string): void {
   try {
-    const cleanList = Array.from(new Set(departments.map((d) => d.trim()).filter(Boolean)));
+    const cleanList = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
     localStorage.setItem(DEPARTMENTS_STORAGE_KEY, JSON.stringify(cleanList));
+    if (updatedAt) {
+      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
+    }
   } catch (e) {
     console.error('Error saving departments:', e);
   }
 }
 
 /**
- * Retrieves the stored divisions, merged with any custom divisions already used by existing users
+ * Retrieves the stored divisions without resurrecting renamed/deleted items from existingUsers
  */
-export function getStoredDivisions(existingUsers?: User[]): string[] {
-  let list: string[] = [];
+export function getStoredDivisions(_existingUsers?: User[]): string[] {
   try {
     const raw = localStorage.getItem(DIVISIONS_STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed.filter((item) => typeof item === 'string' && item.trim().length > 0);
+      if (Array.isArray(parsed)) {
+        const list = parsed
+          .filter((item) => typeof item === 'string' && item.trim().length > 0)
+          .map((d) => d.trim());
+        return Array.from(new Set(list));
       }
     }
   } catch (e) {
     console.error('Error loading stored divisions:', e);
   }
 
-  if (list.length === 0) {
-    list = [...DEFAULT_DIVISIONS];
-  }
-
-  // Merge any distinct divisions from existing users
-  if (existingUsers && Array.isArray(existingUsers)) {
-    existingUsers.forEach((u) => {
-      const div = (u.division || '').trim();
-      if (div && div !== '-' && !list.includes(div)) {
-        list.push(div);
-      }
-    });
-  }
-
-  // Deduplicate and trim
-  const cleanSet = new Set(list.map((d) => d.trim()).filter(Boolean));
-  return Array.from(cleanSet);
+  return [...DEFAULT_DIVISIONS];
 }
 
 /**
  * Persists the list of custom divisions
  */
-export function saveStoredDivisions(divisions: string[]): void {
+export function saveStoredDivisions(divisions: string[], updatedAt?: string): void {
   try {
-    const cleanList = Array.from(new Set(divisions.map((d) => d.trim()).filter(Boolean)));
+    const cleanList = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
     localStorage.setItem(DIVISIONS_STORAGE_KEY, JSON.stringify(cleanList));
+    if (updatedAt) {
+      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
+    }
   } catch (e) {
     console.error('Error saving divisions:', e);
   }
@@ -147,7 +144,7 @@ export function addCustomDepartment(newDept: string, currentList: string[]): str
     return currentList;
   }
   const updated = [...currentList, trimmed];
-  saveStoredDepartments(updated);
+  saveStoredDepartments(updated, new Date().toISOString());
   return updated;
 }
 
@@ -161,6 +158,6 @@ export function addCustomDivision(newDiv: string, currentList: string[]): string
     return currentList;
   }
   const updated = [...currentList, trimmed];
-  saveStoredDivisions(updated);
+  saveStoredDivisions(updated, new Date().toISOString());
   return updated;
 }

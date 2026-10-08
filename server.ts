@@ -46,6 +46,42 @@ if (process.env.LINE_GROUP_ID && process.env.LINE_GROUP_ID.trim()) {
 // Persistent server-side booking store in os.tmpdir() to prevent workspace file-watcher freezes
 const BOOKINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_bookings_store.json');
 const LEGACY_BOOKINGS_STORE_FILE = path.join(__dirname, 'data', 'bookings_store.json');
+const ORG_SETTINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_org_settings_store.json');
+
+interface OrganizationSettingsData {
+  departments: string[];
+  divisions: string[];
+  updatedAt: string;
+}
+
+function readOrgSettingsStore(): OrganizationSettingsData | null {
+  try {
+    if (fs.existsSync(ORG_SETTINGS_STORE_FILE)) {
+      const raw = fs.readFileSync(ORG_SETTINGS_STORE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.departments) && Array.isArray(parsed.divisions)) {
+        return {
+          departments: parsed.departments,
+          divisions: parsed.divisions,
+          updatedAt: parsed.updatedAt || '',
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Error reading org settings store:', err);
+  }
+  return null;
+}
+
+function writeOrgSettingsStore(data: OrganizationSettingsData): void {
+  fs.promises
+    .writeFile(ORG_SETTINGS_STORE_FILE, JSON.stringify(data), 'utf-8')
+    .catch((err) => {
+      console.error('Error writing org settings store:', err);
+    });
+}
+
+let serverOrgSettingsStore: OrganizationSettingsData | null = readOrgSettingsStore();
 
 interface BookingsStoreData {
   bookings: Record<string, any>;
@@ -873,6 +909,37 @@ app.delete('/api/bookings/:id', (req, res) => {
   const bookingId = req.params.id;
   deleteServerBooking(bookingId);
   res.json({ ok: true, deletedId: bookingId });
+});
+
+// 6. Server-side Organization Settings (Departments & Divisions) Sync & Persistence Endpoints
+app.get('/api/organization-settings', (_req, res) => {
+  res.json({
+    settings: serverOrgSettingsStore,
+  });
+});
+
+app.post('/api/organization-settings', (req, res) => {
+  const body = req.body || {};
+  const departments = Array.isArray(body.departments)
+    ? body.departments.map((d: string) => String(d || '').trim()).filter(Boolean)
+    : null;
+  const divisions = Array.isArray(body.divisions)
+    ? body.divisions.map((d: string) => String(d || '').trim()).filter(Boolean)
+    : null;
+
+  if (!departments || !divisions) {
+    res.status(400).json({ error: 'Invalid organization settings payload' });
+    return;
+  }
+
+  const updatedAt = body.updatedAt || new Date().toISOString();
+  serverOrgSettingsStore = {
+    departments: Array.from(new Set(departments)),
+    divisions: Array.from(new Set(divisions)),
+    updatedAt,
+  };
+  writeOrgSettingsStore(serverOrgSettingsStore);
+  res.json({ ok: true, settings: serverOrgSettingsStore });
 });
 
 async function startServer() {

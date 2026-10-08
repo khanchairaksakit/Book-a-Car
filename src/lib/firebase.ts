@@ -24,6 +24,8 @@ import {
   saveStoredDepartments,
   getStoredDivisions,
   saveStoredDivisions,
+  getStoredOrgUpdatedAt,
+  saveStoredOrgUpdatedAt,
 } from '../utils/organizationUtils';
 import { compressDataUrlIfNeeded } from '../utils/imageCompression';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -141,26 +143,52 @@ export async function getUsers(): Promise<User[]> {
       return INITIAL_USERS;
     }
     
+    const localUsersRaw = typeof window !== 'undefined' ? localStorage.getItem('car_booking_users') : null;
+    const localUsersMap = new Map<string, User & { updatedAt?: string }>();
+    if (localUsersRaw) {
+      try {
+        const parsed = JSON.parse(localUsersRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((u: any) => {
+            if (u && u.id) localUsersMap.set(u.id, u);
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const users: User[] = [];
     snapshot.forEach((docSnap) => {
-      const data = docSnap.data() as User;
+      const data = docSnap.data() as User & { updatedAt?: string };
       const initialMatch = INITIAL_USERS.find(
         (u) => u.id === data.id || u.email.toLowerCase() === data.email.toLowerCase()
       );
+      const localMatch = localUsersMap.get(data.id);
+      const useLocal =
+        localMatch &&
+        localMatch.updatedAt &&
+        (!data.updatedAt || localMatch.updatedAt > data.updatedAt);
+      const source = useLocal ? localMatch : data;
+
       const resolvedRoles =
-        Array.isArray(data.roles) && data.roles.length > 0
-          ? data.roles
-          : data.role === 'Admin'
+        Array.isArray(source.roles) && source.roles.length > 0
+          ? source.roles
+          : source.role === 'Admin'
           ? ['Admin', 'User']
           : ['User'];
-      users.push({
-        ...data,
-        employeeCode: data.employeeCode || initialMatch?.employeeCode || `EMP-${data.id.substring(data.id.length - 3)}`,
-        division: data.division || initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
+      const mergedUser: User = {
+        ...source,
+        employeeCode: source.employeeCode || initialMatch?.employeeCode || `EMP-${data.id.substring(data.id.length - 3)}`,
+        division: source.division !== undefined ? source.division : (initialMatch?.division || 'ฝ่ายบริหารทั่วไป'),
         roles: resolvedRoles as any,
-        username: data.username || initialMatch?.username || data.email.split('@')[0],
-        password: data.password || initialMatch?.password || 'password123',
-      });
+        username: source.username || initialMatch?.username || source.email.split('@')[0],
+        password: source.password || initialMatch?.password || 'password123',
+      };
+      users.push(mergedUser);
+      if (useLocal) {
+        setDoc(doc(db, 'users', mergedUser.id), cleanFirestoreData(mergedUser)).catch(() => {});
+      }
     });
     return users;
   } catch (error) {
@@ -170,7 +198,11 @@ export async function getUsers(): Promise<User[]> {
 }
 
 export async function saveUser(user: User): Promise<void> {
-  const cleaned = cleanFirestoreData(user);
+  const updatedAt = new Date().toISOString();
+  const cleaned = cleanFirestoreData({
+    ...user,
+    updatedAt,
+  });
   if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem('car_booking_users');
@@ -190,6 +222,41 @@ export async function saveUser(user: User): Promise<void> {
   }
   const docRef = doc(db, 'users', cleaned.id);
   await setDoc(docRef, cleaned);
+}
+
+export async function saveMultipleUsers(usersToSave: User[]): Promise<void> {
+  if (usersToSave.length === 0) return;
+  const updatedAt = new Date().toISOString();
+  const cleanedUsers = usersToSave.map((u) =>
+    cleanFirestoreData({
+      ...u,
+      updatedAt,
+    })
+  );
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('car_booking_users');
+      const list: User[] = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(list)) {
+        for (const cu of cleanedUsers) {
+          const idx = list.findIndex((u) => u.id === cu.id);
+          if (idx >= 0) {
+            list[idx] = cu;
+          } else {
+            list.push(cu);
+          }
+        }
+        localStorage.setItem('car_booking_users', JSON.stringify(list));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const batch = writeBatch(db);
+  for (const cu of cleanedUsers) {
+    batch.set(doc(db, 'users', cu.id), cu);
+  }
+  await batch.commit();
 }
 
 export async function deleteUser(userId: string): Promise<void> {
@@ -496,28 +563,53 @@ export function subscribeToUsers(onUpdate: (users: User[]) => void): () => void 
     colRef,
     (snapshot) => {
       if (snapshot.empty) return;
+      const localUsersRaw = typeof window !== 'undefined' ? localStorage.getItem('car_booking_users') : null;
+      const localUsersMap = new Map<string, User & { updatedAt?: string }>();
+      if (localUsersRaw) {
+        try {
+          const parsed = JSON.parse(localUsersRaw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((u: any) => {
+              if (u && u.id) localUsersMap.set(u.id, u);
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       const list: User[] = [];
       snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as User;
+        const data = docSnap.data() as User & { updatedAt?: string };
         const initialMatch = INITIAL_USERS.find(
           (u) => u.id === data.id || u.email.toLowerCase() === data.email.toLowerCase()
         );
+        const localMatch = localUsersMap.get(data.id);
+        const useLocal =
+          localMatch &&
+          localMatch.updatedAt &&
+          (!data.updatedAt || localMatch.updatedAt > data.updatedAt);
+        const source = useLocal ? localMatch : data;
+
         const resolvedRoles =
-          Array.isArray(data.roles) && data.roles.length > 0
-            ? data.roles
-            : data.role === 'Admin'
+          Array.isArray(source.roles) && data.roles && source.roles.length > 0
+            ? source.roles
+            : source.role === 'Admin'
             ? ['Admin', 'User']
             : ['User'];
         list.push({
-          ...data,
+          ...source,
           employeeCode:
-            data.employeeCode ||
+            source.employeeCode ||
             initialMatch?.employeeCode ||
             `EMP-${data.id.substring(data.id.length - 3)}`,
-          division: data.division || initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
+          division:
+            source.division !== undefined
+              ? source.division
+              : initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
           roles: resolvedRoles as any,
-          username: data.username || initialMatch?.username || data.email.split('@')[0],
-          password: data.password || initialMatch?.password || 'password123',
+          username: source.username || initialMatch?.username || source.email.split('@')[0],
+          password: source.password || initialMatch?.password || 'password123',
         });
       });
       onUpdate(list);
@@ -676,61 +768,152 @@ export async function saveRolePermissions(matrix: RolePermissionsMatrix): Promis
   }
 }
 
-// Organization Settings (Departments & Divisions) Cloud Persistence
+// Organization Settings (Departments & Divisions) Cloud + Server + LocalStorage Persistence
 export async function getOrganizationSettings(
-  existingUsers?: User[]
+  _existingUsers?: User[]
 ): Promise<{ departments: string[]; divisions: string[] }> {
-  const localDepts = getStoredDepartments(existingUsers);
-  const localDivs = getStoredDivisions(existingUsers);
-  try {
-    const docRef = doc(db, 'settings', 'organization');
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      const cloudDepts = Array.isArray(data?.departments) ? data.departments : [];
-      const cloudDivs = Array.isArray(data?.divisions) ? data.divisions : [];
-      const mergedDepts = Array.from(
-        new Set([...cloudDepts, ...localDepts].map((d: string) => (d || '').trim()).filter(Boolean))
-      );
-      const mergedDivs = Array.from(
-        new Set([...cloudDivs, ...localDivs].map((d: string) => (d || '').trim()).filter(Boolean))
-      );
-      saveStoredDepartments(mergedDepts);
-      saveStoredDivisions(mergedDivs);
-      return { departments: mergedDepts, divisions: mergedDivs };
-    }
-    await setDoc(docRef, {
-      id: 'organization',
+  const localDepts = getStoredDepartments();
+  const localDivs = getStoredDivisions();
+  const localUpdatedAt = getStoredOrgUpdatedAt();
+
+  interface OrgCandidate {
+    source: 'local' | 'server' | 'firestore';
+    departments: string[];
+    divisions: string[];
+    updatedAt: string;
+  }
+
+  const candidates: OrgCandidate[] = [
+    {
+      source: 'local',
       departments: localDepts,
       divisions: localDivs,
-      updatedAt: new Date().toISOString(),
-    }).catch(() => {});
-    return { departments: localDepts, divisions: localDivs };
-  } catch (error) {
-    console.error('Error fetching organization settings from Firestore:', error);
-    return { departments: localDepts, divisions: localDivs };
+      updatedAt: localUpdatedAt,
+    },
+  ];
+
+  const [serverResult, firestoreResult] = await Promise.allSettled([
+    (async () => {
+      if (typeof window === 'undefined') return null;
+      const resp = await fetch('/api/organization-settings');
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      const s = json?.settings;
+      if (s && Array.isArray(s.departments) && Array.isArray(s.divisions)) {
+        return {
+          source: 'server' as const,
+          departments: s.departments.map((d: string) => (d || '').trim()).filter(Boolean),
+          divisions: s.divisions.map((d: string) => (d || '').trim()).filter(Boolean),
+          updatedAt: String(s.updatedAt || ''),
+        };
+      }
+      return null;
+    })(),
+    (async () => {
+      const docRef = doc(db, 'settings', 'organization');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data?.departments) && Array.isArray(data?.divisions)) {
+          return {
+            source: 'firestore' as const,
+            departments: data.departments.map((d: string) => (d || '').trim()).filter(Boolean),
+            divisions: data.divisions.map((d: string) => (d || '').trim()).filter(Boolean),
+            updatedAt: String(data.updatedAt || ''),
+          };
+        }
+      }
+      return null;
+    })(),
+  ]);
+
+  const serverCandidate = serverResult.status === 'fulfilled' ? serverResult.value : null;
+  const firestoreCandidate = firestoreResult.status === 'fulfilled' ? firestoreResult.value : null;
+
+  if (serverCandidate) candidates.push(serverCandidate);
+  if (firestoreCandidate) candidates.push(firestoreCandidate);
+
+  // Pick the candidate with the most recent updatedAt timestamp (never union old and new arrays!)
+  candidates.sort((a, b) => {
+    const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const winner = candidates[0];
+  const finalUpdatedAt = winner.updatedAt || new Date().toISOString();
+  const finalDepts = Array.from(new Set(winner.departments));
+  const finalDivs = Array.from(new Set(winner.divisions));
+
+  saveStoredDepartments(finalDepts, finalUpdatedAt);
+  saveStoredDivisions(finalDivs, finalUpdatedAt);
+  saveStoredOrgUpdatedAt(finalUpdatedAt);
+
+  // Backfill to Server and Firestore if needed
+  if (!serverCandidate || serverCandidate.updatedAt !== finalUpdatedAt) {
+    if (typeof window !== 'undefined') {
+      fetch('/api/organization-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departments: finalDepts,
+          divisions: finalDivs,
+          updatedAt: finalUpdatedAt,
+        }),
+      }).catch(() => {});
+    }
   }
+
+  if (!firestoreCandidate || firestoreCandidate.updatedAt !== finalUpdatedAt) {
+    setDoc(doc(db, 'settings', 'organization'), {
+      id: 'organization',
+      departments: finalDepts,
+      divisions: finalDivs,
+      updatedAt: finalUpdatedAt,
+    }).catch(() => {});
+  }
+
+  return { departments: finalDepts, divisions: finalDivs };
 }
 
 export async function saveOrganizationSettings(
   departments: string[],
   divisions: string[]
 ): Promise<void> {
+  const updatedAt = new Date().toISOString();
   const cleanDepts = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
   const cleanDivs = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
-  saveStoredDepartments(cleanDepts);
-  saveStoredDivisions(cleanDivs);
-  try {
-    const docRef = doc(db, 'settings', 'organization');
-    await setDoc(docRef, {
+
+  // 1. Immediately persist to localStorage with new updatedAt timestamp
+  saveStoredDepartments(cleanDepts, updatedAt);
+  saveStoredDivisions(cleanDivs, updatedAt);
+  saveStoredOrgUpdatedAt(updatedAt);
+
+  // 2. Persist to both Express Server and Firestore in parallel
+  const tasks: Promise<any>[] = [
+    setDoc(doc(db, 'settings', 'organization'), {
       id: 'organization',
       departments: cleanDepts,
       divisions: cleanDivs,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('Error saving organization settings to Firestore:', error);
+      updatedAt,
+    }),
+  ];
+
+  if (typeof window !== 'undefined') {
+    tasks.push(
+      fetch('/api/organization-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departments: cleanDepts,
+          divisions: cleanDivs,
+          updatedAt,
+        }),
+      })
+    );
   }
+
+  await Promise.allSettled(tasks);
 }
 
 export function subscribeToOrganizationSettings(
@@ -742,14 +925,34 @@ export function subscribeToOrganizationSettings(
     (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
-      const departments = Array.isArray(data?.departments)
-        ? data.departments.map((d: string) => (d || '').trim()).filter(Boolean)
-        : [];
-      const divisions = Array.isArray(data?.divisions)
-        ? data.divisions.map((d: string) => (d || '').trim()).filter(Boolean)
-        : [];
-      if (departments.length > 0) saveStoredDepartments(departments);
-      if (divisions.length > 0) saveStoredDivisions(divisions);
+      if (!Array.isArray(data?.departments) || !Array.isArray(data?.divisions)) return;
+
+      const cloudUpdatedAt = String(data?.updatedAt || '');
+      const localUpdatedAt = getStoredOrgUpdatedAt();
+
+      // Ignore stale snapshots that are older than our latest local edit
+      if (localUpdatedAt && cloudUpdatedAt) {
+        const localMs = new Date(localUpdatedAt).getTime();
+        const cloudMs = new Date(cloudUpdatedAt).getTime();
+        if (!isNaN(localMs) && !isNaN(cloudMs) && cloudMs < localMs) {
+          return;
+        }
+      } else if (localUpdatedAt && !cloudUpdatedAt) {
+        return;
+      }
+
+      const departments = Array.from(
+        new Set(data.departments.map((d: string) => (d || '').trim()).filter(Boolean))
+      );
+      const divisions = Array.from(
+        new Set(data.divisions.map((d: string) => (d || '').trim()).filter(Boolean))
+      );
+
+      saveStoredDepartments(departments, cloudUpdatedAt || localUpdatedAt);
+      saveStoredDivisions(divisions, cloudUpdatedAt || localUpdatedAt);
+      if (cloudUpdatedAt) {
+        saveStoredOrgUpdatedAt(cloudUpdatedAt);
+      }
       onUpdate({ departments, divisions });
     },
     (error) => {

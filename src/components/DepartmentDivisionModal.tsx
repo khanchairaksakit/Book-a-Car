@@ -104,24 +104,69 @@ export default function DepartmentDivisionModal({
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
+  const commitPendingEdit = (
+    currentDepts: string[] = departments,
+    currentDivs: string[] = divisions
+  ): { nextDepts: string[]; nextDivs: string[] } => {
+    let nextDepts = [...currentDepts];
+    let nextDivs = [...currentDivs];
+    if (!editingItem) return { nextDepts, nextDivs };
+
+    const { type, oldName, newName } = editingItem;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setEditingItem(null);
+      return { nextDepts, nextDivs };
+    }
+
+    if (type === 'department') {
+      if (!nextDepts.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
+        nextDepts = nextDepts.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
+        onSaveDepartments(nextDepts);
+        if (onRenameDepartment) {
+          onRenameDepartment(oldName, trimmed);
+        }
+        setSuccessMsg(
+          isEn ? `Renamed to "${trimmed}"` : `บันทึกการแก้ไขแผนกเป็น "${trimmed}" เรียบร้อยแล้ว`
+        );
+        setTimeout(() => setSuccessMsg(''), 3000);
+      }
+    } else {
+      if (!nextDivs.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
+        nextDivs = nextDivs.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
+        onSaveDivisions(nextDivs);
+        if (onRenameDivision) {
+          onRenameDivision(oldName, trimmed);
+        }
+        setSuccessMsg(
+          isEn ? `Renamed to "${trimmed}"` : `บันทึกการแก้ไขฝ่ายเป็น "${trimmed}" เรียบร้อยแล้ว`
+        );
+        setTimeout(() => setSuccessMsg(''), 3000);
+      }
+    }
+
+    setEditingItem(null);
+    return { nextDepts, nextDivs };
+  };
+
   const handleDoneAndClose = () => {
-    // Auto-save any typed pending department or division before closing
+    // 1. First commit any active inline edit
+    const { nextDepts, nextDivs } = commitPendingEdit(departments, divisions);
+
+    // 2. Then auto-save any typed pending new department or division before closing
     const pendingDept = newDepartmentName.trim();
-    if (pendingDept && !departments.some((d) => d.trim().toLowerCase() === pendingDept.toLowerCase())) {
-      const updatedDepts = [...departments, pendingDept];
+    if (pendingDept && !nextDepts.some((d) => d.trim().toLowerCase() === pendingDept.toLowerCase())) {
+      const updatedDepts = [...nextDepts, pendingDept];
       onSaveDepartments(updatedDepts);
       if (onDepartmentAdded) onDepartmentAdded(pendingDept);
       setNewDepartmentName('');
     }
     const pendingDiv = newDivisionName.trim();
-    if (pendingDiv && !divisions.some((d) => d.trim().toLowerCase() === pendingDiv.toLowerCase())) {
-      const updatedDivs = [...divisions, pendingDiv];
+    if (pendingDiv && !nextDivs.some((d) => d.trim().toLowerCase() === pendingDiv.toLowerCase())) {
+      const updatedDivs = [...nextDivs, pendingDiv];
       onSaveDivisions(updatedDivs);
       if (onDivisionAdded) onDivisionAdded(pendingDiv);
       setNewDivisionName('');
-    }
-    if (editingItem && editingItem.newName.trim()) {
-      handleSaveEdit();
     }
     onClose();
   };
@@ -149,12 +194,17 @@ export default function DepartmentDivisionModal({
       return;
     }
 
+    if (trimmed === oldName) {
+      setEditingItem(null);
+      return;
+    }
+
     if (type === 'department') {
       if (departments.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
         setErrorMsg(isEn ? 'This department name already exists' : 'มีชื่อแผนกนี้อยู่แล้ว');
         return;
       }
-      const updated = departments.map((d) => (d === oldName ? trimmed : d));
+      const updated = departments.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
       onSaveDepartments(updated);
       if (onRenameDepartment) {
         onRenameDepartment(oldName, trimmed);
@@ -165,7 +215,7 @@ export default function DepartmentDivisionModal({
         setErrorMsg(isEn ? 'This division name already exists' : 'มีชื่อฝ่ายนี้อยู่แล้ว');
         return;
       }
-      const updated = divisions.map((d) => (d === oldName ? trimmed : d));
+      const updated = divisions.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
       onSaveDivisions(updated);
       if (onRenameDivision) {
         onRenameDivision(oldName, trimmed);
@@ -228,10 +278,10 @@ export default function DepartmentDivisionModal({
               type="button"
               id="tab-btn-departments"
               onClick={() => {
+                commitPendingEdit();
                 setActiveTab('departments');
                 setErrorMsg('');
                 setFilterQuery('');
-                setEditingItem(null);
               }}
               className={`px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'departments'
@@ -250,10 +300,10 @@ export default function DepartmentDivisionModal({
               type="button"
               id="tab-btn-divisions"
               onClick={() => {
+                commitPendingEdit();
                 setActiveTab('divisions');
                 setErrorMsg('');
                 setFilterQuery('');
-                setEditingItem(null);
               }}
               className={`px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'divisions'
@@ -367,6 +417,15 @@ export default function DepartmentDivisionModal({
                             type="text"
                             value={editingItem.newName}
                             onChange={(e) => setEditingItem({ ...editingItem, newName: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveEdit();
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setEditingItem(null);
+                              }
+                            }}
                             className="flex-1 px-2.5 py-1 text-xs border border-indigo-500 rounded-lg outline-hidden bg-indigo-50/30 text-gray-900 font-medium"
                             autoFocus
                           />
@@ -405,7 +464,10 @@ export default function DepartmentDivisionModal({
                           <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
                             <button
                               type="button"
-                              onClick={() => setEditingItem({ type: 'department', oldName: dept, newName: dept })}
+                              onClick={() => {
+                                commitPendingEdit();
+                                setEditingItem({ type: 'department', oldName: dept, newName: dept });
+                              }}
                               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                               title="แก้ไขชื่อแผนก"
                             >
@@ -449,6 +511,15 @@ export default function DepartmentDivisionModal({
                             type="text"
                             value={editingItem.newName}
                             onChange={(e) => setEditingItem({ ...editingItem, newName: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveEdit();
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setEditingItem(null);
+                              }
+                            }}
                             className="flex-1 px-2.5 py-1 text-xs border border-indigo-500 rounded-lg outline-hidden bg-indigo-50/30 text-gray-900 font-medium"
                             autoFocus
                           />
@@ -487,7 +558,10 @@ export default function DepartmentDivisionModal({
                           <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
                             <button
                               type="button"
-                              onClick={() => setEditingItem({ type: 'division', oldName: div, newName: div })}
+                              onClick={() => {
+                                commitPendingEdit();
+                                setEditingItem({ type: 'division', oldName: div, newName: div });
+                              }}
                               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                               title="แก้ไขชื่อฝ่าย"
                             >

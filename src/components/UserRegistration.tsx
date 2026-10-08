@@ -71,6 +71,7 @@ interface UserRegistrationProps {
   onAddUser?: (user: Omit<User, 'id'>) => void | Promise<void>;
   onAddMultipleUsers?: (newUsers: Omit<User, 'id'>[]) => void | Promise<void>;
   onEditUser: (user: User) => void | Promise<void>;
+  onEditMultipleUsers?: (users: User[]) => void | Promise<void>;
   onDeleteUser: (userId: string) => void | Promise<void>;
   language?: Language;
   isLineModuleEnabled?: boolean;
@@ -88,6 +89,7 @@ export default function UserRegistration({
   onAddUser,
   onAddMultipleUsers,
   onEditUser,
+  onEditMultipleUsers,
   onDeleteUser,
   language = 'th',
   isLineModuleEnabled = true,
@@ -184,9 +186,19 @@ export default function UserRegistration({
   const [divFilter, setDivFilter] = useState<string>('All');
 
   // Custom Departments & Divisions States
-  const [departments, setDepartments] = useState<string[]>(() => getStoredDepartments(users));
-  const [divisions, setDivisions] = useState<string[]>(() => getStoredDivisions(users));
+  const [departments, setDepartments] = useState<string[]>(() => getStoredDepartments());
+  const [divisions, setDivisions] = useState<string[]>(() => getStoredDivisions());
+  const departmentsRef = useRef<string[]>(departments);
+  const divisionsRef = useRef<string[]>(divisions);
   const [isDeptDivModalOpen, setIsDeptDivModalOpen] = useState(false);
+
+  useEffect(() => {
+    departmentsRef.current = departments;
+  }, [departments]);
+
+  useEffect(() => {
+    divisionsRef.current = divisions;
+  }, [divisions]);
 
   // Inline Quick Add States in User Modal
   const [isQuickAddingDept, setIsQuickAddingDept] = useState(false);
@@ -194,23 +206,23 @@ export default function UserRegistration({
   const [isQuickAddingDiv, setIsQuickAddingDiv] = useState(false);
   const [quickDivInput, setQuickDivInput] = useState('');
 
-  // Sync departments and divisions from Firestore and users
+  // Sync departments and divisions from Firestore and Server (timestamp-ordered, never unioning old items back)
   useEffect(() => {
     let mounted = true;
-    getOrganizationSettings(users).then(({ departments: cloudDepts, divisions: cloudDivs }) => {
+    getOrganizationSettings().then(({ departments: cloudDepts, divisions: cloudDivs }) => {
       if (!mounted) return;
+      departmentsRef.current = cloudDepts;
+      divisionsRef.current = cloudDivs;
       setDepartments(cloudDepts);
       setDivisions(cloudDivs);
     });
 
     const unsub = subscribeToOrganizationSettings(({ departments: cloudDepts, divisions: cloudDivs }) => {
       if (!mounted) return;
-      if (cloudDepts.length > 0) {
-        setDepartments((prev) => Array.from(new Set([...cloudDepts, ...prev])));
-      }
-      if (cloudDivs.length > 0) {
-        setDivisions((prev) => Array.from(new Set([...cloudDivs, ...prev])));
-      }
+      departmentsRef.current = cloudDepts;
+      divisionsRef.current = cloudDivs;
+      setDepartments(cloudDepts);
+      setDivisions(cloudDivs);
     });
 
     return () => {
@@ -218,22 +230,6 @@ export default function UserRegistration({
       unsub();
     };
   }, []);
-
-  // Keep departments and divisions up to date if new users are passed
-  useEffect(() => {
-    setDepartments((prev) => {
-      const merged = getStoredDepartments(users);
-      const combined = Array.from(new Set([...merged, ...prev]));
-      saveStoredDepartments(combined);
-      return combined;
-    });
-    setDivisions((prev) => {
-      const merged = getStoredDivisions(users);
-      const combined = Array.from(new Set([...merged, ...prev]));
-      saveStoredDivisions(combined);
-      return combined;
-    });
-  }, [users]);
 
   // Excel Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -336,14 +332,16 @@ export default function UserRegistration({
     const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
 
     // Auto-register department & division if custom and persist to cloud
-    let nextDepts = departments;
-    let nextDivs = divisions;
+    let nextDepts = departmentsRef.current;
+    let nextDivs = divisionsRef.current;
     if (finalDept) {
-      nextDepts = addCustomDepartment(finalDept, departments);
+      nextDepts = addCustomDepartment(finalDept, nextDepts);
+      departmentsRef.current = nextDepts;
       setDepartments(nextDepts);
     }
     if (finalDiv) {
-      nextDivs = addCustomDivision(finalDiv, divisions);
+      nextDivs = addCustomDivision(finalDiv, nextDivs);
+      divisionsRef.current = nextDivs;
       setDivisions(nextDivs);
     }
     saveOrganizationSettings(nextDepts, nextDivs).catch(() => {});
@@ -391,8 +389,10 @@ export default function UserRegistration({
   };
 
   const startEdit = (user: User) => {
-    const latestDepts = getStoredDepartments(users);
-    const latestDivs = getStoredDivisions(users);
+    const latestDepts = getStoredDepartments();
+    const latestDivs = getStoredDivisions();
+    departmentsRef.current = latestDepts;
+    divisionsRef.current = latestDivs;
     setDepartments(latestDepts);
     setDivisions(latestDivs);
     setIsAddingNew(false);
@@ -412,8 +412,10 @@ export default function UserRegistration({
   };
 
   const startAddNew = () => {
-    const latestDepts = getStoredDepartments(users);
-    const latestDivs = getStoredDivisions(users);
+    const latestDepts = getStoredDepartments();
+    const latestDivs = getStoredDivisions();
+    departmentsRef.current = latestDepts;
+    divisionsRef.current = latestDivs;
     setDepartments(latestDepts);
     setDivisions(latestDivs);
     setIsEditing(null);
@@ -497,9 +499,10 @@ export default function UserRegistration({
       }
     });
     setDepartments(nextDepts);
-    saveStoredDepartments(nextDepts);
+    departmentsRef.current = nextDepts;
     setDivisions(nextDivs);
-    saveStoredDivisions(nextDivs);
+    divisionsRef.current = nextDivs;
+    saveOrganizationSettings(nextDepts, nextDivs).catch(() => {});
 
     setImportSuccessMsg(
       isEn
@@ -539,27 +542,47 @@ export default function UserRegistration({
   });
 
   const handleRenameDepartment = (oldName: string, newName: string) => {
-    if (!onEditUser) return;
-    users.forEach((u) => {
-      if ((u.department || '').trim().toLowerCase() === oldName.trim().toLowerCase()) {
-        onEditUser({
-          ...u,
-          department: newName,
-        });
+    if (deptFilter.trim().toLowerCase() === oldName.trim().toLowerCase()) {
+      setDeptFilter(newName);
+    }
+    if (department.trim().toLowerCase() === oldName.trim().toLowerCase()) {
+      setDepartment(newName);
+    }
+    const matchingUsers = users
+      .filter((u) => (u.department || '').trim().toLowerCase() === oldName.trim().toLowerCase())
+      .map((u) => ({
+        ...u,
+        department: newName,
+      }));
+    if (matchingUsers.length > 0) {
+      if (onEditMultipleUsers) {
+        onEditMultipleUsers(matchingUsers);
+      } else if (onEditUser) {
+        matchingUsers.forEach((u) => onEditUser(u));
       }
-    });
+    }
   };
 
   const handleRenameDivision = (oldName: string, newName: string) => {
-    if (!onEditUser) return;
-    users.forEach((u) => {
-      if ((u.division || '').trim().toLowerCase() === oldName.trim().toLowerCase()) {
-        onEditUser({
-          ...u,
-          division: newName,
-        });
+    if (divFilter.trim().toLowerCase() === oldName.trim().toLowerCase()) {
+      setDivFilter(newName);
+    }
+    if (division.trim().toLowerCase() === oldName.trim().toLowerCase()) {
+      setDivision(newName);
+    }
+    const matchingUsers = users
+      .filter((u) => (u.division || '').trim().toLowerCase() === oldName.trim().toLowerCase())
+      .map((u) => ({
+        ...u,
+        division: newName,
+      }));
+    if (matchingUsers.length > 0) {
+      if (onEditMultipleUsers) {
+        onEditMultipleUsers(matchingUsers);
+      } else if (onEditUser) {
+        matchingUsers.forEach((u) => onEditUser(u));
       }
-    });
+    }
   };
 
   return (
@@ -1934,14 +1957,14 @@ export default function UserRegistration({
         divisions={divisions}
         users={users}
         onSaveDepartments={(newDepts) => {
+          departmentsRef.current = newDepts;
           setDepartments(newDepts);
-          saveStoredDepartments(newDepts);
-          saveOrganizationSettings(newDepts, divisions).catch(() => {});
+          saveOrganizationSettings(newDepts, divisionsRef.current).catch(() => {});
         }}
         onSaveDivisions={(newDivs) => {
+          divisionsRef.current = newDivs;
           setDivisions(newDivs);
-          saveStoredDivisions(newDivs);
-          saveOrganizationSettings(departments, newDivs).catch(() => {});
+          saveOrganizationSettings(departmentsRef.current, newDivs).catch(() => {});
         }}
         onDepartmentAdded={(addedDept) => {
           if (isAddingNew || isEditing) {

@@ -11,6 +11,7 @@ import {
   deleteVehicle,
   getUsers,
   saveUser,
+  saveMultipleUsers,
   deleteUser,
   getBookings,
   saveBooking,
@@ -403,29 +404,101 @@ export default function App() {
   };
 
   const handleEditUser = async (updatedUser: User) => {
-    setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
-    setCurrentUser((prev) => (prev?.id === updatedUser.id ? updatedUser : prev));
-    const updatedBookings = bookings.map((b) =>
-      b.userId === updatedUser.id
-        ? {
+    const stampedUser: User & { updatedAt?: string } = {
+      ...updatedUser,
+      updatedAt: new Date().toISOString(),
+    };
+    setUsers((prev) => {
+      const next = prev.map((u) => (u.id === stampedUser.id ? stampedUser : u));
+      try {
+        localStorage.setItem('car_booking_users', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    setCurrentUser((prev) => (prev?.id === stampedUser.id ? stampedUser : prev));
+
+    let bookingsToSave: Booking[] = [];
+    setBookings((prev) => {
+      const next = prev.map((b) => {
+        if (b.userId === stampedUser.id) {
+          const updatedB: Booking = {
             ...b,
-            userName: updatedUser.name,
-            userPhone: updatedUser.phone,
-            requesterLineId: updatedUser.lineUserId || b.requesterLineId,
-          }
-        : b
-    );
-    setBookings(updatedBookings);
+            userName: stampedUser.name,
+            userPhone: stampedUser.phone,
+            userDepartment: stampedUser.department,
+            userDivision: stampedUser.division,
+            requesterLineId: stampedUser.lineUserId || b.requesterLineId,
+          };
+          bookingsToSave.push(updatedB);
+          return updatedB;
+        }
+        return b;
+      });
+      saveLocalStoredBookings(next);
+      return next;
+    });
 
     try {
-      await saveUser(updatedUser);
-      for (const b of updatedBookings) {
-        if (b.userId === updatedUser.id) {
-          await saveBooking(b);
-        }
+      await saveUser(stampedUser);
+      for (const b of bookingsToSave) {
+        await saveBooking(b);
       }
     } catch (e) {
       console.error('Cloud edit user failed', e);
+    }
+  };
+
+  const handleEditMultipleUsers = async (updatedUsersList: User[]) => {
+    if (updatedUsersList.length === 0) return;
+    const nowIso = new Date().toISOString();
+    const stampedMap = new Map<string, User & { updatedAt?: string }>();
+    for (const u of updatedUsersList) {
+      stampedMap.set(u.id, { ...u, updatedAt: nowIso });
+    }
+
+    setUsers((prev) => {
+      const next = prev.map((u) => stampedMap.get(u.id) || u);
+      try {
+        localStorage.setItem('car_booking_users', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+
+    setCurrentUser((prev) => (prev && stampedMap.has(prev.id) ? stampedMap.get(prev.id)! : prev));
+
+    let bookingsToSave: Booking[] = [];
+    setBookings((prev) => {
+      const next = prev.map((b) => {
+        const matchedU = stampedMap.get(b.userId);
+        if (matchedU) {
+          const updatedB: Booking = {
+            ...b,
+            userName: matchedU.name,
+            userPhone: matchedU.phone,
+            userDepartment: matchedU.department,
+            userDivision: matchedU.division,
+            requesterLineId: matchedU.lineUserId || b.requesterLineId,
+          };
+          bookingsToSave.push(updatedB);
+          return updatedB;
+        }
+        return b;
+      });
+      saveLocalStoredBookings(next);
+      return next;
+    });
+
+    try {
+      await saveMultipleUsers(Array.from(stampedMap.values()));
+      for (const b of bookingsToSave) {
+        await saveBooking(b);
+      }
+    } catch (e) {
+      console.error('Cloud edit multiple users failed', e);
     }
   };
 
@@ -1465,6 +1538,7 @@ export default function App() {
                   onAddUser={handleAddUser}
                   onAddMultipleUsers={handleAddMultipleUsers}
                   onEditUser={handleEditUser}
+                  onEditMultipleUsers={handleEditMultipleUsers}
                   onDeleteUser={handleDeleteUser}
                   language={language}
                   isLineModuleEnabled={isLineModuleEnabled}
