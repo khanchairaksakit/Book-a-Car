@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey } from './types';
+import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey, AuditLogEntry } from './types';
 import {
   INITIAL_VEHICLES,
   INITIAL_USERS,
@@ -27,6 +27,10 @@ import {
   getDeletedBookingIds,
   saveLocalStoredBookings,
   areBookingListsEqual,
+  getAuditLogs,
+  getLocalAuditLogs,
+  recordAuditLog,
+  subscribeToAuditLogs,
 } from './lib/firebase';
 
 import BookingSystem from './components/BookingSystem';
@@ -35,6 +39,7 @@ import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
+import AuditLogView from './components/AuditLogView';
 import BookingManual from './components/BookingManual';
 import LineShareApprovalModal from './components/LineShareApprovalModal';
 import LineQuickApproveModal from './components/LineQuickApproveModal';
@@ -72,6 +77,7 @@ import {
   Globe,
   FileText,
   BookOpen,
+  History,
   Sparkles,
   Zap,
 } from 'lucide-react';
@@ -188,6 +194,12 @@ export default function App() {
   });
 
   const [isLoginPageOpen, setIsLoginPageOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => getLocalAuditLogs());
+
+  const getCurrentActorRole = (u?: User | null) => {
+    if (!u) return 'System';
+    return getUserRoles(u).join(', ');
+  };
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -200,15 +212,39 @@ export default function App() {
     });
     localStorage.setItem('car_booking_current_user', JSON.stringify(user));
     setIsLoginPageOpen(false);
+    recordAuditLog({
+      category: 'AUTH',
+      action: 'เข้าสู่ระบบ (Login)',
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: getCurrentActorRole(user),
+      actorDepartment: user.department,
+      targetLabel: user.username || user.email,
+      details: `ผู้ใช้งาน "${user.name}" (${user.department}) เข้าสู่ระบบ`,
+      channel: 'Web',
+    }).catch(() => {});
   };
 
   const handleLogout = () => {
+    if (currentUser) {
+      recordAuditLog({
+        category: 'AUTH',
+        action: 'ออกจากระบบ (Logout)',
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        actorRole: getCurrentActorRole(currentUser),
+        actorDepartment: currentUser.department,
+        targetLabel: currentUser.username || currentUser.email,
+        details: `ผู้ใช้งาน "${currentUser.name}" ออกจากระบบ`,
+        channel: 'Web',
+      }).catch(() => {});
+    }
     setCurrentUser(null);
     localStorage.removeItem('car_booking_current_user');
     setIsLoginPageOpen(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report' | 'manual'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report' | 'audit' | 'manual'>('calendar');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
@@ -221,6 +257,17 @@ export default function App() {
   const handleUpdateRolePermissions = async (newMatrix: RolePermissionsMatrix) => {
     setRolePermissions(newMatrix);
     saveStoredRolePermissions(newMatrix);
+    recordAuditLog({
+      category: 'PERMISSION',
+      action: 'บันทึกตารางกำหนดสิทธิ์การใช้งาน',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetLabel: 'Role Permissions Matrix',
+      details: 'อัปเดตสิทธิ์การเข้าถึงเมนู (ดูอย่างเดียว / แก้ไขได้) ของแต่ละบทบาทผู้ใช้งาน',
+      channel: 'Web',
+    }).catch(() => {});
     try {
       await saveRolePermissions(newMatrix);
     } catch (e) {
@@ -235,12 +282,13 @@ export default function App() {
     async function loadCloudData() {
       try {
         setIsLoading(true);
-        const [dbVehicles, dbUsers, dbBookings, dbRolePerms] = await Promise.all([
+        const [dbVehicles, dbUsers, dbBookings, dbRolePerms, , dbAuditLogs] = await Promise.all([
           getVehicles(),
           getUsers(),
           getBookings(),
           getRolePermissions(),
           getOrganizationSettings(),
+          getAuditLogs(),
         ]);
         if (!isMounted) return;
         setVehicles(dbVehicles);
@@ -248,6 +296,9 @@ export default function App() {
         setBookings((prev) => mergeBookingsLists([prev, dbBookings]));
         if (dbRolePerms) {
           setRolePermissions(dbRolePerms);
+        }
+        if (dbAuditLogs) {
+          setAuditLogs(dbAuditLogs);
         }
         setIsCloudSynced(true);
 
@@ -305,6 +356,17 @@ export default function App() {
       setVehicles(cloudVehicles);
     });
 
+    const unsubAuditLogs = subscribeToAuditLogs((cloudLogs) => {
+      if (!isMounted) return;
+      setAuditLogs(cloudLogs);
+    });
+
+    const handleLocalAuditEvent = () => {
+      if (!isMounted) return;
+      setAuditLogs(getLocalAuditLogs());
+    };
+    window.addEventListener('audit-log-updated', handleLocalAuditEvent);
+
     // Periodic server sync so cross-session/cross-user bookings stay 100% synchronized
     const syncInterval = setInterval(async () => {
       if (!isMounted) return;
@@ -323,6 +385,8 @@ export default function App() {
       unsubBookings();
       unsubUsers();
       unsubVehicles();
+      unsubAuditLogs();
+      window.removeEventListener('audit-log-updated', handleLocalAuditEvent);
       clearInterval(syncInterval);
     };
   }, []);
@@ -385,6 +449,18 @@ export default function App() {
     } catch (e) {
       console.error('Cloud save failed', e);
     }
+    recordAuditLog({
+      category: 'USER',
+      action: 'เพิ่มผู้ใช้งานใหม่',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: newUser.id,
+      targetLabel: `${newUser.name} (${newUser.department})`,
+      details: `สร้างบัญชีผู้ใช้งาน "${newUser.name}" แผนก ${newUser.department}${newUser.division ? ` ฝ่าย ${newUser.division}` : ''}`,
+      channel: 'Web',
+    }).catch(() => {});
   };
 
   const handleAddMultipleUsers = async (newUsersList: Omit<User, 'id'>[]) => {
@@ -404,6 +480,17 @@ export default function App() {
     } catch (e) {
       console.error('Cloud save multiple users failed', e);
     }
+    recordAuditLog({
+      category: 'USER',
+      action: 'นำเข้าข้อมูลผู้ใช้งานหลายรายการ',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetLabel: `จำนวน ${createdUsers.length} รายชื่อ`,
+      details: `นำเข้าข้อมูลผู้ใช้งานจำนวน ${createdUsers.length} รายการ`,
+      channel: 'Web',
+    }).catch(() => {});
   };
 
   const handleEditUser = async (updatedUser: User) => {
@@ -451,6 +538,18 @@ export default function App() {
     } catch (e) {
       console.error('Cloud edit user failed', e);
     }
+    recordAuditLog({
+      category: 'USER',
+      action: 'แก้ไขข้อมูลผู้ใช้งาน',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: stampedUser.id,
+      targetLabel: `${stampedUser.name} (${stampedUser.department})`,
+      details: `อัปเดตข้อมูลผู้ใช้งาน "${stampedUser.name}" แผนก ${stampedUser.department}${stampedUser.division ? ` ฝ่าย ${stampedUser.division}` : ''}`,
+      channel: 'Web',
+    }).catch(() => {});
   };
 
   const handleEditMultipleUsers = async (updatedUsersList: User[]) => {
@@ -539,11 +638,24 @@ export default function App() {
   };
 
   const handleDeleteUser = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
     setUsers(users.filter((u) => u.id !== userId));
     if (currentUser?.id === userId) {
       const remaining = users.filter((u) => u.id !== userId);
       setCurrentUser(remaining.length > 0 ? remaining[0] : null);
     }
+    recordAuditLog({
+      category: 'USER',
+      action: 'ลบผู้ใช้งาน',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: userId,
+      targetLabel: target ? `${target.name} (${target.department})` : userId,
+      details: `ลบบัญชีผู้ใช้งาน "${target?.name || userId}" ออกจากระบบ`,
+      channel: 'Web',
+    }).catch(() => {});
     try {
       await deleteUser(userId);
     } catch (e) {
@@ -558,6 +670,18 @@ export default function App() {
       id: `car-${Date.now()}`,
     };
     setVehicles([...vehicles, newVehicle]);
+    recordAuditLog({
+      category: 'VEHICLE',
+      action: 'เพิ่มยานพาหนะใหม่',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: newVehicle.id,
+      targetLabel: `${newVehicle.brand} ${newVehicle.model} (${newVehicle.plateNumber})`,
+      details: `เพิ่มรถใหม่ ${newVehicle.brand} ${newVehicle.model} ทะเบียน ${newVehicle.plateNumber}`,
+      channel: 'Web',
+    }).catch(() => {});
     try {
       await saveVehicle(newVehicle);
     } catch (e) {
@@ -575,6 +699,23 @@ export default function App() {
     );
     setBookings(updatedBookings);
 
+    recordAuditLog({
+      category: 'VEHICLE',
+      action: 'แก้ไขข้อมูลยานพาหนะ',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: updatedVehicle.id,
+      targetLabel: newVehicleName,
+      details: `อัปเดตข้อมูลรถ ${newVehicleName} (สถานะ: ${updatedVehicle.status}${
+        updatedVehicle.currentMileage !== undefined
+          ? `, เลขไมล์: ${updatedVehicle.currentMileage.toLocaleString()} กม.`
+          : ''
+      })`,
+      channel: 'Web',
+    }).catch(() => {});
+
     try {
       await saveVehicle(updatedVehicle);
       for (const b of updatedBookings) {
@@ -588,6 +729,7 @@ export default function App() {
   };
 
   const handleDeleteVehicle = async (vehicleId: string) => {
+    const targetVeh = vehicles.find((v) => v.id === vehicleId);
     setVehicles(vehicles.filter((v) => v.id !== vehicleId));
     const updatedBookings = bookings.map((b) =>
       b.vehicleId === vehicleId && (b.status === 'Pending' || b.status === 'Approved')
@@ -595,6 +737,23 @@ export default function App() {
         : b
     );
     setBookings(updatedBookings);
+
+    recordAuditLog({
+      category: 'VEHICLE',
+      action: 'ลบยานพาหนะ',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: vehicleId,
+      targetLabel: targetVeh
+        ? `${targetVeh.brand} ${targetVeh.model} (${targetVeh.plateNumber})`
+        : vehicleId,
+      details: `ลบรถยนต์ ${
+        targetVeh ? `${targetVeh.brand} ${targetVeh.model} (${targetVeh.plateNumber})` : vehicleId
+      } ออกจากระบบ`,
+      channel: 'Web',
+    }).catch(() => {});
 
     try {
       await deleteVehicle(vehicleId);
@@ -654,6 +813,21 @@ export default function App() {
     } catch (e) {
       console.error('Cloud save booking failed', e);
     }
+
+    recordAuditLog({
+      id: `hist-create-${newBooking.id}`,
+      timestamp: createdAtIso,
+      category: 'BOOKING',
+      action: 'สร้างใบงานขอใช้รถ',
+      actorId: currentUser?.id || newBooking.userId,
+      actorName: newBooking.userName || currentUser?.name || 'ผู้ขอใช้รถ',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: newBooking.userDepartment || currentUser?.department,
+      targetId: jobNumber,
+      targetLabel: `${jobNumber} (${newBooking.vehicleName})`,
+      details: `สร้างคำขอใช้รถ ${newBooking.vehicleName} ไปยัง "${newBooking.destination}" (${newBooking.purpose})`,
+      channel: 'Web',
+    }).catch(() => {});
 
     // 3. Automatically push notification to Approve 1's LINE ID from User Management
     if (isLineModuleEnabled && newBooking.status === 'Pending') {
@@ -934,6 +1108,94 @@ export default function App() {
     } catch (e) {
       console.error('Cloud update booking failed', e);
     }
+
+    // Record Audit Log for status/checklist update
+    const channelUsed = extraData?.approvedVia === 'LINE' ? 'LINE' : 'Web';
+    if (extraData?.startMileage !== undefined && status === 'Approved') {
+      recordAuditLog({
+        id: `hist-start-trip-${booking.id}`,
+        category: 'TRIP',
+        action: 'บันทึกไมล์และน้ำมันก่อนเดินทาง',
+        actorId: currentUser?.id || booking.userId,
+        actorName: currentUser?.name || booking.userName,
+        actorRole: getCurrentActorRole(currentUser),
+        actorDepartment: currentUser?.department || booking.userDepartment,
+        targetId: jobNo,
+        targetLabel: `${jobNo} (${booking.vehicleName})`,
+        details: `บันทึกไมล์เริ่มต้น ${extraData.startMileage.toLocaleString()} กม. | ระดับน้ำมันเริ่มต้น: ${
+          extraData.startFuelLevel || booking.startFuelLevel || '-'
+        }`,
+        channel: 'Web',
+      }).catch(() => {});
+    } else if (status === 'Pending_Approve2') {
+      recordAuditLog({
+        id: `hist-approve1-${booking.id}`,
+        category: 'APPROVAL',
+        action: 'อนุมัติขั้นที่ 1 (ผู้จัดการ)',
+        actorId: currentUser?.id,
+        actorName:
+          extraData?.stage1ApprovedBy ||
+          currentUser?.name ||
+          booking.assignedApproverName ||
+          'Approve 1',
+        actorRole: getCurrentActorRole(currentUser) || 'Approve 1',
+        actorDepartment: currentUser?.department || booking.userDepartment,
+        targetId: jobNo,
+        targetLabel: `${jobNo} (${booking.vehicleName})`,
+        details: `อนุมัติใบงาน ${jobNo} ขั้นที่ 1 ส่งต่อให้ผู้ดูแลรถ (${booking.stage2ApproverName || 'Approve 2'})`,
+        channel: channelUsed,
+      }).catch(() => {});
+    } else if (status === 'Approved') {
+      recordAuditLog({
+        id: `hist-approve2-${booking.id}`,
+        category: 'APPROVAL',
+        action: 'อนุมัติขั้นที่ 2 (ผู้ดูแลรถ)',
+        actorId: currentUser?.id,
+        actorName:
+          extraData?.stage2ApprovedBy ||
+          currentUser?.name ||
+          booking.stage2ApproverName ||
+          'Approve 2',
+        actorRole: getCurrentActorRole(currentUser) || 'Approve 2',
+        actorDepartment: currentUser?.department,
+        targetId: jobNo,
+        targetLabel: `${jobNo} (${booking.vehicleName})`,
+        details: `อนุมัติใบงาน ${jobNo} ครบ 2 ขั้นตอน พร้อมออกเดินทาง`,
+        channel: channelUsed,
+      }).catch(() => {});
+    } else if (status === 'Completed') {
+      recordAuditLog({
+        id: `hist-end-trip-${booking.id}`,
+        category: 'TRIP',
+        action: 'คืนรถและเสร็จสิ้นภารกิจ',
+        actorId: currentUser?.id || booking.userId,
+        actorName: currentUser?.name || booking.userName,
+        actorRole: getCurrentActorRole(currentUser),
+        actorDepartment: currentUser?.department || booking.userDepartment,
+        targetId: jobNo,
+        targetLabel: `${jobNo} (${booking.vehicleName})`,
+        details: `คืนรถเสร็จสิ้นภารกิจ | ไมล์สิ้นสุด: ${
+          booking.endMileage !== undefined ? `${booking.endMileage.toLocaleString()} กม.` : '-'
+        } | ระดับน้ำมันคืนรถ: ${booking.endFuelLevel || '-'}`,
+        channel: 'Web',
+      }).catch(() => {});
+    } else if (status === 'Cancelled') {
+      recordAuditLog({
+        id: `hist-cancel-${booking.id}`,
+        category: 'APPROVAL',
+        action: booking.rejectionReason ? 'ไม่อนุมัติคำขอใช้รถ' : 'ยกเลิกใบงานขอใช้รถ',
+        actorId: currentUser?.id,
+        actorName: booking.rejectedBy || currentUser?.name || booking.userName,
+        actorRole: getCurrentActorRole(currentUser),
+        actorDepartment: currentUser?.department || booking.userDepartment,
+        targetId: jobNo,
+        targetLabel: `${jobNo} (${booking.vehicleName})`,
+        details: booking.rejectionReason
+          ? `ไม่อนุมัติใบงาน ${jobNo} เหตุผล: "${booking.rejectionReason}"`
+          : `ยกเลิกรายการจองใบงาน ${jobNo}`,
+        channel: channelUsed,
+      }).catch(() => {});
+    }
   };
 
   const handleDeleteBooking = async (bookingId: string) => {
@@ -941,8 +1203,22 @@ export default function App() {
       setToastMessage('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่มีสิทธิ์ลบข้อมูลการยืมรถ');
       return;
     }
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+    const jobNo = targetBooking ? getBookingJobNumber(targetBooking) : bookingId;
     setBookings((prev) => prev.filter((b) => b.id !== bookingId));
     setToastMessage('ลบข้อมูลการยืมรถออกจากระบบเรียบร้อยแล้ว');
+    recordAuditLog({
+      category: 'BOOKING',
+      action: 'ลบใบงานขอใช้รถ',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetId: jobNo,
+      targetLabel: targetBooking ? `${jobNo} (${targetBooking.vehicleName})` : jobNo,
+      details: `ลบใบงาน ${jobNo} ของผู้จอง "${targetBooking?.userName || '-'}" ออกจากระบบ`,
+      channel: 'Web',
+    }).catch(() => {});
     try {
       await deleteBooking(bookingId);
     } catch (e) {
@@ -1079,7 +1355,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser) return;
-    if (activeTab === 'manual') return;
+    if (activeTab === 'manual' || activeTab === 'audit') return;
     if (!canAccessMenu(activeTab)) {
       const orderedKeys: AppMenuKey[] = ['calendar', 'booking', 'vehicles', 'report', 'users'];
       const firstAllowed = orderedKeys.find((k) => canAccessMenu(k));
@@ -1330,6 +1606,26 @@ export default function App() {
                     ดูอย่างเดียว
                   </span>
                 )}
+              </button>
+            )}
+
+            {(canAccessMenu('report') || canAccessMenu('users') || isUserAdmin(currentUser)) && (
+              <button
+                id="nav-tab-audit"
+                onClick={() => {
+                  setActiveTab('audit');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'audit'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <History className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">
+                  {language === 'en' ? 'Audit Log' : 'ประวัติระบบ (Audit Log)'}
+                </span>
               </button>
             )}
 
@@ -1586,6 +1882,17 @@ export default function App() {
                   language={language}
                   canEdit={reportPerm.canEdit}
                   viewOnly={reportPerm.viewOnly}
+                />
+              )}
+
+              {activeTab === 'audit' && (
+                <AuditLogView
+                  auditLogs={auditLogs}
+                  bookings={bookings}
+                  users={users}
+                  vehicles={vehicles}
+                  currentUser={currentUser}
+                  language={language}
                 />
               )}
 

@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Booking, Vehicle, User } from '../types';
 import { Language } from '../utils/translations';
 import { formatThaiDate } from '../utils/vehicleAlerts';
 import { canUserViewBooking } from '../utils/userHelpers';
 import { getBookingJobNumber } from '../utils/dateHelpers';
+import { getStoredDepartments, getStoredDivisions } from '../utils/organizationUtils';
+import { subscribeToOrganizationSettings } from '../lib/firebase';
 import {
   Printer,
   Download,
@@ -18,6 +20,7 @@ import {
   RotateCcw,
   X,
   Camera,
+  Phone,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -42,13 +45,44 @@ export default function FleetReport({
 }: FleetReportProps) {
   const isEn = language === 'en';
 
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('All');
-  const [vehicleFilter, setVehicleFilter] = useState<string>('All');
-  const [startDateFilter, setStartDateFilter] = useState<string>('');
-  const [endDateFilter, setEndDateFilter] = useState<string>('');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('All');
+  // Draft Filters (user selections before clicking "ตกลง")
+  const [draftSearchTerm, setDraftSearchTerm] = useState('');
+  const [draftStatusFilter, setDraftStatusFilter] = useState<string>('All');
+  const [draftVehicleFilter, setDraftVehicleFilter] = useState<string>('All');
+  const [draftDivisionFilter, setDraftDivisionFilter] = useState<string>('All');
+  const [draftDepartmentFilter, setDraftDepartmentFilter] = useState<string>('All');
+  const [draftStartDateFilter, setDraftStartDateFilter] = useState<string>('');
+  const [draftEndDateFilter, setDraftEndDateFilter] = useState<string>('');
+
+  // Applied Filters (only updated when clicking "ตกลง")
+  const [appliedFilters, setAppliedFilters] = useState({
+    searchTerm: '',
+    statusFilter: 'All',
+    vehicleFilter: 'All',
+    divisionFilter: 'All',
+    departmentFilter: 'All',
+    startDateFilter: '',
+    endDateFilter: '',
+  });
+  const [isFilterConfirmed, setIsFilterConfirmed] = useState<boolean>(false);
+
+  // Stored organization divisions & departments
+  const [storedDivisions, setStoredDivisions] = useState<string[]>(() => getStoredDivisions());
+  const [storedDepartments, setStoredDepartments] = useState<string[]>(() => getStoredDepartments());
+
+  useEffect(() => {
+    setStoredDivisions(getStoredDivisions());
+    setStoredDepartments(getStoredDepartments());
+    const unsub = subscribeToOrganizationSettings((settings) => {
+      if (settings.divisions && settings.divisions.length > 0) {
+        setStoredDivisions(settings.divisions);
+      }
+      if (settings.departments && settings.departments.length > 0) {
+        setStoredDepartments(settings.departments);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Lookup helpers
   const getVehiclePlate = (b: Booking): string => {
@@ -118,44 +152,70 @@ export default function FleetReport({
     return dateStr.substring(0, 10);
   };
 
+  // Distinct divisions for filter
+  const divisions = useMemo(() => {
+    const set = new Set<string>(storedDivisions);
+    users.forEach((u) => {
+      if (u.division) set.add(u.division);
+    });
+    bookings.forEach((b) => {
+      if (b.userDivision) set.add(b.userDivision);
+    });
+    return Array.from(set).filter(Boolean);
+  }, [storedDivisions, users, bookings]);
+
   // Distinct departments for filter
   const departments = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(storedDepartments);
     users.forEach((u) => {
       if (u.department) set.add(u.department);
     });
     bookings.forEach((b) => {
       if (b.userDepartment) set.add(b.userDepartment);
     });
-    return Array.from(set);
-  }, [users, bookings]);
+    return Array.from(set).filter(Boolean);
+  }, [storedDepartments, users, bookings]);
 
-  // Filtered rows
+  const getUserPhone = (b: Booking): string => {
+    if (b.userPhone) return b.userPhone;
+    const u = users.find((item) => item.id === b.userId);
+    return u?.phone || '';
+  };
+
+  // Filtered rows (strictly uses appliedFilters and only returns rows when isFilterConfirmed is true)
   const filteredBookings = useMemo(() => {
+    if (!isFilterConfirmed) return [];
+
     return bookings.filter((b) => {
       // Role-based visibility check: User sees only own, Approver sees only department, Admin sees all
       if (!canUserViewBooking(b, currentUser, users)) return false;
 
       // Status filter
-      if (statusFilter !== 'All' && b.status !== statusFilter) return false;
+      if (appliedFilters.statusFilter !== 'All' && b.status !== appliedFilters.statusFilter) return false;
 
       // Vehicle filter
-      if (vehicleFilter !== 'All' && b.vehicleId !== vehicleFilter) return false;
+      if (appliedFilters.vehicleFilter !== 'All' && b.vehicleId !== appliedFilters.vehicleFilter) return false;
+
+      // Division filter
+      if (appliedFilters.divisionFilter !== 'All') {
+        const div = getUserDivision(b);
+        if (div !== appliedFilters.divisionFilter) return false;
+      }
 
       // Department filter
-      if (departmentFilter !== 'All') {
+      if (appliedFilters.departmentFilter !== 'All') {
         const dept = getUserDepartment(b);
-        if (dept !== departmentFilter) return false;
+        if (dept !== appliedFilters.departmentFilter) return false;
       }
 
       // Date range filter (checks startDate or createdAt)
       const bDate = extractDateOnly(b.startDate) || extractDateOnly(b.createdAt);
-      if (startDateFilter && bDate < startDateFilter) return false;
-      if (endDateFilter && bDate > endDateFilter) return false;
+      if (appliedFilters.startDateFilter && bDate < appliedFilters.startDateFilter) return false;
+      if (appliedFilters.endDateFilter && bDate > appliedFilters.endDateFilter) return false;
 
       // Search term
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
+      if (appliedFilters.searchTerm.trim()) {
+        const q = appliedFilters.searchTerm.toLowerCase();
         const jobNo = getBookingJobNumber(b).toLowerCase();
         const plate = getVehiclePlate(b).toLowerCase();
         const borrower = (b.userName || '').toLowerCase();
@@ -164,6 +224,7 @@ export default function FleetReport({
         const approver = getApprover(b).toLowerCase();
         const dept = getUserDepartment(b).toLowerCase();
         const div = getUserDivision(b).toLowerCase();
+        const phone = getUserPhone(b).toLowerCase();
 
         return (
           jobNo.includes(q) ||
@@ -173,7 +234,8 @@ export default function FleetReport({
           dest.includes(q) ||
           approver.includes(q) ||
           dept.includes(q) ||
-          div.includes(q)
+          div.includes(q) ||
+          phone.includes(q)
         );
       }
 
@@ -181,12 +243,9 @@ export default function FleetReport({
     });
   }, [
     bookings,
-    statusFilter,
-    vehicleFilter,
-    departmentFilter,
-    startDateFilter,
-    endDateFilter,
-    searchTerm,
+    isFilterConfirmed,
+    appliedFilters,
+    currentUser,
     users,
     vehicles,
   ]);
@@ -262,14 +321,39 @@ export default function FleetReport({
     window.print();
   };
 
-  // Reset Filters
+  // Apply Filters ("ตกลง")
+  const handleApplyFilters = () => {
+    setAppliedFilters({
+      searchTerm: draftSearchTerm,
+      statusFilter: draftStatusFilter,
+      vehicleFilter: draftVehicleFilter,
+      divisionFilter: draftDivisionFilter,
+      departmentFilter: draftDepartmentFilter,
+      startDateFilter: draftStartDateFilter,
+      endDateFilter: draftEndDateFilter,
+    });
+    setIsFilterConfirmed(true);
+  };
+
+  // Reset Filters ("ล้างตัวกรอง")
   const handleResetFilters = () => {
-    setSearchTerm('');
-    setStatusFilter('All');
-    setVehicleFilter('All');
-    setDepartmentFilter('All');
-    setStartDateFilter('');
-    setEndDateFilter('');
+    setDraftSearchTerm('');
+    setDraftStatusFilter('All');
+    setDraftVehicleFilter('All');
+    setDraftDivisionFilter('All');
+    setDraftDepartmentFilter('All');
+    setDraftStartDateFilter('');
+    setDraftEndDateFilter('');
+    setAppliedFilters({
+      searchTerm: '',
+      statusFilter: 'All',
+      vehicleFilter: 'All',
+      divisionFilter: 'All',
+      departmentFilter: 'All',
+      startDateFilter: '',
+      endDateFilter: '',
+    });
+    setIsFilterConfirmed(false);
   };
 
   return (
@@ -327,27 +411,23 @@ export default function FleetReport({
 
       {/* 2. Filter Bar (Hidden in Print) */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4 print:hidden">
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
             <Filter className="w-4 h-4 text-indigo-600" />
             <span>{isEn ? 'Report Filters' : 'ตัวกรองรายงาน'}</span>
-            <span className="bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full text-[11px]">
-              พบ {filteredBookings.length} รายการ
-            </span>
+            {isFilterConfirmed ? (
+              <span className="bg-indigo-50 text-indigo-700 font-semibold px-2.5 py-0.5 rounded-full text-[11px] border border-indigo-200">
+                พบ {filteredBookings.length} รายการ
+              </span>
+            ) : (
+              <span className="bg-amber-50 text-amber-700 font-semibold px-2.5 py-0.5 rounded-full text-[11px] border border-amber-200">
+                {isEn ? 'Press Confirm to load data' : 'เลือกตัวกรองแล้วกดปุ่ม "ตกลง" เพื่อแสดงข้อมูล'}
+              </span>
+            )}
           </div>
-
-          {(searchTerm || statusFilter !== 'All' || vehicleFilter !== 'All' || departmentFilter !== 'All' || startDateFilter || endDateFilter) && (
-            <button
-              onClick={handleResetFilters}
-              className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Clear Filters' : 'ล้างตัวกรอง'}</span>
-            </button>
-          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Search Box */}
           <div className="lg:col-span-2 relative">
             <label className="block text-[11px] font-bold text-gray-600 mb-1">
@@ -357,8 +437,14 @@ export default function FleetReport({
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={draftSearchTerm}
+                onChange={(e) => {
+                  setDraftSearchTerm(e.target.value);
+                  setIsFilterConfirmed(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleApplyFilters();
+                }}
                 placeholder={isEn ? 'Search job number (AX-...), requester, plate...' : 'พิมพ์เลขที่ใบงาน (AX-...), ชื่อผู้ยืม, ทะเบียนรถ...'}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
@@ -371,8 +457,11 @@ export default function FleetReport({
               {isEn ? 'Vehicle' : 'ยานพาหนะ'}
             </label>
             <select
-              value={vehicleFilter}
-              onChange={(e) => setVehicleFilter(e.target.value)}
+              value={draftVehicleFilter}
+              onChange={(e) => {
+                setDraftVehicleFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             >
               <option value="All">{isEn ? 'All Vehicles' : 'รถทุกคัน'}</option>
@@ -384,14 +473,39 @@ export default function FleetReport({
             </select>
           </div>
 
-          {/* Department Filter */}
+          {/* Division Filter (ฝ่าย) */}
+          <div>
+            <label className="block text-[11px] font-bold text-gray-600 mb-1">
+              {isEn ? 'Division' : 'ฝ่าย'}
+            </label>
+            <select
+              value={draftDivisionFilter}
+              onChange={(e) => {
+                setDraftDivisionFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
+              className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="All">{isEn ? 'All Divisions' : 'ทุกฝ่าย'}</option>
+              {divisions.map((div) => (
+                <option key={div} value={div}>
+                  {div}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Department Filter (แผนก) */}
           <div>
             <label className="block text-[11px] font-bold text-gray-600 mb-1">
               {isEn ? 'Department' : 'แผนก'}
             </label>
             <select
-              value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
+              value={draftDepartmentFilter}
+              onChange={(e) => {
+                setDraftDepartmentFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             >
               <option value="All">{isEn ? 'All Departments' : 'ทุกแผนก'}</option>
@@ -409,8 +523,11 @@ export default function FleetReport({
               {isEn ? 'Status' : 'สถานะ'}
             </label>
             <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              value={draftStatusFilter}
+              onChange={(e) => {
+                setDraftStatusFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             >
               <option value="All">{isEn ? 'All Statuses' : 'ทุกสถานะ'}</option>
@@ -422,41 +539,48 @@ export default function FleetReport({
           </div>
         </div>
 
-        {/* Date Range Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-gray-100">
-          <div>
+        {/* Date Range & Action Buttons Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 pt-2 border-t border-gray-100 items-end">
+          <div className="lg:col-span-3">
             <label className="block text-[11px] font-bold text-gray-600 mb-1">
               {isEn ? 'Start Date (From)' : 'ตั้งแต่วันที่'}
             </label>
             <input
               type="date"
-              value={startDateFilter}
-              onChange={(e) => setStartDateFilter(e.target.value)}
+              value={draftStartDateFilter}
+              onChange={(e) => {
+                setDraftStartDateFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          <div>
+          <div className="lg:col-span-3">
             <label className="block text-[11px] font-bold text-gray-600 mb-1">
               {isEn ? 'End Date (To)' : 'ถึงวันที่'}
             </label>
             <input
               type="date"
-              value={endDateFilter}
-              onChange={(e) => setEndDateFilter(e.target.value)}
+              value={draftEndDateFilter}
+              onChange={(e) => {
+                setDraftEndDateFilter(e.target.value);
+                setIsFilterConfirmed(false);
+              }}
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          <div className="sm:col-span-2 flex items-end gap-2">
+          <div className="lg:col-span-3 flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
               onClick={() => {
                 const now = new Date();
                 const y = now.getFullYear();
                 const m = String(now.getMonth() + 1).padStart(2, '0');
-                setStartDateFilter(`${y}-${m}-01`);
-                setEndDateFilter(`${y}-${m}-31`);
+                setDraftStartDateFilter(`${y}-${m}-01`);
+                setDraftEndDateFilter(`${y}-${m}-31`);
+                setIsFilterConfirmed(false);
               }}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             >
@@ -467,8 +591,9 @@ export default function FleetReport({
               onClick={() => {
                 const now = new Date();
                 const y = now.getFullYear();
-                setStartDateFilter(`${y}-01-01`);
-                setEndDateFilter(`${y}-12-31`);
+                setDraftStartDateFilter(`${y}-01-01`);
+                setDraftEndDateFilter(`${y}-12-31`);
+                setIsFilterConfirmed(false);
               }}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             >
@@ -477,12 +602,34 @@ export default function FleetReport({
             <button
               type="button"
               onClick={() => {
-                setStartDateFilter('');
-                setEndDateFilter('');
+                setDraftStartDateFilter('');
+                setDraftEndDateFilter('');
+                setIsFilterConfirmed(false);
               }}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             >
               {isEn ? 'All Dates' : 'ตลอดเวลา'}
+            </button>
+          </div>
+
+          <div className="lg:col-span-3 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              id="btn-clear-report-filters"
+              onClick={handleResetFilters}
+              className="flex-1 sm:flex-none px-3.5 py-2 bg-white hover:bg-red-50 text-gray-700 hover:text-red-600 border border-gray-300 hover:border-red-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Clear Filters' : 'ล้างตัวกรอง'}</span>
+            </button>
+            <button
+              type="button"
+              id="btn-confirm-report-filters"
+              onClick={handleApplyFilters}
+              className="flex-1 sm:flex-none px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{isEn ? 'Confirm' : 'ตกลง'}</span>
             </button>
           </div>
         </div>
@@ -504,10 +651,10 @@ export default function FleetReport({
               </h1>
               <p className="text-xs text-gray-600 mt-1">
                 {isEn ? 'Document Type: Official Administration Report' : 'ประเภทเอกสาร: สรุปบันทึกการใช้ยานพาหนะและขออนุมัติ'}
-                {startDateFilter || endDateFilter ? (
+                {appliedFilters.startDateFilter || appliedFilters.endDateFilter ? (
                   <span className="font-semibold text-gray-900 ml-2">
-                    (ช่วงวันที่: {startDateFilter ? formatThaiDate(startDateFilter) : 'เริ่มต้น'} ถึง{' '}
-                    {endDateFilter ? formatThaiDate(endDateFilter) : 'ปัจจุบัน'})
+                    (ช่วงวันที่: {appliedFilters.startDateFilter ? formatThaiDate(appliedFilters.startDateFilter) : 'เริ่มต้น'} ถึง{' '}
+                    {appliedFilters.endDateFilter ? formatThaiDate(appliedFilters.endDateFilter) : 'ปัจจุบัน'})
                   </span>
                 ) : (
                   <span className="font-semibold text-gray-900 ml-2">(ข้อมูลทั้งหมดในระบบ)</span>
@@ -559,7 +706,35 @@ export default function FleetReport({
               </tr>
             </thead>
             <tbody>
-              {filteredBookings.length === 0 ? (
+              {!isFilterConfirmed ? (
+                <tr>
+                  <td colSpan={19} className="p-10 text-center border border-gray-300 bg-indigo-50/20">
+                    <div className="flex flex-col items-center justify-center gap-2 max-w-md mx-auto">
+                      <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                        <Filter className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-800">
+                        {isEn
+                          ? 'Please click "Confirm" to load report data'
+                          : 'กรุณาเลือกข้อมูลตัวกรองแล้วกดปุ่ม "ตกลง" เพื่อแสดงรายงาน'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {isEn
+                          ? 'System will fetch and display data only after you click Confirm.'
+                          : 'ระบบจะยังไม่แสดงข้อมูลจนกว่าจะกดปุ่ม "ตกลง" เพื่อดึงข้อมูลตามตัวกรองที่เลือก'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleApplyFilters}
+                        className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{isEn ? 'Confirm & Load Data' : 'ตกลง'}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredBookings.length === 0 ? (
                 <tr>
                   <td colSpan={19} className="p-8 text-center text-gray-400 border border-gray-300">
                     ไม่พบรายการบันทึกการใช้รถตามเงื่อนไขที่เลือก
@@ -570,6 +745,7 @@ export default function FleetReport({
                   const plate = getVehiclePlate(b);
                   const division = getUserDivision(b);
                   const department = getUserDepartment(b);
+                  const userPhone = getUserPhone(b);
                   const approver = getApprover(b);
                   const startTime = extractTime(b.startDate, '08:30');
                   const endTime = extractTime(b.endDate, '17:30');
@@ -606,7 +782,17 @@ export default function FleetReport({
                         {endTime}
                       </td>
                       <td className="p-2 border border-gray-300 whitespace-nowrap font-semibold text-gray-900">
-                        {b.userName}
+                        <div>{b.userName}</div>
+                        {userPhone && (
+                          <a
+                            href={`tel:${userPhone.replace(/[^\d+]/g, '')}`}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 transition-colors mt-0.5 print:bg-transparent print:border-none print:p-0 print:text-gray-600"
+                            title={`กดเพื่อโทรออกหา ${b.userName} (${userPhone})`}
+                          >
+                            <Phone className="w-2.5 h-2.5 shrink-0 print:hidden" />
+                            <span>{userPhone}</span>
+                          </a>
+                        )}
                       </td>
                       <td className="p-2 border border-gray-300 text-gray-700 text-[11px]">
                         {division}
@@ -624,7 +810,13 @@ export default function FleetReport({
                       </td>
                       <td className="p-2 border border-gray-300 text-center whitespace-nowrap">
                         {b.startFuelLevel ? (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold text-[10px] border border-blue-200">
+                          <span
+                            className={`px-1.5 py-0.5 rounded font-semibold text-[10px] border ${
+                              b.startFuelLevel === 'ใกล้หมด'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}
+                          >
                             {b.startFuelLevel}
                           </span>
                         ) : (
@@ -640,7 +832,13 @@ export default function FleetReport({
                       </td>
                       <td className="p-2 border border-gray-300 text-center whitespace-nowrap">
                         {b.endFuelLevel ? (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold text-[10px] border border-emerald-200">
+                          <span
+                            className={`px-1.5 py-0.5 rounded font-semibold text-[10px] border ${
+                              b.endFuelLevel === 'ใกล้หมด'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}
+                          >
                             {b.endFuelLevel}
                           </span>
                         ) : (

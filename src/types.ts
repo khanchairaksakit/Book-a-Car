@@ -123,3 +123,29 @@ export interface Booking {
   keyReturnPhoto?: string; // แนบรูปหลักฐานหย่อนกุญแจลงตู้ (Base64)
   endRecordedAt?: string; // เวลาบันทึกเสร็จสิ้นภารกิจ
 }
+
+export type AuditLogCategory =
+  | 'AUTH'
+  | 'BOOKING'
+  | 'APPROVAL'
+  | 'TRIP'
+  | 'VEHICLE'
+  | 'USER'
+  | 'ORGANIZATION'
+  | 'PERMISSION';
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string; // ISO string
+  category: AuditLogCategory;
+  action: string;
+  actorId?: string;
+  actorName: string;
+  actorRole?: string;
+  actorDepartment?: string;
+  targetId?: string;
+  targetLabel?: string;
+  details: string;
+  channel?: 'Web' | 'LINE' | 'System';
+}
+

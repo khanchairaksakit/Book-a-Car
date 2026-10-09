@@ -22,6 +22,7 @@ import {
   AlertCircle,
   MessageCircle,
   ArrowRight,
+  Phone,
 } from 'lucide-react';
 
 interface LineShareApprovalModalProps {
@@ -351,6 +352,19 @@ export default function LineShareApprovalModal({
                       {booking.userName} ({booking.userDepartment || '-'})
                     </span>
                   </div>
+                  {(booking.userPhone || requesterUser?.phone) && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-gray-400 shrink-0">เบอร์ติดต่อ:</span>
+                      <a
+                        href={`tel:${(booking.userPhone || requesterUser?.phone || '').replace(/[^\d+]/g, '')}`}
+                        className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 transition-colors"
+                        title={`กดเพื่อโทรออกหา ${booking.userName} (${booking.userPhone || requesterUser?.phone})`}
+                      >
+                        <Phone className="w-3 h-3 shrink-0" />
+                        <span>{booking.userPhone || requesterUser?.phone}</span>
+                      </a>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-2">
                     <span className="text-gray-400 shrink-0">LINE ผู้ขอ:</span>
                     <span className="font-mono font-semibold text-emerald-700 text-right truncate">

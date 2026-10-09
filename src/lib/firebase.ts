@@ -11,7 +11,7 @@ import {
   getDocFromServer,
   onSnapshot,
 } from 'firebase/firestore';
-import { Vehicle, User, Booking, RolePermissionsMatrix } from '../types';
+import { Vehicle, User, Booking, RolePermissionsMatrix, AuditLogEntry } from '../types';
 import { INITIAL_VEHICLES, INITIAL_USERS, INITIAL_BOOKINGS } from '../data/mockData';
 import {
   DEFAULT_ROLE_PERMISSIONS,
@@ -940,6 +940,16 @@ export async function saveOrganizationSettings(
   }
 
   await Promise.allSettled(tasks);
+
+  recordAuditLog({
+    category: 'ORGANIZATION',
+    action: 'บันทึกกำหนดแผนกและฝ่าย',
+    actorName: 'ผู้ดูแลระบบ (Admin)',
+    actorRole: 'Admin',
+    targetLabel: `แผนก ${cleanDepts.length} รายการ / ฝ่าย ${cleanDivs.length} รายการ`,
+    details: `บันทึกการตั้งค่าแผนก (${cleanDepts.join(', ') || '-'}) และฝ่าย (${cleanDivs.join(', ') || '-'}) เวอร์ชัน v${nextVersion}`,
+    channel: 'Web',
+  }).catch(() => {});
 }
 
 export function subscribeToOrganizationSettings(
@@ -987,4 +997,127 @@ export function subscribeToOrganizationSettings(
     }
   );
 }
+
+// Audit Log Persistence (Firestore + LocalStorage)
+const AUDIT_LOGS_STORAGE_KEY = 'car_booking_audit_logs';
+
+export function getLocalAuditLogs(): AuditLogEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(AUDIT_LOGS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalAuditLogs(logs: AuditLogEntry[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const sorted = [...logs]
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .slice(0, 500);
+    safeLocalStorageSet(AUDIT_LOGS_STORAGE_KEY, JSON.stringify(sorted));
+  } catch {
+    // ignore
+  }
+}
+
+export function mergeAuditLogs(lists: AuditLogEntry[][]): AuditLogEntry[] {
+  const map = new Map<string, AuditLogEntry>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (item && item.id) {
+        map.set(item.id, item);
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    (b.timestamp || '').localeCompare(a.timestamp || '')
+  );
+}
+
+export async function getAuditLogs(): Promise<AuditLogEntry[]> {
+  const local = getLocalAuditLogs();
+  try {
+    const colRef = collection(db, 'audit_logs');
+    const snapshot = await getDocs(colRef);
+    const cloudLogs: AuditLogEntry[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as AuditLogEntry;
+      if (data && data.id) {
+        cloudLogs.push(data);
+      }
+    });
+    const merged = mergeAuditLogs([local, cloudLogs]);
+    saveLocalAuditLogs(merged);
+    return merged;
+  } catch (error) {
+    console.error('Error fetching audit logs from Firestore:', error);
+    return local;
+  }
+}
+
+export async function recordAuditLog(
+  entry: Omit<AuditLogEntry, 'id' | 'timestamp'> & { id?: string; timestamp?: string }
+): Promise<AuditLogEntry> {
+  const fullEntry: AuditLogEntry = cleanFirestoreData({
+    id: entry.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: entry.timestamp || new Date().toISOString(),
+    category: entry.category,
+    action: entry.action,
+    actorId: entry.actorId,
+    actorName: entry.actorName || 'ผู้ใช้งานระบบ',
+    actorRole: entry.actorRole,
+    actorDepartment: entry.actorDepartment,
+    targetId: entry.targetId,
+    targetLabel: entry.targetLabel,
+    details: entry.details,
+    channel: entry.channel || 'Web',
+  });
+
+  const currentLocal = getLocalAuditLogs();
+  const updatedLocal = mergeAuditLogs([[fullEntry], currentLocal]);
+  saveLocalAuditLogs(updatedLocal);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('audit-log-updated', { detail: fullEntry }));
+  }
+
+  try {
+    await setDoc(doc(db, 'audit_logs', fullEntry.id), fullEntry);
+  } catch (error) {
+    console.error('Error saving audit log to Firestore:', error);
+  }
+
+  return fullEntry;
+}
+
+export function subscribeToAuditLogs(
+  onUpdate: (logs: AuditLogEntry[]) => void
+): () => void {
+  const colRef = collection(db, 'audit_logs');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const cloudLogs: AuditLogEntry[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as AuditLogEntry;
+        if (data && data.id) {
+          cloudLogs.push(data);
+        }
+      });
+      const merged = mergeAuditLogs([getLocalAuditLogs(), cloudLogs]);
+      saveLocalAuditLogs(merged);
+      onUpdate(merged);
+    },
+    (error) => {
+      console.error('Error in subscribeToAuditLogs:', error);
+    }
+  );
+}
+
 
