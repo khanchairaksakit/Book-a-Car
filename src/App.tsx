@@ -1337,6 +1337,8 @@ export default function App() {
   const vehiclesPerm = getUserEffectiveMenuPermission(currentUser, 'vehicles', rolePermissions);
   const reportPerm = getUserEffectiveMenuPermission(currentUser, 'report', rolePermissions);
   const usersPerm = getUserEffectiveMenuPermission(currentUser, 'users', rolePermissions);
+  const auditPerm = getUserEffectiveMenuPermission(currentUser, 'audit', rolePermissions);
+  const manualPerm = getUserEffectiveMenuPermission(currentUser, 'manual', rolePermissions);
 
   const canAccessMenu = (key: AppMenuKey) => {
     const perm = getUserEffectiveMenuPermission(currentUser, key, rolePermissions);
@@ -1346,9 +1348,16 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser) return;
-    if (activeTab === 'manual' || activeTab === 'audit') return;
     if (!canAccessMenu(activeTab)) {
-      const orderedKeys: AppMenuKey[] = ['calendar', 'booking', 'vehicles', 'report', 'users'];
+      const orderedKeys: AppMenuKey[] = [
+        'calendar',
+        'booking',
+        'vehicles',
+        'report',
+        'users',
+        'audit',
+        'manual',
+      ];
       const firstAllowed = orderedKeys.find((k) => canAccessMenu(k));
       if (firstAllowed && firstAllowed !== activeTab) {
         setActiveTab(firstAllowed);
@@ -1599,7 +1608,7 @@ export default function App() {
               </button>
             )}
 
-            {(canAccessMenu('report') || canAccessMenu('users') || isUserAdmin(currentUser)) && (
+            {canAccessMenu('audit') && (
               <button
                 id="nav-tab-audit"
                 onClick={() => {
@@ -1616,26 +1625,38 @@ export default function App() {
                 <span className="flex-1 text-left">
                   {language === 'en' ? 'Audit Log' : 'ประวัติระบบ (Audit Log)'}
                 </span>
+                {auditPerm.viewOnly && !auditPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
               </button>
             )}
 
-            <button
-              id="nav-tab-manual"
-              onClick={() => {
-                setActiveTab('manual');
-                setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                activeTab === 'manual'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 shrink-0" />
-              <span className="flex-1 text-left">
-                {language === 'en' ? 'Booking Manual' : 'คู่มือการจองรถ'}
-              </span>
-            </button>
+            {canAccessMenu('manual') && (
+              <button
+                id="nav-tab-manual"
+                onClick={() => {
+                  setActiveTab('manual');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'manual'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <BookOpen className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">
+                  {language === 'en' ? 'Booking Manual' : 'คู่มือการจองรถ'}
+                </span>
+                {manualPerm.viewOnly && !manualPerm.canEdit && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30">
+                    ดูอย่างเดียว
+                  </span>
+                )}
+              </button>
+            )}
           </nav>
         </div>
 

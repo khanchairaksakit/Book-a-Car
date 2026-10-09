@@ -760,7 +760,7 @@ export default function UserRegistration({
                 ตารางกำหนดสิทธิการใช้งานตามบทบาท (Role Permissions Matrix)
               </h3>
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                5 เมนู × 5 บทบาท
+                {MENU_DEFINITIONS.length} เมนู × {STANDARD_ROLES.length} บทบาท
               </span>
             </div>
             <p className="text-xs text-slate-300">

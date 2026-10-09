@@ -39,7 +39,14 @@ export interface Vehicle {
 
 export type UserRole = 'User' | 'Operator' | 'Approve 1' | 'Approve 2' | 'Admin' | 'Approve';
 
-export type AppMenuKey = 'calendar' | 'booking' | 'vehicles' | 'report' | 'users';
+export type AppMenuKey =
+  | 'calendar'
+  | 'booking'
+  | 'vehicles'
+  | 'report'
+  | 'users'
+  | 'audit'
+  | 'manual';
 
 export interface MenuPermissionSetting {
   viewOnly: boolean; // ดูได้อย่างเดียว

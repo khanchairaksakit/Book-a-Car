@@ -52,6 +52,18 @@ export const MENU_DEFINITIONS: Array<{
     labelEn: 'User & Role Management',
     description: 'จัดการบัญชีผู้ใช้งาน แผนก ฝ่าย นำเข้า Excel และตารางกำหนดสิทธิ',
   },
+  {
+    key: 'audit',
+    label: 'ประวัติระบบ (Audit Log)',
+    labelEn: 'System Audit Log',
+    description: 'ประวัติการทำงานทั้งหมดของระบบ การเข้าสู่ระบบ การจอง อนุมัติ และการแก้ไขข้อมูล',
+  },
+  {
+    key: 'manual',
+    label: 'คู่มือการจองรถ',
+    labelEn: 'Booking Manual',
+    description: 'คู่มือขั้นตอนการจองรถยนต์ส่วนกลาง การอนุมัติ และการบันทึกไมล์/คืนรถ',
+  },
 ];
 
 export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
@@ -61,6 +73,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     vehicles: { viewOnly: true, canEdit: false },
     report: { viewOnly: true, canEdit: false },
     users: { viewOnly: true, canEdit: false },
+    audit: { viewOnly: false, canEdit: false },
+    manual: { viewOnly: true, canEdit: false },
   },
   Operator: {
     calendar: { viewOnly: false, canEdit: true },
@@ -68,6 +82,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     vehicles: { viewOnly: false, canEdit: true },
     report: { viewOnly: false, canEdit: true },
     users: { viewOnly: true, canEdit: false },
+    audit: { viewOnly: true, canEdit: false },
+    manual: { viewOnly: true, canEdit: false },
   },
   'Approve 1': {
     calendar: { viewOnly: false, canEdit: true },
@@ -75,6 +91,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     vehicles: { viewOnly: true, canEdit: false },
     report: { viewOnly: true, canEdit: false },
     users: { viewOnly: true, canEdit: false },
+    audit: { viewOnly: true, canEdit: false },
+    manual: { viewOnly: true, canEdit: false },
   },
   'Approve 2': {
     calendar: { viewOnly: false, canEdit: true },
@@ -82,6 +100,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     vehicles: { viewOnly: false, canEdit: true },
     report: { viewOnly: false, canEdit: true },
     users: { viewOnly: true, canEdit: false },
+    audit: { viewOnly: true, canEdit: false },
+    manual: { viewOnly: true, canEdit: false },
   },
   Admin: {
     calendar: { viewOnly: false, canEdit: true },
@@ -89,6 +109,8 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     vehicles: { viewOnly: false, canEdit: true },
     report: { viewOnly: false, canEdit: true },
     users: { viewOnly: false, canEdit: true },
+    audit: { viewOnly: false, canEdit: true },
+    manual: { viewOnly: false, canEdit: true },
   },
 };
 
