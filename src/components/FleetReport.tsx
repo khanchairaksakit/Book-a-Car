@@ -367,12 +367,12 @@ export default function FleetReport({
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">
-                {isEn ? 'Fleet Vehicle Usage Report' : 'รายงานการใช้ยานพาหนะส่วนกลาง'}
+                {isEn ? 'Fleet Vehicle Usage Report' : 'รายงานการใช้รถยนต์'}
               </h2>
               <p className="text-xs text-gray-500">
                 {isEn
-                  ? 'Administrator report with printable layout & Excel export'
-                  : 'รายงานสำหรับผู้ดูแลระบบ รองรับการพิมพ์เอกสารทางการและดาวน์โหลด Excel'}
+                  ? 'Vehicle usage report with printable layout & Excel export'
+                  : 'รายงานสรุปการใช้รถยนต์ส่วนกลาง รองรับการพิมพ์เอกสารทางการและดาวน์โหลด Excel'}
               </p>
             </div>
           </div>

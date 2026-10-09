@@ -42,8 +42,8 @@ export const MENU_DEFINITIONS: Array<{
   },
   {
     key: 'report',
-    label: 'รายงานสำหรับผู้ดูแลระบบ',
-    labelEn: 'Admin Fleet Report',
+    label: 'รายงานการใช้รถยนต์',
+    labelEn: 'Vehicle Usage Report',
     description: 'ตารางสรุปรายงานการใช้รถยนต์ส่วนกลาง ส่งออกไฟล์ Excel และสั่งพิมพ์เอกสาร',
   },
   {

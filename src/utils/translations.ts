@@ -16,7 +16,7 @@ export const translations = {
     navStatus: 'ตรวจสอบสถานะ',
     navVehicles: 'จัดการข้อมูลรถยนต์',
     navUsers: 'กำหนดผู้ใช้งาน',
-    navReport: 'รายงานสำหรับผู้ดูแลระบบ',
+    navReport: 'รายงานการใช้รถยนต์',
     navManual: 'คู่มือการจองรถ',
     
     // Auth & Login
