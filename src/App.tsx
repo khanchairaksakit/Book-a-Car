@@ -84,17 +84,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  // Language State: 'th' or 'en'
-  const [language, setLanguage] = useState<Language>(() => {
-    const saved = localStorage.getItem('car_booking_language');
-    return saved === 'en' || saved === 'th' ? saved : 'th';
-  });
-
-  const handleToggleLanguage = (lang: Language) => {
-    setLanguage(lang);
-    localStorage.setItem('car_booking_language', lang);
-  };
-
+  // Language locked to Thai ('th')
+  const language: Language = 'th';
   const t = translations[language];
 
   // 1. Optimistic states falling back to localStorage/Mock data initially (with production clean wipe of old bookings)
@@ -1373,7 +1364,6 @@ export default function App() {
           users={users}
           onLogin={handleLogin}
           language={language}
-          onToggleLanguage={handleToggleLanguage}
         />
         {lineQuickApproveState && activeLineQuickApproveBooking && (
           <LineQuickApproveModal
@@ -1712,29 +1702,6 @@ export default function App() {
                   year: 'numeric',
                 }).format(new Date())}
               </span>
-            </div>
-
-            {/* Language Switcher in Top Header */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-gray-200 text-xs">
-              <Globe className="w-3.5 h-3.5 text-gray-400 ml-1 hidden sm:block" />
-              <button
-                id="header-lang-th"
-                onClick={() => handleToggleLanguage('th')}
-                className={`px-2 py-0.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                  language === 'th' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-gray-500 hover:text-gray-900'
-                }`}
-              >
-                🇹🇭 TH
-              </button>
-              <button
-                id="header-lang-en"
-                onClick={() => handleToggleLanguage('en')}
-                className={`px-2 py-0.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                  language === 'en' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-gray-500 hover:text-gray-900'
-                }`}
-              >
-                🇬🇧 EN
-              </button>
             </div>
 
             <div className="h-8 w-[1px] bg-gray-200 hidden lg:block" />

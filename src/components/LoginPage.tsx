@@ -20,14 +20,13 @@ interface LoginPageProps {
   users: User[];
   onLogin: (user: User) => void;
   language: Language;
-  onToggleLanguage: (lang: Language) => void;
+  onToggleLanguage?: (lang: Language) => void;
 }
 
 export default function LoginPage({
   users,
   onLogin,
   language,
-  onToggleLanguage,
 }: LoginPageProps) {
   const [identifierInput, setIdentifierInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -145,7 +144,7 @@ export default function LoginPage({
       <div className="absolute top-0 -left-20 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 -right-20 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Top Header bar: App identity and Language switcher */}
+      {/* Top Header bar: App identity */}
       <div className="w-full max-w-5xl mx-auto flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
@@ -159,35 +158,6 @@ export default function LoginPage({
               {t.appSubtitle}
             </p>
           </div>
-        </div>
-
-        {/* Language Switcher Toggle */}
-        <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 p-1 rounded-xl shadow-xs">
-          <Globe className="w-4 h-4 text-slate-400 ml-1.5" />
-          <button
-            id="lang-btn-th"
-            type="button"
-            onClick={() => onToggleLanguage('th')}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              language === 'th'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
-          >
-            🇹🇭 {t.langTh}
-          </button>
-          <button
-            id="lang-btn-en"
-            type="button"
-            onClick={() => onToggleLanguage('en')}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              language === 'en'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
-          >
-            🇬🇧 {t.langEn}
-          </button>
         </div>
       </div>
 
