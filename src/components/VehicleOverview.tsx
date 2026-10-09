@@ -15,8 +15,14 @@ import {
   Info,
 } from 'lucide-react';
 import { Vehicle, Booking, User, VehicleType } from '../types';
-import { formatMileage, formatThaiDate } from '../utils/vehicleAlerts';
-import { canUserViewBooking } from '../utils/userHelpers';
+import {
+  formatMileage,
+  formatThaiDate,
+  formatTripDateTime,
+  doesBookingMatchVehicle,
+  isBookingActiveStatus,
+  doesBookingCoverDate,
+} from '../utils/vehicleAlerts';
 import { getRealTodayStr, isDateInPast, isDateToday } from '../utils/dateHelpers';
 
 interface VehicleOverviewProps {
@@ -73,41 +79,48 @@ export default function VehicleOverview({
     }
   }, [selectedDateStr]);
 
-  // Active bookings on the selected date
-  const bookingsOnDate = useMemo(() => {
+  // Active bookings covering the selected date (including unreturned active missions up to today)
+  const bookingsCoveringSelectedDate = useMemo(() => {
     return bookings.filter((b) => {
-      if (b.status === 'Cancelled') return false;
-      const start = b.startDate.substring(0, 10);
-      const end = b.endDate.substring(0, 10);
-      return selectedDateStr >= start && selectedDateStr <= end;
+      if (!b || b.status === 'Cancelled' || b.status === 'Completed') return false;
+      return doesBookingCoverDate(b, selectedDateStr, todayStr);
     });
-  }, [bookings, selectedDateStr]);
+  }, [bookings, selectedDateStr, todayStr]);
 
-  // Map vehicle id -> bookings on this date
-  const bookingsByVehicleId = useMemo(() => {
-    const map: Record<string, Booking[]> = {};
-    bookingsOnDate.forEach((b) => {
-      if (!map[b.vehicleId]) map[b.vehicleId] = [];
-      map[b.vehicleId].push(b);
-    });
-    return map;
-  }, [bookingsOnDate]);
+  // All currently active missions/bookings across the fleet (Approved, Pending, Pending_Approve2)
+  const allActiveFleetBookings = useMemo(() => {
+    return bookings.filter((b) => b && isBookingActiveStatus(b.status));
+  }, [bookings]);
 
-  // Determine vehicle status specifically for the selected date
+  // Determine vehicle status for the selected date (and reflect active missions on default today view)
   const vehiclesWithDailyStatus = useMemo(() => {
+    const statusPriority = (st: string) => {
+      if (st === 'Approved') return 3;
+      if (st === 'Pending_Approve2') return 2;
+      if (st === 'Pending') return 1;
+      return 0;
+    };
+
     return vehicles.map((v) => {
-      const vBookings = bookingsByVehicleId[v.id] || [];
-      const hasActiveBooking = vBookings.some(
-        (b) =>
-          b.status === 'Approved' ||
-          b.status === 'Pending' ||
-          b.status === 'Pending_Approve2'
-      );
-      const approvedBooking = vBookings.find((b) => b.status === 'Approved');
-      const pendingBooking = vBookings.find(
-        (b) => b.status === 'Pending' || b.status === 'Pending_Approve2'
-      );
-      const primaryBooking = approvedBooking || pendingBooking;
+      const dateMatchedBookings = bookingsCoveringSelectedDate
+        .filter((b) => doesBookingMatchVehicle(b, v))
+        .sort((a, b) => statusPriority(b.status) - statusPriority(a.status));
+
+      // If viewing today, also check if this vehicle has an active uncompleted mission in the system
+      const activeFleetMatchedBookings = isToday
+        ? allActiveFleetBookings
+            .filter((b) => doesBookingMatchVehicle(b, v))
+            .sort((a, b) => statusPriority(b.status) - statusPriority(a.status))
+        : [];
+
+      const vBookings =
+        dateMatchedBookings.length > 0 ? dateMatchedBookings : activeFleetMatchedBookings;
+
+      const hasBookingOnSelectedDate = dateMatchedBookings.length > 0;
+      const hasActiveBooking =
+        vBookings.length > 0 || (isToday && v.status === 'In Use');
+
+      const primaryBooking = vBookings[0];
 
       let dailyStatus: 'Available' | 'In Use' | 'Maintenance' = 'Available';
       if (v.status === 'Maintenance') {
@@ -121,9 +134,23 @@ export default function VehicleOverview({
         dailyStatus,
         booking: primaryBooking,
         allBookings: vBookings,
+        isBusyOnSelectedDate:
+          v.status === 'Maintenance' ||
+          hasBookingOnSelectedDate ||
+          (isToday && v.status === 'In Use' && !primaryBooking),
       };
     });
-  }, [vehicles, bookingsByVehicleId]);
+  }, [vehicles, bookingsCoveringSelectedDate, allActiveFleetBookings, isToday]);
+
+  // Bookings list to count in the overview metric card
+  const bookingsOnDate = useMemo(() => {
+    const map = new Map<string, Booking>();
+    bookingsCoveringSelectedDate.forEach((b) => map.set(b.id, b));
+    if (isToday) {
+      allActiveFleetBookings.forEach((b) => map.set(b.id, b));
+    }
+    return Array.from(map.values());
+  }, [bookingsCoveringSelectedDate, allActiveFleetBookings, isToday]);
 
   // Metrics calculation
   const totalVehicles = vehicles.length;
@@ -259,7 +286,7 @@ export default function VehicleOverview({
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-indigo-700 uppercase tracking-wider block truncate">
-                การจองในวันนี้
+                การจอง / ภารกิจ
               </span>
               <div className="flex items-baseline gap-1">
                 <span className="text-xl font-bold text-indigo-700">{bookingsOnDate.length}</span>
@@ -278,14 +305,14 @@ export default function VehicleOverview({
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider block truncate">
-                ติดจอง / ซ่อมบำรุง
+                ติดภารกิจ / ซ่อมบำรุง
               </span>
               <div className="flex items-baseline gap-1">
                 <span className="text-xl font-bold text-amber-700">{bookedVehicles + maintenanceVehicles}</span>
                 <span className="text-xs text-amber-700/80">คัน</span>
               </div>
               <span className="text-[10px] text-amber-700 block truncate">
-                ติดจอง {bookedVehicles} • ซ่อมบำรุง {maintenanceVehicles}
+                ติดภารกิจ/จอง {bookedVehicles} • ซ่อมบำรุง {maintenanceVehicles}
               </span>
             </div>
           </div>
@@ -343,7 +370,7 @@ export default function VehicleOverview({
                   : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800'
               }`}
             >
-              🔵 ติดจอง ({bookedVehicles})
+              🔵 ติดภารกิจ / ติดจอง ({bookedVehicles})
             </button>
             <button
               id="filter-tab-maint"
@@ -362,10 +389,11 @@ export default function VehicleOverview({
 
         {/* Vehicle Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {filteredVehicles.map(({ vehicle, dailyStatus, booking }) => {
+          {filteredVehicles.map(({ vehicle, dailyStatus, booking, isBusyOnSelectedDate }) => {
             const isAvailable = dailyStatus === 'Available';
             const isBooked = dailyStatus === 'In Use';
             const isMaint = dailyStatus === 'Maintenance';
+            const isApprovedMission = !booking || booking.status === 'Approved';
 
             return (
               <div
@@ -404,9 +432,19 @@ export default function VehicleOverview({
                       </span>
                     )}
                     {isBooked && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded-full border border-indigo-200 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                        ติดจอง
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full border shrink-0 ${
+                          isApprovedMission
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                            : 'bg-amber-50 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isApprovedMission ? 'bg-indigo-500' : 'bg-amber-500'
+                          }`}
+                        ></span>
+                        {isApprovedMission ? 'ติดภารกิจ' : 'ติดจอง (รออนุมัติ)'}
                       </span>
                     )}
                     {isMaint && (
@@ -429,27 +467,54 @@ export default function VehicleOverview({
                     </span>
                   </div>
 
-                  {/* Booking Details if In Use */}
-                  {isBooked && booking && (() => {
-                    const isAllowed = canUserViewBooking(booking, currentUser, users);
-                    return (
-                      <div className="mt-2.5 p-2 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs space-y-1">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-semibold text-indigo-900 flex items-center gap-1">
-                            <UserCheck className="w-3 h-3 text-indigo-600" />
-                            <span>{isAllowed ? `คุณ ${booking.userName}` : 'ติดภารกิจการใช้งาน'}</span>
+                  {/* Booking Details if In Use (Always shows booker name & destination directly) */}
+                  {isBooked && booking && (
+                    <div className="mt-2.5 p-2.5 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="font-bold text-indigo-950 flex items-center gap-1 truncate">
+                          <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span className="truncate">
+                            คุณ {booking.userName}
+                            {booking.userDepartment ? ` (${booking.userDepartment})` : ''}
                           </span>
-                          <span className="text-[10px] text-indigo-700 font-mono">
-                            {booking.startDate.substring(11, 16)} - {booking.endDate.substring(11, 16)} น.
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-gray-600 flex items-center gap-1 truncate">
-                          <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="truncate">{isAllowed ? booking.destination : 'ติดภารกิจเดินทาง'}</span>
-                        </div>
+                        </span>
+                        <span className="text-[10px] text-indigo-700 font-semibold px-1.5 py-0.5 rounded bg-white/80 border border-indigo-200/70 shrink-0">
+                          {booking.status === 'Approved'
+                            ? 'กำลังปฏิบัติภารกิจ'
+                            : booking.status === 'Pending_Approve2'
+                            ? 'รอผู้ดูแลรถ'
+                            : 'รอผู้จัดการ'}
+                        </span>
                       </div>
-                    );
-                  })()}
+                      {(() => {
+                        const contactPhone =
+                          booking.userPhone ||
+                          users.find((u) => u.id === booking.userId)?.phone ||
+                          '';
+                        if (!contactPhone) return null;
+                        return (
+                          <div className="text-[11px] flex items-center gap-1">
+                            <a
+                              href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 font-mono font-bold text-emerald-700 hover:text-emerald-800 hover:underline bg-white/90 px-1.5 py-0.2 rounded border border-emerald-200"
+                              title={`กดเพื่อโทรออก ${contactPhone}`}
+                            >
+                              📞 {contactPhone}
+                            </a>
+                          </div>
+                        );
+                      })()}
+                      <div className="text-[10px] text-indigo-700 font-mono flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                        <span>{formatTripDateTime(booking.startDate, booking.endDate)}</span>
+                      </div>
+                      <div className="text-[11px] text-gray-700 flex items-center gap-1 truncate">
+                        <MapPin className="w-3 h-3 text-rose-500 shrink-0" />
+                        <span className="truncate">ปลายทาง: {booking.destination}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Maintenance notice */}
                   {isMaint && (
@@ -462,7 +527,7 @@ export default function VehicleOverview({
 
                 {/* Card Action Button */}
                 <div className="pt-2">
-                  {isAvailable ? (
+                  {isAvailable || (isBooked && !isBusyOnSelectedDate) ? (
                     !hasEditPermission ? (
                       <button
                         type="button"
@@ -496,9 +561,9 @@ export default function VehicleOverview({
                     <button
                       type="button"
                       disabled
-                      className="w-full py-1.5 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs font-medium cursor-not-allowed text-center"
+                      className="w-full py-1.5 px-3 bg-slate-100 text-slate-500 rounded-lg text-xs font-semibold cursor-not-allowed text-center"
                     >
-                      ติดจองแล้วในวันนี้
+                      {booking ? `ติดภารกิจ (คุณ ${booking.userName})` : 'ติดภารกิจ / ติดจองในวันนี้'}
                     </button>
                   ) : (
                     <button

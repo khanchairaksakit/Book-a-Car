@@ -28,6 +28,8 @@ import {
   formatTripDateTime,
   getLatestVehicleUsage,
   getDaysRemaining,
+  doesBookingMatchVehicle,
+  isBookingActiveStatus,
 } from '../utils/vehicleAlerts';
 
 interface VehicleManagementProps {
@@ -215,10 +217,21 @@ export default function VehicleManagement({
     setQuickMileageVal('');
   };
 
+  // Compute effective vehicle status synchronized with active bookings
+  const getEffectiveStatus = (v: Vehicle): VehicleStatus => {
+    if (v.status === 'Maintenance') return 'Maintenance';
+    const hasActiveMission = bookings.some(
+      (b) => doesBookingMatchVehicle(b, v) && isBookingActiveStatus(b.status)
+    );
+    if (hasActiveMission || v.status === 'In Use') return 'In Use';
+    return 'Available';
+  };
+
   // Filter logic
   const filteredVehicles = vehicles.filter((v) => {
+    const effectiveStatus = getEffectiveStatus(v);
     const matchType = typeFilter === 'All' || v.type === typeFilter;
-    const matchStatus = statusFilter === 'All' || v.status === statusFilter;
+    const matchStatus = statusFilter === 'All' || effectiveStatus === statusFilter;
     
     if (alertFilter === 'HasAlerts') {
       const alerts = getVehicleAlerts(v);
@@ -239,7 +252,7 @@ export default function VehicleManagement({
   const getStatusText = (st: VehicleStatus) => {
     switch (st) {
       case 'Available': return '🟢 ว่างพร้อมใช้งาน';
-      case 'In Use': return '🔵 กำลังเดินทาง';
+      case 'In Use': return '🔵 ติดภารกิจ / กำลังใช้งาน';
       case 'Maintenance': return '🔴 ซ่อมบำรุง';
       default: return st;
     }
@@ -417,7 +430,7 @@ export default function VehicleManagement({
                   className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
                 />
                 <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
-                  {getStatusText(vehicle.status)}
+                  {getStatusText(getEffectiveStatus(vehicle))}
                 </div>
                 <div className="absolute top-3 right-3 bg-indigo-600 text-white px-2.5 py-1 rounded-md text-xs font-semibold shadow-xs">
                   {typeLabels[vehicle.type] || vehicle.type}
@@ -581,7 +594,8 @@ export default function VehicleManagement({
 
                   {/* 4. ผู้ใช้งานล่าสุด (Latest User / Trip Info) */}
                   {(() => {
-                    const latestUsage = getLatestVehicleUsage(vehicle.id, bookings);
+                    const latestUsage = getLatestVehicleUsage(vehicle, bookings);
+                    const effectiveStatus = getEffectiveStatus(vehicle);
                     return (
                       <div
                         id={`card-latest-user-${vehicle.id}`}
@@ -594,7 +608,13 @@ export default function VehicleManagement({
                           </span>
                           {latestUsage && (
                             <span className="text-[10px] text-gray-500 font-normal">
-                              {vehicle.status === 'In Use' ? '🔵 กำลังใช้งาน' : latestUsage.status === 'Completed' ? 'เสร็จสิ้น' : 'อนุมัติแล้ว'}
+                              {effectiveStatus === 'In Use'
+                                ? latestUsage.status === 'Approved'
+                                  ? '🔵 กำลังปฏิบัติภารกิจ'
+                                  : '🟡 ติดจอง (รออนุมัติ)'
+                                : latestUsage.status === 'Completed'
+                                ? 'เสร็จสิ้น'
+                                : 'อนุมัติแล้ว'}
                             </span>
                           )}
                         </div>
@@ -603,14 +623,19 @@ export default function VehicleManagement({
                           <div className="space-y-1.5 text-xs pt-0.5">
                             <div className="flex items-center gap-2 text-gray-800">
                               <CircleUser className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                              <div className="flex items-baseline gap-1.5 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                 <span className="font-semibold text-gray-900 truncate">
                                   {latestUsage.userName}
                                 </span>
                                 {latestUsage.userPhone && (
-                                  <span className="text-gray-400 text-[10px] font-mono shrink-0">
-                                    ({latestUsage.userPhone})
-                                  </span>
+                                  <a
+                                    href={`tel:${latestUsage.userPhone.replace(/[^0-9+]/g, '')}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-0.5 text-emerald-700 hover:text-emerald-800 text-[10px] font-mono font-bold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0"
+                                    title={`กดเพื่อโทรออก ${latestUsage.userPhone}`}
+                                  >
+                                    📞 {latestUsage.userPhone}
+                                  </a>
                                 )}
                               </div>
                             </div>

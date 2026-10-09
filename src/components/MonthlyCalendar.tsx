@@ -53,6 +53,8 @@ import {
   formatThaiDate,
   formatTripDateTime,
   getVehicleAlerts,
+  doesBookingMatchVehicle,
+  isBookingActiveStatus,
 } from '../utils/vehicleAlerts';
 
 interface MonthlyCalendarProps {
@@ -114,11 +116,9 @@ export default function MonthlyCalendar({
   const pendingLineBookings = useMemo(() => {
     if (!currentUser) return [];
     return bookings.filter(
-      (b) =>
-        (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
-        canUserViewBooking(b, currentUser, users)
+      (b) => b.status === 'Pending' || b.status === 'Pending_Approve2'
     );
-  }, [bookings, currentUser, users]);
+  }, [bookings, currentUser]);
 
   // Trip Checklist Modals for departure and return
   const [departureBooking, setDepartureBooking] = useState<Booking | null>(null);
@@ -497,17 +497,21 @@ export default function MonthlyCalendar({
     return days;
   }, [currentYear, currentMonth]);
 
-  // Map bookings to dates for fast lookups
+  // Map bookings to dates for fast lookups (including unreturned active missions up through today)
   const bookingsByDate = useMemo(() => {
     const map: { [dateStr: string]: Booking[] } = {};
     bookings.forEach((b) => {
       if (b.status === 'Cancelled') return;
       const start = b.startDate.substring(0, 10);
-      const end = b.endDate.substring(0, 10);
+      const rawEnd = b.endDate.substring(0, 10) || start;
+      const effectiveEnd =
+        isBookingActiveStatus(b.status) && start <= realTodayStr && rawEnd < realTodayStr
+          ? realTodayStr
+          : rawEnd;
 
-      // Add to each date between start and end
+      // Add to each date between start and effectiveEnd
       const s = new Date(start);
-      const e = new Date(end);
+      const e = new Date(effectiveEnd);
       if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
         const curr = new Date(s);
         while (curr <= e) {
@@ -520,11 +524,13 @@ export default function MonthlyCalendar({
         }
       } else {
         if (!map[start]) map[start] = [];
-        map[start].push(b);
+        if (!map[start].some((item) => item.id === b.id)) {
+          map[start].push(b);
+        }
       }
     });
     return map;
-  }, [bookings]);
+  }, [bookings, realTodayStr]);
 
   // Select date to inspect on overview and calendar
   const handleSelectDate = (dateStr: string) => {
@@ -561,7 +567,12 @@ export default function MonthlyCalendar({
       const available = vehicles.filter((v) => {
         if (v.status === 'Maintenance') return false;
         const dateBookings = bookingsByDate[targetDate] || [];
-        return !dateBookings.some((b) => b.vehicleId === v.id);
+        return !dateBookings.some(
+          (b) =>
+            doesBookingMatchVehicle(b, v) &&
+            b.status !== 'Completed' &&
+            b.status !== 'Cancelled'
+        );
       });
 
       if (available.length > 0) {
@@ -602,8 +613,12 @@ export default function MonthlyCalendar({
       return 'วันเวลาสิ้นสุดการจองต้องอยู่หลังวันเวลาเริ่มต้น';
     }
 
+    const targetVeh = vehicles.find((v) => v.id === vId);
     const relevant = bookings.filter(
-      (b) => b.vehicleId === vId && b.status !== 'Cancelled'
+      (b) =>
+        (b.vehicleId === vId || (targetVeh && doesBookingMatchVehicle(b, targetVeh))) &&
+        b.status !== 'Cancelled' &&
+        b.status !== 'Completed'
     );
 
     for (const b of relevant) {
@@ -995,9 +1010,26 @@ export default function MonthlyCalendar({
                             {b.vehicleName}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600 mt-0.5">
-                          ผู้ขอจอง: <strong>{b.userName}</strong> ({b.userDepartment || '-'})
-                        </p>
+                        <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            ผู้ขอจอง: <strong>{b.userName}</strong> ({b.userDepartment || '-'})
+                          </span>
+                          {(() => {
+                            const contactPhone =
+                              b.userPhone || users.find((u) => u.id === b.userId)?.phone || '';
+                            if (!contactPhone) return null;
+                            return (
+                              <a
+                                href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                                title={`กดเพื่อโทรออก ${contactPhone}`}
+                              >
+                                📞 {contactPhone}
+                              </a>
+                            );
+                          })()}
+                        </div>
                       </div>
 
                       <span
@@ -1206,12 +1238,18 @@ export default function MonthlyCalendar({
         <div className="grid grid-cols-7 divide-x divide-y divide-gray-100 bg-gray-50/50">
           {calendarDays.map((day) => {
             const dayBookings = bookingsByDate[day.dateStr] || [];
+            const activeDayBookings = dayBookings.filter(
+              (b) => b.status !== 'Completed' && b.status !== 'Cancelled'
+            );
             const isToday = day.isToday;
             const isSelected = selectedDateStr === day.dateStr;
-            const bookedVehicleIds = new Set(dayBookings.map((b) => b.vehicleId));
-            const availableCount = vehicles.filter(
-              (v) => v.status !== 'Maintenance' && !bookedVehicleIds.has(v.id)
-            ).length;
+            const availableCount = vehicles.filter((v) => {
+              if (v.status === 'Maintenance') return false;
+              const isVehBooked = activeDayBookings.some((b) =>
+                doesBookingMatchVehicle(b, v)
+              );
+              return !isVehBooked;
+            }).length;
             const isFullyBooked = availableCount === 0 && vehicles.length > 0;
 
             return (
@@ -1310,15 +1348,15 @@ export default function MonthlyCalendar({
                   </div>
                 </div>
 
-                {/* Bookings inside day cell */}
+                {/* Bookings inside day cell (Always displays booker name directly) */}
                 <div className="space-y-1 my-1 overflow-hidden">
                   {dayBookings.slice(0, 2).map((b) => {
-                    const isAllowed = canUserViewBooking(b, currentUser, users);
                     return (
                       <div
                         key={b.id}
                         onClick={(e) => {
                           e.stopPropagation();
+                          handleSelectDate(day.dateStr);
                           setViewingDayBookings(day.dateStr);
                         }}
                         className={`px-1.5 py-1 rounded text-[10px] font-medium border truncate flex items-center gap-1 transition-transform hover:scale-[1.02] ${
@@ -1328,10 +1366,13 @@ export default function MonthlyCalendar({
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                             : 'bg-amber-50 text-amber-800 border-amber-200'
                         }`}
-                        title={isAllowed ? `${b.vehicleName} • ${b.userName} (${b.destination})` : `${b.vehicleName} • ติดภารกิจ`}
+                        title={`${b.vehicleName} • ผู้จอง: ${b.userName}${b.userDepartment ? ` (${b.userDepartment})` : ''} • ปลายทาง: ${b.destination}`}
                       >
                         <Car className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{isAllowed ? b.userName : 'ติดภารกิจ'}</span>
+                        <span className="truncate font-semibold">
+                          {b.userName}
+                          {b.plateNumber ? ` (${b.plateNumber})` : ''}
+                        </span>
                       </div>
                     );
                   })}
@@ -1340,6 +1381,7 @@ export default function MonthlyCalendar({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleSelectDate(day.dateStr);
                         setViewingDayBookings(day.dateStr);
                       }}
                       className="text-[9px] text-indigo-600 font-bold hover:underline block text-center w-full"
@@ -1425,17 +1467,29 @@ export default function MonthlyCalendar({
 
                 {/* 1. User Info Header */}
                 <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
-                      {currentUser ? currentUser.name.substring(0, 2) : '?'}
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                        {currentUser ? currentUser.name.substring(0, 2) : '?'}
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block font-semibold">ผู้ขอจอง:</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-gray-900 text-xs">
+                            {currentUser ? `${currentUser.name} (${currentUser.department})` : 'ไม่ได้เลือกผู้ใช้'}
+                          </span>
+                          {currentUser?.phone && (
+                            <a
+                              href={`tel:${currentUser.phone.replace(/[^0-9+]/g, '')}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                              title={`กดเพื่อโทรออก ${currentUser.phone}`}
+                            >
+                              📞 {currentUser.phone}
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-[10px] text-gray-400 block font-semibold">ผู้ขอจอง:</span>
-                      <span className="font-bold text-gray-900 text-xs">
-                        {currentUser ? `${currentUser.name} (${currentUser.department})` : 'ไม่ได้เลือกผู้ใช้'}
-                      </span>
-                    </div>
-                  </div>
                 </div>
 
                 {/* 2. Choose Vehicle */}
@@ -1446,7 +1500,13 @@ export default function MonthlyCalendar({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto p-1">
                     {vehicles.map((v) => {
                       const dayBookings = bookingsByDate[selectedDateStr] || [];
-                      const isBooked = dayBookings.some((b) => b.vehicleId === v.id);
+                      const matchedDayBooking = dayBookings.find(
+                        (b) =>
+                          doesBookingMatchVehicle(b, v) &&
+                          b.status !== 'Completed' &&
+                          b.status !== 'Cancelled'
+                      );
+                      const isBooked = Boolean(matchedDayBooking);
                       const isMaintenance = v.status === 'Maintenance';
                       const isSelected = selectedVehicleId === v.id;
 
@@ -1462,10 +1522,10 @@ export default function MonthlyCalendar({
                             🔴 ซ่อมบำรุง
                           </span>
                         );
-                      } else if (isBooked) {
+                      } else if (isBooked && matchedDayBooking) {
                         statusBadge = (
                           <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                            🟡 มีจองบางช่วง
+                            🟡 ติดภารกิจ/จอง (คุณ {matchedDayBooking.userName})
                           </span>
                         );
                       }
@@ -1790,10 +1850,20 @@ export default function MonthlyCalendar({
                                 {approver.department}
                                 {approver.division ? ` • ${approver.division}` : ''}
                               </span>
-                              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                                 <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
                                   Approve 1
                                 </span>
+                                {approver.phone && (
+                                  <a
+                                    href={`tel:${approver.phone.replace(/[^0-9+]/g, '')}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[10px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                                    title={`กดเพื่อโทรออก ${approver.phone}`}
+                                  >
+                                    📞 {approver.phone}
+                                  </a>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1994,8 +2064,26 @@ export default function MonthlyCalendar({
                               : 'รอผู้จัดการ'}
                           </span>
                         </div>
-                        <div className="text-gray-700 font-medium">
-                          👤 ผู้จอง: {isAllowed ? `${b.userName} ${b.userPhone ? `(${b.userPhone})` : ''}` : 'ผู้ใช้งานภายในองค์กร (สงวนสิทธิ์การดู)'}
+                        <div className="text-gray-800 font-semibold flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            👤 ผู้จอง/ผู้ใช้รถ: {b.userName}
+                            {b.userDepartment ? ` (${b.userDepartment})` : ''}
+                          </span>
+                          {(() => {
+                            const contactPhone =
+                              b.userPhone || users.find((u) => u.id === b.userId)?.phone || '';
+                            if (!contactPhone) return null;
+                            return (
+                              <a
+                                href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-bold hover:underline bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
+                                title={`กดเพื่อโทรออก ${contactPhone}`}
+                              >
+                                📞 {contactPhone}
+                              </a>
+                            );
+                          })()}
                         </div>
                         <div className="text-gray-600 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-gray-400" />
@@ -2004,7 +2092,10 @@ export default function MonthlyCalendar({
                         <div className="text-gray-600 flex items-center justify-between gap-2 pt-1 flex-wrap">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                            <span className="truncate">ปลายทาง: {isAllowed ? b.destination : 'ติดภารกิจ'}</span>
+                            <span className="truncate">
+                              ปลายทาง: {b.destination}
+                              {b.purpose ? ` • ${b.purpose}` : ''}
+                            </span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {canCancelDayBooking && onUpdateBookingStatus && (
@@ -2123,46 +2214,30 @@ export default function MonthlyCalendar({
 
               <form onSubmit={handleSaveDeparture} className="flex-1 overflow-y-auto pr-1 space-y-4">
                 {/* 1. ไมล์เริ่มต้น (ดึงข้อมูลจากเลขไมล์ของรถคันนั้นมาแสดง แต่สามารถปรับแก้เองได้) */}
-                {(() => {
-                  const vehLatestMileage = departureBooking
-                    ? getVehicleLatestMileage(departureBooking)
-                    : undefined;
-                  return (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <label className="block text-xs font-bold text-gray-800">
-                          1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
-                        </label>
-                        {vehLatestMileage !== undefined && (
-                          <button
-                            type="button"
-                            onClick={() => setStartMileageInput(String(vehLatestMileage))}
-                            className="text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg cursor-pointer transition-colors"
-                          >
-                            🔄 ดึงเลขไมล์รถล่าสุด ({vehLatestMileage.toLocaleString()} km.)
-                          </button>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <input
-                          id="home-input-start-mileage"
-                          type="number"
-                          value={startMileageInput}
-                          onChange={(e) => setStartMileageInput(e.target.value)}
-                          placeholder="เช่น 18200"
-                          className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                          required
-                        />
-                        <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
-                          km.
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-500">
-                        ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
-                      </p>
-                    </div>
-                  );
-                })()}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="block text-xs font-bold text-gray-800">
+                      1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="home-input-start-mileage"
+                      type="number"
+                      value={startMileageInput}
+                      onChange={(e) => setStartMileageInput(e.target.value)}
+                      placeholder="เช่น 18200"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      required
+                    />
+                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                      km.
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
+                  </p>
+                </div>
 
                 {/* 2. น้ำมันเริ่มต้น พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
                 <div className="space-y-2 pt-2 border-t border-gray-100">

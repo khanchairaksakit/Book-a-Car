@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
-import { Building2, FolderTree, Plus, Trash2, Edit2, Check, X, Search, Users, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building2, FolderTree, Plus, Trash2, Edit2, Check, X, Search, Users, AlertCircle, Save } from 'lucide-react';
 import { User } from '../types';
+
+export interface DeptDivRenameItem {
+  oldName: string;
+  newName: string;
+}
 
 interface DepartmentDivisionModalProps {
   isOpen: boolean;
@@ -10,6 +15,12 @@ interface DepartmentDivisionModalProps {
   users: User[];
   onSaveDepartments: (newDepts: string[]) => void;
   onSaveDivisions: (newDivs: string[]) => void;
+  onSaveAll?: (
+    newDepts: string[],
+    newDivs: string[],
+    deptRenames: DeptDivRenameItem[],
+    divRenames: DeptDivRenameItem[]
+  ) => Promise<void> | void;
   onDepartmentAdded?: (deptName: string) => void;
   onDivisionAdded?: (divName: string) => void;
   onRenameDepartment?: (oldName: string, newName: string) => void;
@@ -25,6 +36,7 @@ export default function DepartmentDivisionModal({
   users,
   onSaveDepartments,
   onSaveDivisions,
+  onSaveAll,
   onDepartmentAdded,
   onDivisionAdded,
   onRenameDepartment,
@@ -33,6 +45,17 @@ export default function DepartmentDivisionModal({
 }: DepartmentDivisionModalProps) {
   const isEn = language === 'en';
   const [activeTab, setActiveTab] = useState<'departments' | 'divisions'>('departments');
+
+  // Local draft lists so edits/deletions/additions are confirmed via the Save button
+  const [draftDepartments, setDraftDepartments] = useState<string[]>(departments);
+  const [draftDivisions, setDraftDivisions] = useState<string[]>(divisions);
+  const [pendingDeptRenames, setPendingDeptRenames] = useState<DeptDivRenameItem[]>([]);
+  const [pendingDivRenames, setPendingDivRenames] = useState<DeptDivRenameItem[]>([]);
+  const [lastAddedDept, setLastAddedDept] = useState<string | null>(null);
+  const [lastAddedDiv, setLastAddedDiv] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showUnsavedCloseConfirm, setShowUnsavedCloseConfirm] = useState(false);
 
   // New item inputs
   const [newDepartmentName, setNewDepartmentName] = useState('');
@@ -50,143 +73,190 @@ export default function DepartmentDivisionModal({
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Sync draft state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setDraftDepartments(departments);
+      setDraftDivisions(divisions);
+      setPendingDeptRenames([]);
+      setPendingDivRenames([]);
+      setLastAddedDept(null);
+      setLastAddedDiv(null);
+      setHasUnsavedChanges(false);
+      setShowUnsavedCloseConfirm(false);
+      setEditingItem(null);
+      setNewDepartmentName('');
+      setNewDivisionName('');
+      setErrorMsg('');
+      setSuccessMsg('');
+    }
+  }, [isOpen]);
+
+  // Keep draft synced with incoming props if user hasn't made unsaved edits yet
+  useEffect(() => {
+    if (isOpen && !hasUnsavedChanges && !editingItem) {
+      setDraftDepartments(departments);
+      setDraftDivisions(divisions);
+    }
+  }, [departments, divisions, isOpen, hasUnsavedChanges, editingItem]);
+
   if (!isOpen) return null;
 
-  // Department counts
+  // Department counts (accounting for pending renames)
   const getDeptUserCount = (deptName: string) => {
-    return users.filter((u) => (u.department || '').trim().toLowerCase() === deptName.trim().toLowerCase()).length;
+    const renameEntry = pendingDeptRenames.find(
+      (r) => r.newName.trim().toLowerCase() === deptName.trim().toLowerCase()
+    );
+    const lookupName = renameEntry ? renameEntry.oldName : deptName;
+    return users.filter(
+      (u) =>
+        (u.department || '').trim().toLowerCase() === lookupName.trim().toLowerCase() ||
+        (u.department || '').trim().toLowerCase() === deptName.trim().toLowerCase()
+    ).length;
   };
 
-  // Division counts
+  // Division counts (accounting for pending renames)
   const getDivUserCount = (divName: string) => {
-    return users.filter((u) => (u.division || '').trim().toLowerCase() === divName.trim().toLowerCase()).length;
+    const renameEntry = pendingDivRenames.find(
+      (r) => r.newName.trim().toLowerCase() === divName.trim().toLowerCase()
+    );
+    const lookupName = renameEntry ? renameEntry.oldName : divName;
+    return users.filter(
+      (u) =>
+        (u.division || '').trim().toLowerCase() === lookupName.trim().toLowerCase() ||
+        (u.division || '').trim().toLowerCase() === divName.trim().toLowerCase()
+    ).length;
+  };
+
+  const recordDeptRename = (
+    list: DeptDivRenameItem[],
+    oldName: string,
+    newName: string
+  ): DeptDivRenameItem[] => {
+    const existingIdx = list.findIndex((item) => item.newName === oldName);
+    if (existingIdx >= 0) {
+      const updated = [...list];
+      updated[existingIdx] = { oldName: updated[existingIdx].oldName, newName };
+      return updated;
+    }
+    return [...list, { oldName, newName }];
+  };
+
+  const recordDivRename = (
+    list: DeptDivRenameItem[],
+    oldName: string,
+    newName: string
+  ): DeptDivRenameItem[] => {
+    const existingIdx = list.findIndex((item) => item.newName === oldName);
+    if (existingIdx >= 0) {
+      const updated = [...list];
+      updated[existingIdx] = { oldName: updated[existingIdx].oldName, newName };
+      return updated;
+    }
+    return [...list, { oldName, newName }];
   };
 
   const handleAddDepartment = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
+    setShowUnsavedCloseConfirm(false);
     const trimmed = newDepartmentName.trim();
     if (!trimmed) {
       setErrorMsg(isEn ? 'Please enter a department name' : 'กรุณาระบุชื่อแผนก');
       return;
     }
-    if (departments.some((d) => d.trim().toLowerCase() === trimmed.toLowerCase())) {
-      setErrorMsg(isEn ? 'This department already exists' : 'แผนกนี้มีอยู่ในระบบแล้ว');
+    if (draftDepartments.some((d) => d.trim().toLowerCase() === trimmed.toLowerCase())) {
+      setErrorMsg(isEn ? 'This department already exists' : 'แผนกนี้มีอยู่ในรายการแล้ว');
       return;
     }
-    const updated = [...departments, trimmed];
-    onSaveDepartments(updated);
-    if (onDepartmentAdded) onDepartmentAdded(trimmed);
+    const updated = [...draftDepartments, trimmed];
+    setDraftDepartments(updated);
+    setLastAddedDept(trimmed);
+    setHasUnsavedChanges(true);
     setNewDepartmentName('');
-    setSuccessMsg(isEn ? `Added "${trimmed}" successfully` : `เพิ่มแผนก "${trimmed}" เรียบร้อยแล้ว`);
-    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
   const handleAddDivision = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
+    setShowUnsavedCloseConfirm(false);
     const trimmed = newDivisionName.trim();
     if (!trimmed) {
       setErrorMsg(isEn ? 'Please enter a division name' : 'กรุณาระบุชื่อฝ่าย');
       return;
     }
-    if (divisions.some((d) => d.trim().toLowerCase() === trimmed.toLowerCase())) {
-      setErrorMsg(isEn ? 'This division already exists' : 'ฝ่ายนี้มีอยู่ในระบบแล้ว');
+    if (draftDivisions.some((d) => d.trim().toLowerCase() === trimmed.toLowerCase())) {
+      setErrorMsg(isEn ? 'This division already exists' : 'ฝ่ายนี้มีอยู่ในรายการแล้ว');
       return;
     }
-    const updated = [...divisions, trimmed];
-    onSaveDivisions(updated);
-    if (onDivisionAdded) onDivisionAdded(trimmed);
+    const updated = [...draftDivisions, trimmed];
+    setDraftDivisions(updated);
+    setLastAddedDiv(trimmed);
+    setHasUnsavedChanges(true);
     setNewDivisionName('');
-    setSuccessMsg(isEn ? `Added "${trimmed}" successfully` : `เพิ่มฝ่าย "${trimmed}" เรียบร้อยแล้ว`);
-    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
-  const commitPendingEdit = (
-    currentDepts: string[] = departments,
-    currentDivs: string[] = divisions
-  ): { nextDepts: string[]; nextDivs: string[] } => {
+  const commitPendingEditToDraft = (
+    currentDepts: string[] = draftDepartments,
+    currentDivs: string[] = draftDivisions,
+    currentDeptRenames: DeptDivRenameItem[] = pendingDeptRenames,
+    currentDivRenames: DeptDivRenameItem[] = pendingDivRenames
+  ): {
+    nextDepts: string[];
+    nextDivs: string[];
+    nextDeptRenames: DeptDivRenameItem[];
+    nextDivRenames: DeptDivRenameItem[];
+    changed: boolean;
+  } => {
     let nextDepts = [...currentDepts];
     let nextDivs = [...currentDivs];
-    if (!editingItem) return { nextDepts, nextDivs };
+    let nextDeptRenames = [...currentDeptRenames];
+    let nextDivRenames = [...currentDivRenames];
+    let changed = false;
+
+    if (!editingItem) {
+      return { nextDepts, nextDivs, nextDeptRenames, nextDivRenames, changed };
+    }
 
     const { type, oldName, newName } = editingItem;
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName) {
       setEditingItem(null);
-      return { nextDepts, nextDivs };
+      return { nextDepts, nextDivs, nextDeptRenames, nextDivRenames, changed };
     }
 
     if (type === 'department') {
       if (!nextDepts.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
         nextDepts = nextDepts.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
-        onSaveDepartments(nextDepts);
-        if (onRenameDepartment) {
-          onRenameDepartment(oldName, trimmed);
-        }
-        setSuccessMsg(
-          isEn ? `Renamed to "${trimmed}"` : `บันทึกการแก้ไขแผนกเป็น "${trimmed}" เรียบร้อยแล้ว`
-        );
-        setTimeout(() => setSuccessMsg(''), 3000);
+        nextDeptRenames = recordDeptRename(nextDeptRenames, oldName, trimmed);
+        changed = true;
       }
     } else {
       if (!nextDivs.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
         nextDivs = nextDivs.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
-        onSaveDivisions(nextDivs);
-        if (onRenameDivision) {
-          onRenameDivision(oldName, trimmed);
-        }
-        setSuccessMsg(
-          isEn ? `Renamed to "${trimmed}"` : `บันทึกการแก้ไขฝ่ายเป็น "${trimmed}" เรียบร้อยแล้ว`
-        );
-        setTimeout(() => setSuccessMsg(''), 3000);
+        nextDivRenames = recordDivRename(nextDivRenames, oldName, trimmed);
+        changed = true;
       }
     }
 
+    setDraftDepartments(nextDepts);
+    setDraftDivisions(nextDivs);
+    setPendingDeptRenames(nextDeptRenames);
+    setPendingDivRenames(nextDivRenames);
+    if (changed) {
+      setHasUnsavedChanges(true);
+    }
     setEditingItem(null);
-    return { nextDepts, nextDivs };
-  };
-
-  const handleDoneAndClose = () => {
-    // 1. First commit any active inline edit
-    const { nextDepts, nextDivs } = commitPendingEdit(departments, divisions);
-
-    // 2. Then auto-save any typed pending new department or division before closing
-    const pendingDept = newDepartmentName.trim();
-    if (pendingDept && !nextDepts.some((d) => d.trim().toLowerCase() === pendingDept.toLowerCase())) {
-      const updatedDepts = [...nextDepts, pendingDept];
-      onSaveDepartments(updatedDepts);
-      if (onDepartmentAdded) onDepartmentAdded(pendingDept);
-      setNewDepartmentName('');
-    }
-    const pendingDiv = newDivisionName.trim();
-    if (pendingDiv && !nextDivs.some((d) => d.trim().toLowerCase() === pendingDiv.toLowerCase())) {
-      const updatedDivs = [...nextDivs, pendingDiv];
-      onSaveDivisions(updatedDivs);
-      if (onDivisionAdded) onDivisionAdded(pendingDiv);
-      setNewDivisionName('');
-    }
-    onClose();
-  };
-
-  const handleDeleteDepartment = (deptName: string) => {
-    const updated = departments.filter((d) => d !== deptName);
-    onSaveDepartments(updated);
-    setSuccessMsg(isEn ? `Deleted "${deptName}"` : `ลบแผนก "${deptName}" เรียบร้อยแล้ว`);
-    setTimeout(() => setSuccessMsg(''), 3000);
-  };
-
-  const handleDeleteDivision = (divName: string) => {
-    const updated = divisions.filter((d) => d !== divName);
-    onSaveDivisions(updated);
-    setSuccessMsg(isEn ? `Deleted "${divName}"` : `ลบฝ่าย "${divName}" เรียบร้อยแล้ว`);
-    setTimeout(() => setSuccessMsg(''), 3000);
+    return { nextDepts, nextDivs, nextDeptRenames, nextDivRenames, changed };
   };
 
   const handleSaveEdit = () => {
     if (!editingItem) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setShowUnsavedCloseConfirm(false);
     const { type, oldName, newName } = editingItem;
     const trimmed = newName.trim();
     if (!trimmed) {
@@ -200,45 +270,168 @@ export default function DepartmentDivisionModal({
     }
 
     if (type === 'department') {
-      if (departments.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
+      if (draftDepartments.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
         setErrorMsg(isEn ? 'This department name already exists' : 'มีชื่อแผนกนี้อยู่แล้ว');
         return;
       }
-      const updated = departments.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
-      onSaveDepartments(updated);
-      if (onRenameDepartment) {
-        onRenameDepartment(oldName, trimmed);
-      }
-      setSuccessMsg(isEn ? `Renamed to "${trimmed}"` : `เปลี่ยนชื่อแผนกเป็น "${trimmed}" เรียบร้อยแล้ว`);
+      const updated = draftDepartments.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
+      setDraftDepartments(updated);
+      setPendingDeptRenames((prev) => recordDeptRename(prev, oldName, trimmed));
+      setHasUnsavedChanges(true);
     } else {
-      if (divisions.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
+      if (draftDivisions.some((d) => d.toLowerCase() === trimmed.toLowerCase() && d !== oldName)) {
         setErrorMsg(isEn ? 'This division name already exists' : 'มีชื่อฝ่ายนี้อยู่แล้ว');
         return;
       }
-      const updated = divisions.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
-      onSaveDivisions(updated);
-      if (onRenameDivision) {
-        onRenameDivision(oldName, trimmed);
-      }
-      setSuccessMsg(isEn ? `Renamed to "${trimmed}"` : `เปลี่ยนชื่อฝ่ายเป็น "${trimmed}" เรียบร้อยแล้ว`);
+      const updated = draftDivisions.map((d) => (d === oldName || d.trim() === oldName.trim() ? trimmed : d));
+      setDraftDivisions(updated);
+      setPendingDivRenames((prev) => recordDivRename(prev, oldName, trimmed));
+      setHasUnsavedChanges(true);
     }
 
     setEditingItem(null);
-    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
-  const filteredDepartments = departments.filter((d) =>
+  const handleDeleteDepartment = (deptName: string) => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setShowUnsavedCloseConfirm(false);
+    const updated = draftDepartments.filter((d) => d !== deptName);
+    setDraftDepartments(updated);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleDeleteDivision = (divName: string) => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setShowUnsavedCloseConfirm(false);
+    const updated = draftDivisions.filter((d) => d !== divName);
+    setDraftDivisions(updated);
+    setHasUnsavedChanges(true);
+  };
+
+  // Explicit Save Button handler to confirm all additions, edits, and deletions
+  const handleConfirmSave = async (closeAfterSave = false) => {
+    setErrorMsg('');
+    setShowUnsavedCloseConfirm(false);
+
+    // 1. Commit any open inline edit first
+    let {
+      nextDepts,
+      nextDivs,
+      nextDeptRenames,
+      nextDivRenames,
+    } = commitPendingEditToDraft(
+      draftDepartments,
+      draftDivisions,
+      pendingDeptRenames,
+      pendingDivRenames
+    );
+
+    // 2. Also include any text typed in the Add input boxes if user didn't click "+ เพิ่ม" yet
+    const pendingDept = newDepartmentName.trim();
+    let finalAddedDept = lastAddedDept;
+    if (pendingDept && !nextDepts.some((d) => d.trim().toLowerCase() === pendingDept.toLowerCase())) {
+      nextDepts = [...nextDepts, pendingDept];
+      finalAddedDept = pendingDept;
+      setDraftDepartments(nextDepts);
+      setNewDepartmentName('');
+    }
+
+    const pendingDiv = newDivisionName.trim();
+    let finalAddedDiv = lastAddedDiv;
+    if (pendingDiv && !nextDivs.some((d) => d.trim().toLowerCase() === pendingDiv.toLowerCase())) {
+      nextDivs = [...nextDivs, pendingDiv];
+      finalAddedDiv = pendingDiv;
+      setDraftDivisions(nextDivs);
+      setNewDivisionName('');
+    }
+
+    setIsSaving(true);
+    try {
+      if (onSaveAll) {
+        await onSaveAll(nextDepts, nextDivs, nextDeptRenames, nextDivRenames);
+      } else {
+        onSaveDepartments(nextDepts);
+        onSaveDivisions(nextDivs);
+        nextDeptRenames.forEach((r) => onRenameDepartment?.(r.oldName, r.newName));
+        nextDivRenames.forEach((r) => onRenameDivision?.(r.oldName, r.newName));
+      }
+
+      if (finalAddedDept && onDepartmentAdded) {
+        onDepartmentAdded(finalAddedDept);
+      }
+      if (finalAddedDiv && onDivisionAdded) {
+        onDivisionAdded(finalAddedDiv);
+      }
+
+      setPendingDeptRenames([]);
+      setPendingDivRenames([]);
+      setLastAddedDept(null);
+      setLastAddedDiv(null);
+      setHasUnsavedChanges(false);
+      setSuccessMsg(
+        isEn
+          ? 'Saved department and division settings successfully!'
+          : 'บันทึกข้อมูลแผนกและฝ่ายเรียบร้อยแล้ว'
+      );
+      setTimeout(() => setSuccessMsg(''), 4000);
+
+      if (closeAfterSave) {
+        onClose();
+      }
+    } catch (err) {
+      console.error('Error saving department/division settings:', err);
+      setErrorMsg(
+        isEn ? 'Failed to save changes. Please try again.' : 'เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่อีกครั้ง'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRequestClose = () => {
+    const hasPendingInlineEdit =
+      editingItem && editingItem.newName.trim() !== '' && editingItem.newName.trim() !== editingItem.oldName;
+    const hasPendingTypedNew =
+      newDepartmentName.trim() !== '' || newDivisionName.trim() !== '';
+
+    if (hasUnsavedChanges || hasPendingInlineEdit || hasPendingTypedNew) {
+      setShowUnsavedCloseConfirm(true);
+      return;
+    }
+    onClose();
+  };
+
+  const handleDiscardAndClose = () => {
+    setDraftDepartments(departments);
+    setDraftDivisions(divisions);
+    setPendingDeptRenames([]);
+    setPendingDivRenames([]);
+    setHasUnsavedChanges(false);
+    setShowUnsavedCloseConfirm(false);
+    setEditingItem(null);
+    onClose();
+  };
+
+  const filteredDepartments = draftDepartments.filter((d) =>
     d.toLowerCase().includes(filterQuery.toLowerCase())
   );
 
-  const filteredDivisions = divisions.filter((d) =>
+  const filteredDivisions = draftDivisions.filter((d) =>
     d.toLowerCase().includes(filterQuery.toLowerCase())
   );
+
+  const hasAnyPendingChanges =
+    hasUnsavedChanges ||
+    Boolean(editingItem && editingItem.newName.trim() !== '' && editingItem.newName.trim() !== editingItem.oldName) ||
+    newDepartmentName.trim() !== '' ||
+    newDivisionName.trim() !== '';
 
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
-      onClick={handleDoneAndClose}
+      onClick={handleRequestClose}
     >
       <div
         className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-gray-100 overflow-hidden"
@@ -256,14 +449,14 @@ export default function DepartmentDivisionModal({
               </h3>
               <p className="text-xs text-indigo-200/80 mt-0.5">
                 {isEn
-                  ? 'Define custom departments and divisions for your organization'
-                  : 'กำหนด เพิ่ม แก้ไข หรือลบชื่อแผนกและฝ่ายสำหรับผู้ใช้งานในองค์กร'}
+                  ? 'Define custom departments and divisions, then click Save to confirm'
+                  : 'เมื่อเพิ่ม แก้ไข หรือลบแผนกและฝ่ายแล้ว กรุณากดปุ่ม "บันทึกข้อมูล" เพื่อยืนยัน'}
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={handleDoneAndClose}
+            onClick={handleRequestClose}
             className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
             title="ปิดหน้าต่าง"
           >
@@ -272,13 +465,13 @@ export default function DepartmentDivisionModal({
         </div>
 
         {/* Tab Switcher */}
-        <div className="px-5 pt-4 pb-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-5 pt-4 pb-2 bg-slate-50 border-b border-gray-200 flex items-center justify-between gap-3 shrink-0 flex-wrap">
           <div className="flex items-center gap-2 p-1 bg-gray-200/80 rounded-2xl text-xs font-bold">
             <button
               type="button"
               id="tab-btn-departments"
               onClick={() => {
-                commitPendingEdit();
+                commitPendingEditToDraft();
                 setActiveTab('departments');
                 setErrorMsg('');
                 setFilterQuery('');
@@ -292,7 +485,7 @@ export default function DepartmentDivisionModal({
               <FolderTree className="w-4 h-4" />
               <span>{isEn ? 'Departments' : 'แผนก (Departments)'}</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-600 font-mono">
-                {departments.length}
+                {draftDepartments.length}
               </span>
             </button>
 
@@ -300,7 +493,7 @@ export default function DepartmentDivisionModal({
               type="button"
               id="tab-btn-divisions"
               onClick={() => {
-                commitPendingEdit();
+                commitPendingEditToDraft();
                 setActiveTab('divisions');
                 setErrorMsg('');
                 setFilterQuery('');
@@ -314,11 +507,49 @@ export default function DepartmentDivisionModal({
               <Building2 className="w-4 h-4" />
               <span>{isEn ? 'Divisions' : 'ฝ่าย (Divisions)'}</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-600 font-mono">
-                {divisions.length}
+                {draftDivisions.length}
               </span>
             </button>
           </div>
+
+          {hasAnyPendingChanges && (
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1.5 animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span>{isEn ? 'Unsaved changes - click Save below' : 'มีการแก้ไขที่ยังไม่ได้กดบันทึก'}</span>
+            </span>
+          )}
         </div>
+
+        {/* Unsaved Close Confirmation Prompt */}
+        {showUnsavedCloseConfirm && (
+          <div className="mx-5 mt-3 p-3.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>
+                {isEn
+                  ? 'You have unsaved changes. Please click Save to confirm or Discard to cancel.'
+                  : 'คุณมีการแก้ไขหรือลบข้อมูลที่ยังไม่ได้ยืนยัน กรุณากด "บันทึกและยืนยัน" เพื่อบันทึกข้อมูล'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleDiscardAndClose}
+                className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-xl font-semibold cursor-pointer"
+              >
+                {isEn ? 'Discard' : 'ไม่บันทึก'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmSave(true)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold cursor-pointer flex items-center gap-1 shadow-xs"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Save & Close' : 'บันทึกและยืนยัน'}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Notifications */}
         {errorMsg && (
@@ -328,7 +559,7 @@ export default function DepartmentDivisionModal({
           </div>
         )}
         {successMsg && (
-          <div className="mx-5 mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs flex items-center gap-2 font-medium animate-in fade-in">
+          <div className="mx-5 mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs flex items-center gap-2 font-semibold animate-in fade-in">
             <Check className="w-4 h-4 shrink-0 text-emerald-600" />
             <span>{successMsg}</span>
           </div>
@@ -433,7 +664,7 @@ export default function DepartmentDivisionModal({
                             type="button"
                             onClick={handleSaveEdit}
                             className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer"
-                            title="บันทึก"
+                            title="ตกลง"
                           >
                             <Check className="w-3.5 h-3.5" />
                           </button>
@@ -465,7 +696,7 @@ export default function DepartmentDivisionModal({
                             <button
                               type="button"
                               onClick={() => {
-                                commitPendingEdit();
+                                commitPendingEditToDraft();
                                 setEditingItem({ type: 'department', oldName: dept, newName: dept });
                               }}
                               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
@@ -527,7 +758,7 @@ export default function DepartmentDivisionModal({
                             type="button"
                             onClick={handleSaveEdit}
                             className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer"
-                            title="บันทึก"
+                            title="ตกลง"
                           >
                             <Check className="w-3.5 h-3.5" />
                           </button>
@@ -559,7 +790,7 @@ export default function DepartmentDivisionModal({
                             <button
                               type="button"
                               onClick={() => {
-                                commitPendingEdit();
+                                commitPendingEditToDraft();
                                 setEditingItem({ type: 'division', oldName: div, newName: div });
                               }}
                               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
@@ -586,20 +817,55 @@ export default function DepartmentDivisionModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500 shrink-0">
-          <p>
-            {isEn
-              ? 'Changes will be automatically saved and available across employee registration forms.'
-              : 'การเพิ่มหรือแก้ไขแผนก/ฝ่ายจะถูกบันทึกและแสดงในเมนูกำหนดผู้ใช้งานทันที'}
+        {/* Footer with Explicit Save Button */}
+        <div className="p-4 bg-slate-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-gray-500 shrink-0">
+          <p className="text-gray-600 font-medium">
+            {hasAnyPendingChanges ? (
+              <span className="text-amber-700 font-semibold">
+                {isEn
+                  ? '⚠️ Please click "Save Changes" to confirm your edits or deletions.'
+                  : '⚠️ มีการเพิ่ม แก้ไข หรือลบข้อมูล กรุณากดปุ่ม "บันทึกข้อมูล" เพื่อยืนยัน'}
+              </span>
+            ) : (
+              <span>
+                {isEn
+                  ? 'Click "Save Changes" after modifying departments or divisions.'
+                  : 'เมื่อเพิ่ม แก้ไข หรือลบแผนกและฝ่ายแล้ว กดปุ่ม "บันทึกข้อมูล" เพื่อยืนยัน'}
+              </span>
+            )}
           </p>
-          <button
-            type="button"
-            onClick={handleDoneAndClose}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold cursor-pointer transition-all shadow-xs"
-          >
-            {isEn ? 'Done' : 'เสร็จสิ้น'}
-          </button>
+          <div className="flex items-center justify-end gap-2 shrink-0">
+            <button
+              type="button"
+              id="btn-close-dept-div-modal"
+              onClick={handleRequestClose}
+              className="px-4 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-xl font-semibold cursor-pointer transition-all"
+            >
+              {isEn ? 'Close' : 'ปิดหน้าต่าง'}
+            </button>
+            <button
+              type="button"
+              id="btn-save-dept-div-modal"
+              disabled={isSaving}
+              onClick={() => handleConfirmSave(false)}
+              className={`px-5 py-2 rounded-xl font-bold cursor-pointer transition-all shadow-sm flex items-center gap-1.5 ${
+                hasAnyPendingChanges
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              }`}
+            >
+              <Save className="w-4 h-4" />
+              <span>
+                {isSaving
+                  ? isEn
+                    ? 'Saving...'
+                    : 'กำลังบันทึก...'
+                  : isEn
+                  ? 'Save Changes'
+                  : 'บันทึกข้อมูล'}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

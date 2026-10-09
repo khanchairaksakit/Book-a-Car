@@ -6,7 +6,7 @@
 export type VehicleType = 'Sedan' | 'SUV' | 'Van' | 'Pickup';
 export type VehicleStatus = 'Available' | 'In Use' | 'Maintenance';
 
-export type FuelLevel = 'เต็มถัง' | '3/4' | '1/2' | '1/4';
+export type FuelLevel = 'เต็มถัง' | '3/4' | '1/2' | '1/4' | 'ใกล้หมด';
 
 export type BookingStatus =
   | 'Pending' // รออนุมัติขั้นที่ 1 (Approve 1)

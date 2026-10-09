@@ -46,11 +46,12 @@ if (process.env.LINE_GROUP_ID && process.env.LINE_GROUP_ID.trim()) {
 // Persistent server-side booking store in os.tmpdir() to prevent workspace file-watcher freezes
 const BOOKINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_bookings_store.json');
 const LEGACY_BOOKINGS_STORE_FILE = path.join(__dirname, 'data', 'bookings_store.json');
-const ORG_SETTINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_org_settings_store.json');
+const ORG_SETTINGS_STORE_FILE = path.join(os.tmpdir(), 'ax_car_org_settings_v2_store.json');
 
 interface OrganizationSettingsData {
   departments: string[];
   divisions: string[];
+  version: number;
   updatedAt: string;
 }
 
@@ -63,6 +64,7 @@ function readOrgSettingsStore(): OrganizationSettingsData | null {
         return {
           departments: parsed.departments,
           divisions: parsed.divisions,
+          version: typeof parsed.version === 'number' ? parsed.version : 1,
           updatedAt: parsed.updatedAt || '',
         };
       }
@@ -933,9 +935,13 @@ app.post('/api/organization-settings', (req, res) => {
   }
 
   const updatedAt = body.updatedAt || new Date().toISOString();
+  const currentVersion = serverOrgSettingsStore?.version || 0;
+  const incomingVersion =
+    typeof body.version === 'number' && body.version > 0 ? body.version : currentVersion + 1;
   serverOrgSettingsStore = {
     departments: Array.from(new Set(departments)),
     divisions: Array.from(new Set(divisions)),
+    version: Math.max(currentVersion, incomingVersion),
     updatedAt,
   };
   writeOrgSettingsStore(serverOrgSettingsStore);

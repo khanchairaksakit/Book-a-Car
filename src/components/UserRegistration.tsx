@@ -34,7 +34,7 @@ import {
   saveOrganizationSettings,
   subscribeToOrganizationSettings,
 } from '../lib/firebase';
-import DepartmentDivisionModal from './DepartmentDivisionModal';
+import DepartmentDivisionModal, { DeptDivRenameItem } from './DepartmentDivisionModal';
 import {
   UserCheck,
   Shield,
@@ -200,12 +200,6 @@ export default function UserRegistration({
     divisionsRef.current = divisions;
   }, [divisions]);
 
-  // Inline Quick Add States in User Modal
-  const [isQuickAddingDept, setIsQuickAddingDept] = useState(false);
-  const [quickDeptInput, setQuickDeptInput] = useState('');
-  const [isQuickAddingDiv, setIsQuickAddingDiv] = useState(false);
-  const [quickDivInput, setQuickDivInput] = useState('');
-
   // Sync departments and divisions from Firestore and Server (timestamp-ordered, never unioning old items back)
   useEffect(() => {
     let mounted = true;
@@ -257,10 +251,6 @@ export default function UserRegistration({
     setShowFormPassword(false);
     setIsAddingNew(false);
     setIsEditing(null);
-    setIsQuickAddingDept(false);
-    setQuickDeptInput('');
-    setIsQuickAddingDiv(false);
-    setQuickDivInput('');
   };
 
   const togglePasswordVisibility = (userId: string) => {
@@ -300,8 +290,8 @@ export default function UserRegistration({
     e.preventDefault();
     setError('');
 
-    const finalDept = (isQuickAddingDept && quickDeptInput.trim() ? quickDeptInput.trim() : department).trim();
-    const finalDiv = (isQuickAddingDiv && quickDivInput.trim() ? quickDivInput.trim() : division).trim();
+    const finalDept = department.trim();
+    const finalDiv = division.trim();
 
     if (!name.trim() || !finalDept || !phone.trim() || !email.trim()) {
       setError(isEn ? 'Please fill in all required fields (*)' : 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่องที่มีดอกจัน (*)');
@@ -330,21 +320,6 @@ export default function UserRegistration({
     }
 
     const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
-
-    // Auto-register department & division if custom and persist to cloud
-    let nextDepts = departmentsRef.current;
-    let nextDivs = divisionsRef.current;
-    if (finalDept) {
-      nextDepts = addCustomDepartment(finalDept, nextDepts);
-      departmentsRef.current = nextDepts;
-      setDepartments(nextDepts);
-    }
-    if (finalDiv) {
-      nextDivs = addCustomDivision(finalDiv, nextDivs);
-      divisionsRef.current = nextDivs;
-      setDivisions(nextDivs);
-    }
-    saveOrganizationSettings(nextDepts, nextDivs).catch(() => {});
 
     if (isEditing) {
       await onEditUser({
@@ -399,8 +374,14 @@ export default function UserRegistration({
     setIsEditing(user);
     setEmployeeCode(user.employeeCode || '');
     setName(user.name);
-    setDepartment(user.department);
-    setDivision(user.division || '');
+    const matchedDept = latestDepts.find(
+      (d) => d.trim().toLowerCase() === (user.department || '').trim().toLowerCase()
+    );
+    const matchedDiv = latestDivs.find(
+      (d) => d.trim().toLowerCase() === (user.division || '').trim().toLowerCase()
+    );
+    setDepartment(matchedDept || latestDepts[0] || '');
+    setDivision(matchedDiv || '');
     setPhone(user.phone);
     setEmail(user.email);
     setUsername(user.username || user.email.split('@')[0]);
@@ -483,27 +464,6 @@ export default function UserRegistration({
       newUsersToCreate.forEach((u) => onAddUser(u));
     }
 
-    // Register any custom departments and divisions from imported rows
-    const importedDepts = validRows.map((r) => r.department?.trim()).filter(Boolean);
-    const importedDivs = validRows.map((r) => r.division?.trim()).filter(Boolean);
-    let nextDepts = [...departments];
-    importedDepts.forEach((d) => {
-      if (!nextDepts.some((curr) => curr.toLowerCase() === d.toLowerCase())) {
-        nextDepts.push(d);
-      }
-    });
-    let nextDivs = [...divisions];
-    importedDivs.forEach((div) => {
-      if (div && div !== '-' && !nextDivs.some((curr) => curr.toLowerCase() === div.toLowerCase())) {
-        nextDivs.push(div);
-      }
-    });
-    setDepartments(nextDepts);
-    departmentsRef.current = nextDepts;
-    setDivisions(nextDivs);
-    divisionsRef.current = nextDivs;
-    saveOrganizationSettings(nextDepts, nextDivs).catch(() => {});
-
     setImportSuccessMsg(
       isEn
         ? `Successfully imported ${validRows.length} users!`
@@ -541,48 +501,159 @@ export default function UserRegistration({
     return true;
   });
 
-  const handleRenameDepartment = (oldName: string, newName: string) => {
-    if (deptFilter.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-      setDeptFilter(newName);
-    }
-    if (department.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-      setDepartment(newName);
-    }
-    const matchingUsers = users
-      .filter((u) => (u.department || '').trim().toLowerCase() === oldName.trim().toLowerCase())
-      .map((u) => ({
-        ...u,
-        department: newName,
-      }));
-    if (matchingUsers.length > 0) {
-      if (onEditMultipleUsers) {
-        onEditMultipleUsers(matchingUsers);
-      } else if (onEditUser) {
-        matchingUsers.forEach((u) => onEditUser(u));
-      }
-    }
-  };
+  const handleSaveAllOrganization = async (
+    newDepts: string[],
+    newDivs: string[],
+    deptRenames: DeptDivRenameItem[],
+    divRenames: DeptDivRenameItem[]
+  ) => {
+    const prevDepts = departmentsRef.current;
+    const prevDivs = divisionsRef.current;
 
-  const handleRenameDivision = (oldName: string, newName: string) => {
-    if (divFilter.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-      setDivFilter(newName);
-    }
-    if (division.trim().toLowerCase() === oldName.trim().toLowerCase()) {
-      setDivision(newName);
-    }
-    const matchingUsers = users
-      .filter((u) => (u.division || '').trim().toLowerCase() === oldName.trim().toLowerCase())
-      .map((u) => ({
-        ...u,
-        division: newName,
-      }));
-    if (matchingUsers.length > 0) {
-      if (onEditMultipleUsers) {
-        onEditMultipleUsers(matchingUsers);
-      } else if (onEditUser) {
-        matchingUsers.forEach((u) => onEditUser(u));
+    departmentsRef.current = newDepts;
+    divisionsRef.current = newDivs;
+    setDepartments(newDepts);
+    setDivisions(newDivs);
+
+    await saveOrganizationSettings(newDepts, newDivs);
+
+    // Update filters if renamed or deleted
+    let nextDeptFilter = deptFilter;
+    for (const r of deptRenames) {
+      if (nextDeptFilter.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+        nextDeptFilter = r.newName;
       }
     }
+    if (
+      nextDeptFilter !== 'All' &&
+      !newDepts.some((d) => d.trim().toLowerCase() === nextDeptFilter.trim().toLowerCase())
+    ) {
+      nextDeptFilter = 'All';
+    }
+    if (nextDeptFilter !== deptFilter) {
+      setDeptFilter(nextDeptFilter);
+    }
+
+    let nextDivFilter = divFilter;
+    for (const r of divRenames) {
+      if (nextDivFilter.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+        nextDivFilter = r.newName;
+      }
+    }
+    if (
+      nextDivFilter !== 'All' &&
+      !newDivs.some((d) => d.trim().toLowerCase() === nextDivFilter.trim().toLowerCase())
+    ) {
+      nextDivFilter = 'All';
+    }
+    if (nextDivFilter !== divFilter) {
+      setDivFilter(nextDivFilter);
+    }
+
+    // Update currently open Add/Edit User form fields if affected
+    let nextFormDept = department;
+    for (const r of deptRenames) {
+      if (nextFormDept.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+        nextFormDept = r.newName;
+      }
+    }
+    if (
+      nextFormDept &&
+      !newDepts.some((d) => d.trim().toLowerCase() === nextFormDept.trim().toLowerCase())
+    ) {
+      nextFormDept = newDepts[0] || '';
+    }
+    if (nextFormDept !== department) {
+      setDepartment(nextFormDept);
+    }
+
+    let nextFormDiv = division;
+    for (const r of divRenames) {
+      if (nextFormDiv.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+        nextFormDiv = r.newName;
+      }
+    }
+    if (
+      nextFormDiv &&
+      !newDivs.some((d) => d.trim().toLowerCase() === nextFormDiv.trim().toLowerCase())
+    ) {
+      nextFormDiv = '';
+    }
+    if (nextFormDiv !== division) {
+      setDivision(nextFormDiv);
+    }
+
+    // Update users whose department or division was renamed or deleted
+    const deletedDepts = prevDepts.filter(
+      (oldD) =>
+        !newDepts.some((newD) => newD.trim().toLowerCase() === oldD.trim().toLowerCase()) &&
+        !deptRenames.some((r) => r.oldName.trim().toLowerCase() === oldD.trim().toLowerCase())
+    );
+    const deletedDivs = prevDivs.filter(
+      (oldDiv) =>
+        !newDivs.some((newDiv) => newDiv.trim().toLowerCase() === oldDiv.trim().toLowerCase()) &&
+        !divRenames.some((r) => r.oldName.trim().toLowerCase() === oldDiv.trim().toLowerCase())
+    );
+
+    const updatedUsers: User[] = [];
+    users.forEach((u) => {
+      let userDept = u.department || '';
+      let userDiv = u.division || '';
+      let changed = false;
+
+      for (const r of deptRenames) {
+        if (userDept.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+          userDept = r.newName;
+          changed = true;
+        }
+      }
+      if (
+        userDept &&
+        deletedDepts.some((delD) => delD.trim().toLowerCase() === userDept.trim().toLowerCase())
+      ) {
+        userDept = newDepts[0] || '';
+        changed = true;
+      }
+
+      for (const r of divRenames) {
+        if (userDiv.trim().toLowerCase() === r.oldName.trim().toLowerCase()) {
+          userDiv = r.newName;
+          changed = true;
+        }
+      }
+      if (
+        userDiv &&
+        deletedDivs.some((delDiv) => delDiv.trim().toLowerCase() === userDiv.trim().toLowerCase())
+      ) {
+        userDiv = '';
+        changed = true;
+      }
+
+      if (changed) {
+        updatedUsers.push({
+          ...u,
+          department: userDept,
+          division: userDiv,
+        });
+      }
+    });
+
+    if (updatedUsers.length > 0) {
+      if (onEditMultipleUsers) {
+        await onEditMultipleUsers(updatedUsers);
+      } else if (onEditUser) {
+        for (const u of updatedUsers) {
+          await onEditUser(u);
+        }
+      }
+    }
+
+    setImportSuccessMsg(
+      isEn
+        ? 'Saved department and division settings!'
+        : 'บันทึกข้อมูลแผนกและฝ่ายเรียบร้อยแล้ว'
+    );
+    setTimeout(() => setImportSuccessMsg(''), 4000);
   };
 
   return (
@@ -872,11 +943,22 @@ export default function UserRegistration({
                   @{currentUser.username || currentUser.email.split('@')[0]}
                 </span>
               </div>
-              <p className="text-xs text-gray-600 mt-0.5">
+              <p className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
                 <span className="font-medium text-gray-800">{currentUser.department}</span>
-                {currentUser.division && <span> • ฝ่าย: {currentUser.division}</span>}
-                <span> • {isEn ? 'Email:' : 'อีเมล:'} {currentUser.email}</span>
-                <span> • {isEn ? 'Tel:' : 'โทร:'} {currentUser.phone}</span>
+                {currentUser.division && <span>• ฝ่าย: {currentUser.division}</span>}
+                <span>• {isEn ? 'Email:' : 'อีเมล:'} {currentUser.email}</span>
+                {currentUser.phone && (
+                  <span>
+                    • {isEn ? 'Tel:' : 'โทร:'}{' '}
+                    <a
+                      href={`tel:${currentUser.phone.replace(/[^0-9+]/g, '')}`}
+                      className="text-emerald-700 hover:text-emerald-800 font-mono font-bold hover:underline"
+                      title={`กดเพื่อโทรออก ${currentUser.phone}`}
+                    >
+                      📞 {currentUser.phone}
+                    </a>
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -1124,10 +1206,22 @@ export default function UserRegistration({
                     </div>
 
                     <div className="text-[11px] text-gray-500 mb-3 flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1">
-                        <Phone className="w-3 h-3 text-gray-400" />
-                        <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
-                      </span>
+                      {user.phone ? (
+                        <a
+                          href={`tel:${user.phone.replace(/[^0-9+]/g, '')}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
+                          title={`กดเพื่อโทรออก ${user.phone}`}
+                        >
+                          <Phone className="w-3 h-3 text-emerald-600" />
+                          <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
+                        </a>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-gray-400" />
+                          <span>{isEn ? 'Tel:' : 'โทร:'} -</span>
+                        </span>
+                      )}
                       {isLineModuleEnabled && hasEditPermission && (
                         user.lineUserId ? (
                           <button
@@ -1278,203 +1372,65 @@ export default function UserRegistration({
                     />
                   </div>
 
-                  {/* Department (แผนก) */}
+                  {/* Department (แผนก) - ดึงข้อมูลจากกำหนดแผนกและฝ่ายเท่านั้น */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-semibold text-gray-700">
                         {isEn ? 'Department' : 'แผนก'} <span className="text-red-500">*</span>
                       </label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setIsDeptDivModalOpen(true)}
-                          className="text-[11px] text-gray-500 hover:text-indigo-600 cursor-pointer flex items-center gap-0.5"
-                          title="จัดการรายชื่อแผนกทั้งหมด"
-                        >
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                          <span>{isEn ? 'Manage' : 'จัดการ'}</span>
-                        </button>
-                        <span className="text-gray-300">|</span>
-                        <button
-                          type="button"
-                          id="btn-quick-add-dept"
-                          onClick={() => {
-                            setIsQuickAddingDept(!isQuickAddingDept);
-                            setQuickDeptInput('');
-                          }}
-                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>{isQuickAddingDept ? (isEn ? 'Choose Existing' : 'เลือกจากรายการ') : (isEn ? '+ Custom Dept' : '+ กำหนดแผนกใหม่')}</span>
-                        </button>
-                      </div>
+                      <span className="text-[10px] text-gray-400">
+                        {isEn ? 'From Department & Division Settings' : 'ดึงข้อมูลจากเมนู "กำหนดแผนกและฝ่าย"'}
+                      </span>
                     </div>
 
-                    {isQuickAddingDept ? (
-                      <div className="flex gap-1.5 animate-in fade-in duration-150">
-                        <input
-                          id="quick-add-dept-input"
-                          type="text"
-                          value={quickDeptInput}
-                          onChange={(e) => setQuickDeptInput(e.target.value)}
-                          placeholder={isEn ? 'Type new department name...' : 'พิมพ์ชื่อแผนกใหม่ที่ต้องการกำหนด...'}
-                          className="flex-1 px-3 py-2 border border-indigo-400 bg-indigo-50/20 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium text-gray-900"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              const trimmed = quickDeptInput.trim();
-                              if (trimmed) {
-                                const updated = addCustomDepartment(trimmed, departments);
-                                setDepartments(updated);
-                                saveOrganizationSettings(updated, divisions).catch(() => {});
-                                setDepartment(trimmed);
-                                setQuickDeptInput('');
-                                setIsQuickAddingDept(false);
-                              }
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const trimmed = quickDeptInput.trim();
-                            if (trimmed) {
-                              const updated = addCustomDepartment(trimmed, departments);
-                              setDepartments(updated);
-                              saveOrganizationSettings(updated, divisions).catch(() => {});
-                              setDepartment(trimmed);
-                              setQuickDeptInput('');
-                              setIsQuickAddingDept(false);
-                            }
-                          }}
-                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
-                        >
-                          {isEn ? 'Add' : 'บันทึก'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <select
-                          id="user-input-dept"
-                          value={department}
-                          onChange={(e) => setDepartment(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
-                          required
-                        >
-                          <option value="">
-                            {isEn ? '-- Select Department --' : '-- เลือกแผนกจากระบบ --'}
+                    <div className="space-y-1.5">
+                      <select
+                        id="user-input-dept"
+                        value={department}
+                        onChange={(e) => setDepartment(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
+                        required
+                      >
+                        <option value="">
+                          {isEn ? '-- Select Department --' : '-- เลือกแผนกจากระบบ --'}
+                        </option>
+                        {departments.map((dept) => (
+                          <option key={dept} value={dept}>
+                            {dept}
                           </option>
-                          {department && !departments.includes(department) && (
-                            <option value={department}>{department}</option>
-                          )}
-                          {departments.map((dept) => (
-                            <option key={dept} value={dept}>
-                              {dept}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  {/* Division (ฝ่าย) */}
+                  {/* Division (ฝ่าย) - ดึงข้อมูลจากกำหนดแผนกและฝ่ายเท่านั้น */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-semibold text-gray-700">
                         {isEn ? 'Division / Section' : 'ฝ่าย'}
                       </label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setIsDeptDivModalOpen(true)}
-                          className="text-[11px] text-gray-500 hover:text-indigo-600 cursor-pointer flex items-center gap-0.5"
-                          title="จัดการรายชื่อฝ่ายทั้งหมด"
-                        >
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                          <span>{isEn ? 'Manage' : 'จัดการ'}</span>
-                        </button>
-                        <span className="text-gray-300">|</span>
-                        <button
-                          type="button"
-                          id="btn-quick-add-div"
-                          onClick={() => {
-                            setIsQuickAddingDiv(!isQuickAddingDiv);
-                            setQuickDivInput('');
-                          }}
-                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>{isQuickAddingDiv ? (isEn ? 'Choose Existing' : 'เลือกจากรายการ') : (isEn ? '+ Custom Div' : '+ กำหนดฝ่ายใหม่')}</span>
-                        </button>
-                      </div>
+                      <span className="text-[10px] text-gray-400">
+                        {isEn ? 'From Department & Division Settings' : 'ดึงข้อมูลจากเมนู "กำหนดแผนกและฝ่าย"'}
+                      </span>
                     </div>
 
-                    {isQuickAddingDiv ? (
-                      <div className="flex gap-1.5 animate-in fade-in duration-150">
-                        <input
-                          id="quick-add-div-input"
-                          type="text"
-                          value={quickDivInput}
-                          onChange={(e) => setQuickDivInput(e.target.value)}
-                          placeholder={isEn ? 'Type new division name...' : 'พิมพ์ชื่อฝ่ายใหม่ที่ต้องการกำหนด...'}
-                          className="flex-1 px-3 py-2 border border-indigo-400 bg-indigo-50/20 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium text-gray-900"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              const trimmed = quickDivInput.trim();
-                              if (trimmed) {
-                                const updated = addCustomDivision(trimmed, divisions);
-                                setDivisions(updated);
-                                saveOrganizationSettings(departments, updated).catch(() => {});
-                                setDivision(trimmed);
-                                setQuickDivInput('');
-                                setIsQuickAddingDiv(false);
-                              }
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const trimmed = quickDivInput.trim();
-                            if (trimmed) {
-                              const updated = addCustomDivision(trimmed, divisions);
-                              setDivisions(updated);
-                              saveOrganizationSettings(departments, updated).catch(() => {});
-                              setDivision(trimmed);
-                              setQuickDivInput('');
-                              setIsQuickAddingDiv(false);
-                            }
-                          }}
-                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
-                        >
-                          {isEn ? 'Add' : 'บันทึก'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <select
-                          id="user-input-division"
-                          value={division}
-                          onChange={(e) => setDivision(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
-                        >
-                          <option value="">
-                            {isEn ? '-- Select Division --' : '-- เลือกฝ่ายจากระบบ --'}
+                    <div className="space-y-1.5">
+                      <select
+                        id="user-input-division"
+                        value={division}
+                        onChange={(e) => setDivision(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-white font-medium text-gray-900 cursor-pointer"
+                      >
+                        <option value="">
+                          {isEn ? '-- Select Division --' : '-- เลือกฝ่ายจากระบบ --'}
+                        </option>
+                        {divisions.map((div) => (
+                          <option key={div} value={div}>
+                            {div}
                           </option>
-                          {division && !divisions.includes(division) && (
-                            <option value={division}>{division}</option>
-                          )}
-                          {divisions.map((div) => (
-                            <option key={div} value={div}>
-                              {div}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Multi-Roles Selection: User, Approve 1, Approve 2, Admin */}
@@ -1839,7 +1795,18 @@ export default function UserRegistration({
                       <td className="p-2.5 font-bold text-gray-900">{row.name}</td>
                       <td className="p-2.5 text-gray-700">{row.department}</td>
                       <td className="p-2.5 text-gray-700">{row.division}</td>
-                      <td className="p-2.5 text-gray-700">{row.phone}</td>
+                      <td className="p-2.5 text-gray-700">
+                        {row.phone ? (
+                          <a
+                            href={`tel:${row.phone.replace(/[^0-9+]/g, '')}`}
+                            className="text-emerald-700 hover:underline font-mono font-semibold"
+                          >
+                            {row.phone}
+                          </a>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
                       <td className="p-2.5 text-gray-700">{row.email}</td>
                       <td className="p-2.5">
                         <div className="flex flex-wrap gap-1">
@@ -1966,20 +1933,17 @@ export default function UserRegistration({
           setDivisions(newDivs);
           saveOrganizationSettings(departmentsRef.current, newDivs).catch(() => {});
         }}
+        onSaveAll={handleSaveAllOrganization}
         onDepartmentAdded={(addedDept) => {
           if (isAddingNew || isEditing) {
             setDepartment(addedDept);
-            setIsQuickAddingDept(false);
           }
         }}
         onDivisionAdded={(addedDiv) => {
           if (isAddingNew || isEditing) {
             setDivision(addedDiv);
-            setIsQuickAddingDiv(false);
           }
         }}
-        onRenameDepartment={handleRenameDepartment}
-        onRenameDivision={handleRenameDivision}
         language={language}
       />
         </>

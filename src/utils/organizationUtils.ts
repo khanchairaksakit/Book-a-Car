@@ -38,25 +38,89 @@ export const DEFAULT_DIVISIONS: string[] = [
   'ฝ่ายอำนวยการและบริหารทั่วไป',
 ];
 
-const DEPARTMENTS_STORAGE_KEY = 'car_booking_departments';
-const DIVISIONS_STORAGE_KEY = 'car_booking_divisions';
-const ORG_UPDATED_AT_STORAGE_KEY = 'car_booking_org_updated_at';
+const DEPARTMENTS_STORAGE_KEY = 'car_booking_departments_v2';
+const LEGACY_DEPARTMENTS_STORAGE_KEY = 'car_booking_departments';
+const DIVISIONS_STORAGE_KEY = 'car_booking_divisions_v2';
+const LEGACY_DIVISIONS_STORAGE_KEY = 'car_booking_divisions';
+const ORG_UPDATED_AT_STORAGE_KEY = 'car_booking_org_updated_at_v2';
+const ORG_VERSION_STORAGE_KEY = 'car_booking_org_version_v2';
+
+let memoryDepartments: string[] | null = null;
+let memoryDivisions: string[] | null = null;
+let memoryOrgUpdatedAt = '';
+let memoryOrgVersion = 0;
+
+/**
+ * Safely writes to localStorage; if QuotaExceededError occurs due to base64 photos in bookings,
+ * strips base64 photos from the cached bookings in localStorage and retries immediately.
+ */
+export function safeLocalStorageSet(key: string, value: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    try {
+      const rawBookings = localStorage.getItem('car_booking_bookings');
+      if (rawBookings) {
+        const parsed = JSON.parse(rawBookings);
+        if (Array.isArray(parsed)) {
+          const stripped = parsed.map((b: any) => {
+            if (!b || typeof b !== 'object') return b;
+            const copy = { ...b };
+            delete copy.startMileagePhoto;
+            delete copy.endMileagePhoto;
+            delete copy.keyReturnPhoto;
+            return copy;
+          });
+          localStorage.setItem('car_booking_bookings', JSON.stringify(stripped));
+        }
+      }
+      localStorage.setItem(key, value);
+    } catch (err) {
+      console.error(`Error writing ${key} to localStorage:`, err);
+    }
+  }
+}
+
+export function getStoredOrgVersion(): number {
+  if (memoryOrgVersion > 0) return memoryOrgVersion;
+  try {
+    const raw = localStorage.getItem(ORG_VERSION_STORAGE_KEY);
+    if (raw) {
+      const num = parseInt(raw, 10);
+      if (!isNaN(num) && num > 0) {
+        memoryOrgVersion = num;
+        return num;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+export function saveStoredOrgVersion(version: number): void {
+  if (version > 0) {
+    memoryOrgVersion = Math.max(memoryOrgVersion, version);
+    safeLocalStorageSet(ORG_VERSION_STORAGE_KEY, String(memoryOrgVersion));
+  }
+}
 
 export function getStoredOrgUpdatedAt(): string {
+  if (memoryOrgUpdatedAt) return memoryOrgUpdatedAt;
   try {
-    return localStorage.getItem(ORG_UPDATED_AT_STORAGE_KEY) || '';
+    const stored = localStorage.getItem(ORG_UPDATED_AT_STORAGE_KEY) || '';
+    if (stored) memoryOrgUpdatedAt = stored;
+    return stored;
   } catch {
     return '';
   }
 }
 
 export function saveStoredOrgUpdatedAt(updatedAt: string): void {
-  try {
-    if (updatedAt) {
-      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
-    }
-  } catch {
-    // ignore
+  if (updatedAt) {
+    memoryOrgUpdatedAt = updatedAt;
+    safeLocalStorageSet(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
   }
 }
 
@@ -64,15 +128,25 @@ export function saveStoredOrgUpdatedAt(updatedAt: string): void {
  * Retrieves the stored departments without resurrecting renamed/deleted items from existingUsers
  */
 export function getStoredDepartments(_existingUsers?: User[]): string[] {
+  if (memoryDepartments !== null) {
+    return [...memoryDepartments];
+  }
   try {
-    const raw = localStorage.getItem(DEPARTMENTS_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(DEPARTMENTS_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_DEPARTMENTS_STORAGE_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const list = parsed
-          .filter((item) => typeof item === 'string' && item.trim().length > 0)
-          .map((d) => d.trim());
-        return Array.from(new Set(list));
+        const list = Array.from(
+          new Set(
+            parsed
+              .filter((item) => typeof item === 'string' && item.trim().length > 0)
+              .map((d) => d.trim())
+          )
+        );
+        memoryDepartments = list;
+        return [...list];
       }
     }
   } catch (e) {
@@ -85,15 +159,20 @@ export function getStoredDepartments(_existingUsers?: User[]): string[] {
 /**
  * Persists the list of custom departments
  */
-export function saveStoredDepartments(departments: string[], updatedAt?: string): void {
-  try {
-    const cleanList = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
-    localStorage.setItem(DEPARTMENTS_STORAGE_KEY, JSON.stringify(cleanList));
-    if (updatedAt) {
-      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
-    }
-  } catch (e) {
-    console.error('Error saving departments:', e);
+export function saveStoredDepartments(
+  departments: string[],
+  updatedAt?: string,
+  version?: number
+): void {
+  const cleanList = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
+  memoryDepartments = cleanList;
+  safeLocalStorageSet(DEPARTMENTS_STORAGE_KEY, JSON.stringify(cleanList));
+  safeLocalStorageSet(LEGACY_DEPARTMENTS_STORAGE_KEY, JSON.stringify(cleanList));
+  if (updatedAt) {
+    saveStoredOrgUpdatedAt(updatedAt);
+  }
+  if (typeof version === 'number' && version > 0) {
+    saveStoredOrgVersion(version);
   }
 }
 
@@ -101,15 +180,25 @@ export function saveStoredDepartments(departments: string[], updatedAt?: string)
  * Retrieves the stored divisions without resurrecting renamed/deleted items from existingUsers
  */
 export function getStoredDivisions(_existingUsers?: User[]): string[] {
+  if (memoryDivisions !== null) {
+    return [...memoryDivisions];
+  }
   try {
-    const raw = localStorage.getItem(DIVISIONS_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(DIVISIONS_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_DIVISIONS_STORAGE_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const list = parsed
-          .filter((item) => typeof item === 'string' && item.trim().length > 0)
-          .map((d) => d.trim());
-        return Array.from(new Set(list));
+        const list = Array.from(
+          new Set(
+            parsed
+              .filter((item) => typeof item === 'string' && item.trim().length > 0)
+              .map((d) => d.trim())
+          )
+        );
+        memoryDivisions = list;
+        return [...list];
       }
     }
   } catch (e) {
@@ -122,15 +211,20 @@ export function getStoredDivisions(_existingUsers?: User[]): string[] {
 /**
  * Persists the list of custom divisions
  */
-export function saveStoredDivisions(divisions: string[], updatedAt?: string): void {
-  try {
-    const cleanList = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
-    localStorage.setItem(DIVISIONS_STORAGE_KEY, JSON.stringify(cleanList));
-    if (updatedAt) {
-      localStorage.setItem(ORG_UPDATED_AT_STORAGE_KEY, updatedAt);
-    }
-  } catch (e) {
-    console.error('Error saving divisions:', e);
+export function saveStoredDivisions(
+  divisions: string[],
+  updatedAt?: string,
+  version?: number
+): void {
+  const cleanList = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
+  memoryDivisions = cleanList;
+  safeLocalStorageSet(DIVISIONS_STORAGE_KEY, JSON.stringify(cleanList));
+  safeLocalStorageSet(LEGACY_DIVISIONS_STORAGE_KEY, JSON.stringify(cleanList));
+  if (updatedAt) {
+    saveStoredOrgUpdatedAt(updatedAt);
+  }
+  if (typeof version === 'number' && version > 0) {
+    saveStoredOrgVersion(version);
   }
 }
 

@@ -508,11 +508,18 @@ export default function LineQuickApproveModal({
                 </div>
               </div>
 
-              {booking.userPhone && (
+              {(booking.userPhone || requesterUser?.phone) && (
                 <div className="flex items-center gap-2">
                   <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span className="text-gray-500">เบอร์ติดต่อ: </span>
-                  <span className="font-mono font-semibold text-gray-800">{booking.userPhone}</span>
+                  <a
+                    href={`tel:${(booking.userPhone || requesterUser?.phone || '').replace(/[^0-9+]/g, '')}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-mono font-bold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
+                    title={`กดเพื่อโทรออก ${booking.userPhone || requesterUser?.phone}`}
+                  >
+                    <span>📞 {booking.userPhone || requesterUser?.phone}</span>
+                  </a>
                 </div>
               )}
 

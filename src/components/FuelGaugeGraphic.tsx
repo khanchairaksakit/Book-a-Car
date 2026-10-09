@@ -8,7 +8,7 @@ interface FuelGaugeGraphicProps {
   accentColor?: 'amber' | 'emerald';
 }
 
-const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4'];
+const FUEL_OPTIONS: FuelLevel[] = ['เต็มถัง', '3/4', '1/2', '1/4', 'ใกล้หมด'];
 
 // Convert polar angle (where 0 deg is straight up 12 o'clock, -90 is left 9 o'clock, +90 is right 3 o'clock)
 function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
@@ -31,9 +31,11 @@ export default function FuelGaugeGraphic({
   onChange,
   accentColor = 'amber',
 }: FuelGaugeGraphicProps) {
-  // Angle mapping: E = -90°, 1/4 = -45°, 1/2 = 0°, 3/4 = +45°, F (เต็มถัง) = +90°
+  // Angle mapping: E (ใกล้หมด) = -82°, 1/4 = -45°, 1/2 = 0°, 3/4 = +45°, F (เต็มถัง) = +90°
   const getNeedleAngle = (level: FuelLevel): number => {
     switch (level) {
+      case 'ใกล้หมด':
+        return -82;
       case '1/4':
         return -45;
       case '1/2':
@@ -58,7 +60,7 @@ export default function FuelGaugeGraphic({
     fuelValue?: FuelLevel;
     color: string;
   }> = [
-    { angle: -90, label: 'E', subLabel: 'ว่าง', color: '#EF4444' },
+    { angle: -90, label: 'E', subLabel: 'ใกล้หมด', fuelValue: 'ใกล้หมด', color: '#EF4444' },
     { angle: -45, label: '1/4', fuelValue: '1/4', color: '#F59E0B' },
     { angle: 0, label: '1/2', fuelValue: '1/2', color: '#FBBF24' },
     { angle: 45, label: '3/4', fuelValue: '3/4', color: '#34D399' },
@@ -74,7 +76,9 @@ export default function FuelGaugeGraphic({
       ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
       : value === '1/2'
       ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-      : 'bg-orange-500/20 text-orange-300 border-orange-500/40';
+      : value === '1/4'
+      ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+      : 'bg-rose-500/25 text-rose-300 border-rose-500/50';
 
   return (
     <div className="space-y-3">
@@ -88,7 +92,12 @@ export default function FuelGaugeGraphic({
           <span
             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${levelBadgeColor}`}
           >
-            ระดับที่เลือก: {value === 'เต็มถัง' ? 'เต็มถัง (F)' : `${value} ถัง`}
+            ระดับที่เลือก:{' '}
+            {value === 'เต็มถัง'
+              ? 'เต็มถัง (F)'
+              : value === 'ใกล้หมด'
+              ? 'ใกล้หมด (E)'
+              : `${value} ถัง`}
           </span>
         </div>
 
@@ -173,7 +182,9 @@ export default function FuelGaugeGraphic({
                   ? '#34D399'
                   : value === '1/2'
                   ? '#FBBF24'
-                  : '#FB923C'
+                  : value === '1/4'
+                  ? '#FB923C'
+                  : '#EF4444'
               }
               strokeWidth="3.5"
               strokeLinecap="round"
@@ -293,13 +304,15 @@ export default function FuelGaugeGraphic({
       </div>
 
       {/* Fuel Level Selector Buttons */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-2">
         {FUEL_OPTIONS.map((f) => {
           const isSel = value === f;
-          const activeClass =
-            accentColor === 'emerald'
-              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400/30'
-              : 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300/40';
+          const isNearEmpty = f === 'ใกล้หมด';
+          const activeClass = isNearEmpty
+            ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-400/30'
+            : accentColor === 'emerald'
+            ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400/30'
+            : 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300/40';
           return (
             <button
               key={f}
@@ -308,6 +321,8 @@ export default function FuelGaugeGraphic({
               className={`py-2.5 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
                 isSel
                   ? activeClass
+                  : isNearEmpty
+                  ? 'bg-rose-50/70 hover:bg-rose-100/80 text-rose-700 border-rose-200'
                   : 'bg-slate-50 hover:bg-slate-100 text-gray-700 border-gray-200'
               }`}
             >

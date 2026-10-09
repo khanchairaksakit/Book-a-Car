@@ -17,6 +17,7 @@ export const translations = {
     navVehicles: 'จัดการข้อมูลรถยนต์',
     navUsers: 'กำหนดผู้ใช้งาน',
     navReport: 'รายงานสำหรับผู้ดูแลระบบ',
+    navManual: 'คู่มือการจองรถ',
     
     // Auth & Login
     loginTitle: 'เข้าสู่ระบบ',
@@ -72,6 +73,7 @@ export const translations = {
     navVehicles: 'Fleet Management',
     navUsers: 'User Management',
     navReport: 'Fleet Usage Report',
+    navManual: 'Booking Manual',
     
     // Auth & Login
     loginTitle: 'Sign In',

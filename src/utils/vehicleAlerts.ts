@@ -83,21 +83,99 @@ export function formatTripDateTime(startStr?: string, endStr?: string): string {
 }
 
 /**
- * Get the most recent booking/usage for a given vehicle
+ * Checks whether a booking belongs to the given vehicle (by vehicleId, plateNumber, or vehicleName)
  */
-export function getLatestVehicleUsage(vehicleId: string, bookings: Booking[] = []): Booking | null {
-  if (!vehicleId || !bookings || bookings.length === 0) return null;
+export function doesBookingMatchVehicle(b?: Booking | null, v?: Vehicle | null): boolean {
+  if (!b || !v) return false;
+  if (b.vehicleId && v.id && b.vehicleId === v.id) return true;
+  const bPlate = (b.plateNumber || '').trim().toLowerCase();
+  const vPlate = (v.plateNumber || '').trim().toLowerCase();
+  if (bPlate && vPlate && bPlate === vPlate) return true;
+  const bVehName = (b.vehicleName || '').trim().toLowerCase();
+  if (bVehName && vPlate && bVehName.includes(vPlate)) return true;
+  const vBrandModel = `${v.brand || ''} ${v.model || ''}`.trim().toLowerCase();
+  if (bVehName && vBrandModel.length >= 3 && bVehName.startsWith(vBrandModel) && (!bPlate || !vPlate)) {
+    return true;
+  }
+  return false;
+}
 
-  const vehicleBookings = bookings.filter(
-    (b) => b.vehicleId === vehicleId && b.status !== 'Cancelled'
+/**
+ * Checks whether a booking status represents an active / unfinished mission or reservation
+ */
+export function isBookingActiveStatus(status?: string): boolean {
+  return (
+    status === 'Approved' ||
+    status === 'Pending' ||
+    status === 'Pending_Approve2'
   );
+}
+
+/**
+ * Checks whether a booking covers a target YYYY-MM-DD date.
+ * Also treats unreturned active missions (status === 'Approved' or unfinished) that started on/before today as covering today.
+ */
+export function doesBookingCoverDate(
+  b: Booking,
+  targetDateStr: string,
+  todayStr?: string
+): boolean {
+  if (!b || b.status === 'Cancelled') return false;
+  const start = (b.startDate || '').substring(0, 10);
+  const end = (b.endDate || '').substring(0, 10) || start;
+  if (!start || !targetDateStr) return false;
+
+  if (targetDateStr >= start && targetDateStr <= end) {
+    return true;
+  }
+
+  // If the booking is an active unreturned mission (not Completed and not Cancelled)
+  // that already started on or before targetDateStr, and targetDateStr is up through today,
+  // the vehicle is still on an active mission until returned.
+  if (
+    todayStr &&
+    isBookingActiveStatus(b.status) &&
+    start <= targetDateStr &&
+    targetDateStr <= todayStr
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Get the most relevant active or recent booking/usage for a given vehicle
+ */
+export function getLatestVehicleUsage(
+  vehicleOrId: Vehicle | string,
+  bookings: Booking[] = []
+): Booking | null {
+  if (!vehicleOrId || !bookings || bookings.length === 0) return null;
+
+  const vehicleBookings = bookings.filter((b) => {
+    if (!b || b.status === 'Cancelled') return false;
+    if (typeof vehicleOrId === 'string') {
+      return b.vehicleId === vehicleOrId;
+    }
+    return doesBookingMatchVehicle(b, vehicleOrId);
+  });
 
   if (vehicleBookings.length === 0) return null;
 
-  // Sort descending by startDate
-  vehicleBookings.sort(
-    (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
-  );
+  const statusPriority = (st: string) => {
+    if (st === 'Approved') return 3;
+    if (st === 'Pending_Approve2') return 2;
+    if (st === 'Pending') return 1;
+    return 0;
+  };
+
+  // Prioritize active missions first, then sort descending by startDate
+  vehicleBookings.sort((a, b) => {
+    const pDiff = statusPriority(b.status) - statusPriority(a.status);
+    if (pDiff !== 0) return pDiff;
+    return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+  });
 
   return vehicleBookings[0];
 }

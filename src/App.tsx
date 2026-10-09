@@ -35,6 +35,7 @@ import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
+import BookingManual from './components/BookingManual';
 import LineShareApprovalModal from './components/LineShareApprovalModal';
 import LineQuickApproveModal from './components/LineQuickApproveModal';
 import {
@@ -54,6 +55,7 @@ import {
   getUserEffectiveMenuPermission,
 } from './utils/userHelpers';
 import { getRealTodayStr, generateNextJobNumber, getBookingJobNumber } from './utils/dateHelpers';
+import { doesBookingMatchVehicle, isBookingActiveStatus } from './utils/vehicleAlerts';
 
 import {
   CalendarDays,
@@ -69,6 +71,7 @@ import {
   LogOut,
   Globe,
   FileText,
+  BookOpen,
   Sparkles,
   Zap,
 } from 'lucide-react';
@@ -205,7 +208,7 @@ export default function App() {
     setIsLoginPageOpen(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report' | 'manual'>('calendar');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
@@ -678,19 +681,16 @@ export default function App() {
     }
   };
 
-  // Auto-sync vehicle currentMileage whenever bookings have a newer/higher recorded endMileage or startMileage
+  // Auto-sync vehicle currentMileage and status whenever bookings change
   useEffect(() => {
-    if (vehicles.length === 0 || bookings.length === 0) return;
-    let hasMileageUpdates = false;
+    if (vehicles.length === 0) return;
+    let hasVehicleUpdates = false;
     const vehiclesToSave: Vehicle[] = [];
 
     const nextVehicles = vehicles.map((v) => {
       const relatedBookings = bookings.filter(
-        (b) =>
-          b.status !== 'Cancelled' &&
-          (b.vehicleId === v.id || (b.plateNumber && b.plateNumber === v.plateNumber))
+        (b) => b.status !== 'Cancelled' && doesBookingMatchVehicle(b, v)
       );
-      if (relatedBookings.length === 0) return v;
 
       let maxRecordedMileage = v.currentMileage || 0;
       for (const b of relatedBookings) {
@@ -701,16 +701,29 @@ export default function App() {
         }
       }
 
-      if (maxRecordedMileage > (v.currentMileage || 0)) {
-        hasMileageUpdates = true;
-        const updatedVeh: Vehicle = { ...v, currentMileage: maxRecordedMileage };
+      const hasActiveMission = relatedBookings.some((b) => isBookingActiveStatus(b.status));
+      let nextStatus = v.status;
+      if (v.status !== 'Maintenance') {
+        nextStatus = hasActiveMission ? 'In Use' : 'Available';
+      }
+
+      const mileageChanged = maxRecordedMileage > (v.currentMileage || 0);
+      const statusChanged = nextStatus !== v.status;
+
+      if (mileageChanged || statusChanged) {
+        hasVehicleUpdates = true;
+        const updatedVeh: Vehicle = {
+          ...v,
+          status: nextStatus,
+          ...(mileageChanged ? { currentMileage: maxRecordedMileage } : {}),
+        };
         vehiclesToSave.push(updatedVeh);
         return updatedVeh;
       }
       return v;
     });
 
-    if (hasMileageUpdates) {
+    if (hasVehicleUpdates) {
       setVehicles(nextVehicles);
       for (const veh of vehiclesToSave) {
         saveVehicle(veh).catch(() => {});
@@ -1066,6 +1079,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser) return;
+    if (activeTab === 'manual') return;
     if (!canAccessMenu(activeTab)) {
       const orderedKeys: AppMenuKey[] = ['calendar', 'booking', 'vehicles', 'report', 'users'];
       const firstAllowed = orderedKeys.find((k) => canAccessMenu(k));
@@ -1318,6 +1332,24 @@ export default function App() {
                 )}
               </button>
             )}
+
+            <button
+              id="nav-tab-manual"
+              onClick={() => {
+                setActiveTab('manual');
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                activeTab === 'manual'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span className="flex-1 text-left">
+                {language === 'en' ? 'Booking Manual' : 'คู่มือการจองรถ'}
+              </span>
+            </button>
           </nav>
         </div>
 
@@ -1554,6 +1586,13 @@ export default function App() {
                   language={language}
                   canEdit={reportPerm.canEdit}
                   viewOnly={reportPerm.viewOnly}
+                />
+              )}
+
+              {activeTab === 'manual' && (
+                <BookingManual
+                  language={language}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
                 />
               )}
             </motion.div>

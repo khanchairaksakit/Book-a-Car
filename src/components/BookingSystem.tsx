@@ -568,10 +568,31 @@ export default function BookingSystem({
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-gray-500 block">
-                        {booking.userDepartment || '-'} {booking.userDivision ? `• ${booking.userDivision}` : ''}
-                        {booking.userPhone ? ` • 📞 ${booking.userPhone}` : ''}
-                      </span>
+                      <div className="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                        <span>
+                          {booking.userDepartment || '-'} {booking.userDivision ? `• ${booking.userDivision}` : ''}
+                        </span>
+                        {(() => {
+                          const contactPhone =
+                            booking.userPhone ||
+                            users.find((u) => u.id === booking.userId)?.phone ||
+                            '';
+                          if (!contactPhone) return null;
+                          return (
+                            <>
+                              <span>•</span>
+                              <a
+                                href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                                title={`กดเพื่อโทรออก ${contactPhone}`}
+                              >
+                                📞 {contactPhone}
+                              </a>
+                            </>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
 
@@ -1020,46 +1041,30 @@ export default function BookingSystem({
 
               <form onSubmit={handleSaveDeparture} className="flex-1 overflow-y-auto pr-1 space-y-4">
                 {/* 1. ไมล์เริ่มต้น (ดึงข้อมูลจากเลขไมล์ของรถคันนั้นมาแสดง แต่สามารถปรับแก้เองได้) */}
-                {(() => {
-                  const vehLatestMileage = departureBooking
-                    ? getVehicleLatestMileage(departureBooking)
-                    : undefined;
-                  return (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <label className="block text-xs font-bold text-gray-800">
-                          1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
-                        </label>
-                        {vehLatestMileage !== undefined && (
-                          <button
-                            type="button"
-                            onClick={() => setStartMileageInput(String(vehLatestMileage))}
-                            className="text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg cursor-pointer transition-colors"
-                          >
-                            🔄 ดึงเลขไมล์รถล่าสุด ({vehLatestMileage.toLocaleString()} km.)
-                          </button>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <input
-                          id="input-start-mileage"
-                          type="number"
-                          value={startMileageInput}
-                          onChange={(e) => setStartMileageInput(e.target.value)}
-                          placeholder="เช่น 18500"
-                          className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                          required
-                        />
-                        <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
-                          km.
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-500">
-                        ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
-                      </p>
-                    </div>
-                  );
-                })()}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="block text-xs font-bold text-gray-800">
+                      1. ไมล์เริ่มต้น (กิโลเมตร) <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="input-start-mileage"
+                      type="number"
+                      value={startMileageInput}
+                      onChange={(e) => setStartMileageInput(e.target.value)}
+                      placeholder="เช่น 18500"
+                      className="w-full pl-3 pr-12 py-2.5 bg-slate-50 border border-gray-300 rounded-xl text-sm text-gray-900 font-mono font-bold focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      required
+                    />
+                    <span className="absolute right-3.5 top-3 text-xs text-gray-400 font-mono">
+                      km.
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    ระบบดึงเลขไมล์ปัจจุบันของรถคันนี้มาแสดงให้อัตโนมัติ (สามารถแก้ไขตัวเลขเองได้ตามหน้าปัดรถจริง)
+                  </p>
+                </div>
 
                 {/* 2. น้ำมันเริ่มต้น พร้อมกราฟฟิกหน้าปัดระดับน้ำมัน */}
                 <div className="space-y-2 pt-2 border-t border-gray-100">

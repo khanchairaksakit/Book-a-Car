@@ -26,6 +26,9 @@ import {
   saveStoredDivisions,
   getStoredOrgUpdatedAt,
   saveStoredOrgUpdatedAt,
+  getStoredOrgVersion,
+  saveStoredOrgVersion,
+  safeLocalStorageSet,
 } from '../utils/organizationUtils';
 import { compressDataUrlIfNeeded } from '../utils/imageCompression';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -214,7 +217,7 @@ export async function saveUser(user: User): Promise<void> {
         } else {
           list.push(cleaned);
         }
-        localStorage.setItem('car_booking_users', JSON.stringify(list));
+        safeLocalStorageSet('car_booking_users', JSON.stringify(list));
       }
     } catch {
       // ignore
@@ -246,7 +249,7 @@ export async function saveMultipleUsers(usersToSave: User[]): Promise<void> {
             list.push(cu);
           }
         }
-        localStorage.setItem('car_booking_users', JSON.stringify(list));
+        safeLocalStorageSet('car_booking_users', JSON.stringify(list));
       }
     } catch {
       // ignore
@@ -310,33 +313,29 @@ function getLocalStoredBookings(): Booking[] {
 export function saveLocalStoredBookings(bookings: Booking[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem('car_booking_bookings', JSON.stringify(bookings));
+    // Store booking metadata without heavy base64 photos in localStorage so the 5MB quota
+    // is never exhausted (full photos are persisted in Firestore and Express server store).
+    const metadataOnly = bookings.map((b, idx) => {
+      if (idx < 2) return b;
+      const copy = { ...b };
+      delete copy.startMileagePhoto;
+      delete copy.endMileagePhoto;
+      delete copy.keyReturnPhoto;
+      return copy;
+    });
+    localStorage.setItem('car_booking_bookings', JSON.stringify(metadataOnly));
   } catch {
-    // If localStorage quota (5MB) is exceeded due to accumulated base64 photos,
-    // keep photos only on the most recent 5 bookings in localStorage while preserving all metadata.
     try {
-      const lightweight = bookings.map((b, idx) => {
-        if (idx < 5) return b;
+      const strippedAll = bookings.map((b) => {
         const copy = { ...b };
         delete copy.startMileagePhoto;
         delete copy.endMileagePhoto;
         delete copy.keyReturnPhoto;
         return copy;
       });
-      localStorage.setItem('car_booking_bookings', JSON.stringify(lightweight));
+      localStorage.setItem('car_booking_bookings', JSON.stringify(strippedAll));
     } catch {
-      try {
-        const metadataOnly = bookings.map((b) => {
-          const copy = { ...b };
-          delete copy.startMileagePhoto;
-          delete copy.endMileagePhoto;
-          delete copy.keyReturnPhoto;
-          return copy;
-        });
-        localStorage.setItem('car_booking_bookings', JSON.stringify(metadataOnly));
-      } catch {
-        // ignore
-      }
+      // ignore
     }
   }
 }
@@ -769,28 +768,18 @@ export async function saveRolePermissions(matrix: RolePermissionsMatrix): Promis
 }
 
 // Organization Settings (Departments & Divisions) Cloud + Server + LocalStorage Persistence
+let highestKnownOrgVersion = 0;
+
 export async function getOrganizationSettings(
   _existingUsers?: User[]
 ): Promise<{ departments: string[]; divisions: string[] }> {
-  const localDepts = getStoredDepartments();
-  const localDivs = getStoredDivisions();
-  const localUpdatedAt = getStoredOrgUpdatedAt();
-
   interface OrgCandidate {
     source: 'local' | 'server' | 'firestore';
     departments: string[];
     divisions: string[];
+    version: number;
     updatedAt: string;
   }
-
-  const candidates: OrgCandidate[] = [
-    {
-      source: 'local',
-      departments: localDepts,
-      divisions: localDivs,
-      updatedAt: localUpdatedAt,
-    },
-  ];
 
   const [serverResult, firestoreResult] = await Promise.allSettled([
     (async () => {
@@ -804,13 +793,14 @@ export async function getOrganizationSettings(
           source: 'server' as const,
           departments: s.departments.map((d: string) => (d || '').trim()).filter(Boolean),
           divisions: s.divisions.map((d: string) => (d || '').trim()).filter(Boolean),
+          version: typeof s.version === 'number' ? s.version : 0,
           updatedAt: String(s.updatedAt || ''),
         };
       }
       return null;
     })(),
     (async () => {
-      const docRef = doc(db, 'settings', 'organization');
+      const docRef = doc(db, 'settings', 'organization_v2');
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data();
@@ -819,6 +809,7 @@ export async function getOrganizationSettings(
             source: 'firestore' as const,
             departments: data.departments.map((d: string) => (d || '').trim()).filter(Boolean),
             divisions: data.divisions.map((d: string) => (d || '').trim()).filter(Boolean),
+            version: typeof data.version === 'number' ? data.version : 0,
             updatedAt: String(data.updatedAt || ''),
           };
         }
@@ -827,50 +818,78 @@ export async function getOrganizationSettings(
     })(),
   ]);
 
+  // Read local state AFTER awaiting network so any user edit made during network fetch wins
+  const localDepts = getStoredDepartments();
+  const localDivs = getStoredDivisions();
+  const localUpdatedAt = getStoredOrgUpdatedAt();
+  const localVersion = Math.max(getStoredOrgVersion(), highestKnownOrgVersion);
+
+  const candidates: OrgCandidate[] = [
+    {
+      source: 'local',
+      departments: localDepts,
+      divisions: localDivs,
+      version: localVersion,
+      updatedAt: localUpdatedAt,
+    },
+  ];
+
   const serverCandidate = serverResult.status === 'fulfilled' ? serverResult.value : null;
   const firestoreCandidate = firestoreResult.status === 'fulfilled' ? firestoreResult.value : null;
 
   if (serverCandidate) candidates.push(serverCandidate);
   if (firestoreCandidate) candidates.push(firestoreCandidate);
 
-  // Pick the candidate with the most recent updatedAt timestamp (never union old and new arrays!)
+  // Sort by version descending; on version tie, prefer 'local' first so user's browser state is never overwritten
   candidates.sort((a, b) => {
-    const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-    const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-    return timeB - timeA;
+    if (b.version !== a.version) {
+      return b.version - a.version;
+    }
+    if (a.source === 'local') return -1;
+    if (b.source === 'local') return 1;
+    return 0;
   });
 
   const winner = candidates[0];
+  const finalVersion = Math.max(winner.version, localVersion);
+  highestKnownOrgVersion = finalVersion;
   const finalUpdatedAt = winner.updatedAt || new Date().toISOString();
   const finalDepts = Array.from(new Set(winner.departments));
   const finalDivs = Array.from(new Set(winner.divisions));
 
-  saveStoredDepartments(finalDepts, finalUpdatedAt);
-  saveStoredDivisions(finalDivs, finalUpdatedAt);
+  saveStoredDepartments(finalDepts, finalUpdatedAt, finalVersion);
+  saveStoredDivisions(finalDivs, finalUpdatedAt, finalVersion);
   saveStoredOrgUpdatedAt(finalUpdatedAt);
-
-  // Backfill to Server and Firestore if needed
-  if (!serverCandidate || serverCandidate.updatedAt !== finalUpdatedAt) {
-    if (typeof window !== 'undefined') {
-      fetch('/api/organization-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departments: finalDepts,
-          divisions: finalDivs,
-          updatedAt: finalUpdatedAt,
-        }),
-      }).catch(() => {});
-    }
+  if (finalVersion > 0) {
+    saveStoredOrgVersion(finalVersion);
   }
 
-  if (!firestoreCandidate || firestoreCandidate.updatedAt !== finalUpdatedAt) {
-    setDoc(doc(db, 'settings', 'organization'), {
-      id: 'organization',
-      departments: finalDepts,
-      divisions: finalDivs,
-      updatedAt: finalUpdatedAt,
-    }).catch(() => {});
+  // Only backfill to Server and Firestore if we have an explicit saved version > 0
+  if (finalVersion > 0) {
+    if (!serverCandidate || serverCandidate.version < finalVersion) {
+      if (typeof window !== 'undefined') {
+        fetch('/api/organization-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            departments: finalDepts,
+            divisions: finalDivs,
+            version: finalVersion,
+            updatedAt: finalUpdatedAt,
+          }),
+        }).catch(() => {});
+      }
+    }
+
+    if (!firestoreCandidate || firestoreCandidate.version < finalVersion) {
+      setDoc(doc(db, 'settings', 'organization_v2'), {
+        id: 'organization_v2',
+        departments: finalDepts,
+        divisions: finalDivs,
+        version: finalVersion,
+        updatedAt: finalUpdatedAt,
+      }).catch(() => {});
+    }
   }
 
   return { departments: finalDepts, divisions: finalDivs };
@@ -881,21 +900,32 @@ export async function saveOrganizationSettings(
   divisions: string[]
 ): Promise<void> {
   const updatedAt = new Date().toISOString();
+  const nextVersion = Math.max(getStoredOrgVersion(), highestKnownOrgVersion) + 1;
+  highestKnownOrgVersion = nextVersion;
+
   const cleanDepts = Array.from(new Set(departments.map((d) => (d || '').trim()).filter(Boolean)));
   const cleanDivs = Array.from(new Set(divisions.map((d) => (d || '').trim()).filter(Boolean)));
 
-  // 1. Immediately persist to localStorage with new updatedAt timestamp
-  saveStoredDepartments(cleanDepts, updatedAt);
-  saveStoredDivisions(cleanDivs, updatedAt);
+  // 1. Immediately persist to in-memory + localStorage with incremented version
+  saveStoredDepartments(cleanDepts, updatedAt, nextVersion);
+  saveStoredDivisions(cleanDivs, updatedAt, nextVersion);
   saveStoredOrgUpdatedAt(updatedAt);
+  saveStoredOrgVersion(nextVersion);
 
   // 2. Persist to both Express Server and Firestore in parallel
+  const payload = {
+    id: 'organization_v2',
+    departments: cleanDepts,
+    divisions: cleanDivs,
+    version: nextVersion,
+    updatedAt,
+  };
+
   const tasks: Promise<any>[] = [
+    setDoc(doc(db, 'settings', 'organization_v2'), payload),
     setDoc(doc(db, 'settings', 'organization'), {
+      ...payload,
       id: 'organization',
-      departments: cleanDepts,
-      divisions: cleanDivs,
-      updatedAt,
     }),
   ];
 
@@ -904,11 +934,7 @@ export async function saveOrganizationSettings(
       fetch('/api/organization-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departments: cleanDepts,
-          divisions: cleanDivs,
-          updatedAt,
-        }),
+        body: JSON.stringify(payload),
       })
     );
   }
@@ -919,7 +945,7 @@ export async function saveOrganizationSettings(
 export function subscribeToOrganizationSettings(
   onUpdate: (data: { departments: string[]; divisions: string[] }) => void
 ): () => void {
-  const docRef = doc(db, 'settings', 'organization');
+  const docRef = doc(db, 'settings', 'organization_v2');
   return onSnapshot(
     docRef,
     (snap) => {
@@ -927,19 +953,19 @@ export function subscribeToOrganizationSettings(
       const data = snap.data();
       if (!Array.isArray(data?.departments) || !Array.isArray(data?.divisions)) return;
 
-      const cloudUpdatedAt = String(data?.updatedAt || '');
-      const localUpdatedAt = getStoredOrgUpdatedAt();
+      const cloudVersion = typeof data?.version === 'number' ? data.version : 0;
+      const currentVersion = Math.max(getStoredOrgVersion(), highestKnownOrgVersion);
 
-      // Ignore stale snapshots that are older than our latest local edit
-      if (localUpdatedAt && cloudUpdatedAt) {
-        const localMs = new Date(localUpdatedAt).getTime();
-        const cloudMs = new Date(cloudUpdatedAt).getTime();
-        if (!isNaN(localMs) && !isNaN(cloudMs) && cloudMs < localMs) {
-          return;
-        }
-      } else if (localUpdatedAt && !cloudUpdatedAt) {
+      // Ignore any snapshot whose version is not strictly newer than our local version (unless local is 0)
+      if (currentVersion > 0 && cloudVersion <= currentVersion) {
         return;
       }
+      if (cloudVersion === 0 && currentVersion > 0) {
+        return;
+      }
+
+      highestKnownOrgVersion = Math.max(highestKnownOrgVersion, cloudVersion);
+      const cloudUpdatedAt = String(data?.updatedAt || new Date().toISOString());
 
       const departments = Array.from(
         new Set(data.departments.map((d: string) => (d || '').trim()).filter(Boolean))
@@ -948,10 +974,11 @@ export function subscribeToOrganizationSettings(
         new Set(data.divisions.map((d: string) => (d || '').trim()).filter(Boolean))
       );
 
-      saveStoredDepartments(departments, cloudUpdatedAt || localUpdatedAt);
-      saveStoredDivisions(divisions, cloudUpdatedAt || localUpdatedAt);
-      if (cloudUpdatedAt) {
-        saveStoredOrgUpdatedAt(cloudUpdatedAt);
+      saveStoredDepartments(departments, cloudUpdatedAt, cloudVersion);
+      saveStoredDivisions(divisions, cloudUpdatedAt, cloudVersion);
+      saveStoredOrgUpdatedAt(cloudUpdatedAt);
+      if (cloudVersion > 0) {
+        saveStoredOrgVersion(cloudVersion);
       }
       onUpdate({ departments, divisions });
     },
