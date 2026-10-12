@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
-import { User } from '../types';
+import { User, PasswordPolicy } from '../types';
 import { getUsers } from '../lib/firebase';
 import { translations, Language } from '../utils/translations';
+import {
+  DEFAULT_PASSWORD_POLICY,
+  getUserPasswordExpiryInfo,
+  validatePasswordAgainstPolicy,
+  formatThaiDateShort,
+} from '../utils/passwordPolicyUtils';
+import ChangePasswordModal from './ChangePasswordModal';
 import {
   Car,
   Lock,
@@ -21,18 +28,26 @@ interface LoginPageProps {
   onLogin: (user: User) => void;
   language: Language;
   onToggleLanguage?: (lang: Language) => void;
+  passwordPolicy?: PasswordPolicy;
+  onUpdateUserPassword?: (updatedUser: User) => Promise<void> | void;
 }
 
 export default function LoginPage({
   users,
   onLogin,
   language,
+  passwordPolicy = DEFAULT_PASSWORD_POLICY,
+  onUpdateUserPassword,
 }: LoginPageProps) {
   const [identifierInput, setIdentifierInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [expiredLoginUser, setExpiredLoginUser] = useState<{
+    user: User;
+    reason: string;
+  } | null>(null);
 
   const t = translations[language];
 
@@ -138,6 +153,29 @@ export default function LoginPage({
           ? 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบรหัสผ่านแล้วลองอีกครั้ง'
           : 'Incorrect password. Please verify and try again.'
       );
+      return;
+    }
+
+    // Check per-user password expiration ("วันหมดอายุจะต้องสัมพันธ์กับการใช้รหัสของ user นั้นๆ หาก user ไหนหมดอายุก่อนก็ต้องเปลี่ยนรหัสก่อน")
+    const expiryInfo = getUserPasswordExpiryInfo(targetUser, passwordPolicy);
+    const policyCharCheck = validatePasswordAgainstPolicy(
+      expectedPassword,
+      passwordPolicy,
+      targetUser,
+      false
+    );
+
+    if (expiryInfo.isExpired || !policyCharCheck.isValid) {
+      setIsLoading(false);
+      const reason = expiryInfo.isExpired
+        ? `รหัสผ่านของ "${targetUser.name}" หมดอายุแล้ว (เริ่มใช้เมื่อ ${formatThaiDateShort(
+            expiryInfo.startDate
+          )} • เกินกำหนด ${passwordPolicy.expiryDays} วัน) กรุณาเปลี่ยนรหัสผ่านใหม่ก่อนเข้าสู่ระบบ`
+        : `นโยบายรหัสผ่านของระบบกำหนดให้ต้องตั้งรหัสผ่านตามเงื่อนไขใหม่ กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน`;
+      setExpiredLoginUser({
+        user: targetUser,
+        reason,
+      });
       return;
     }
 
@@ -317,6 +355,25 @@ export default function LoginPage({
       <div className="text-center text-xs text-slate-500 z-10">
         <p>© 2026 {t.appTitle} • All rights reserved</p>
       </div>
+
+      {/* Forced Password Change Modal when user's password has expired or fails policy */}
+      {expiredLoginUser && (
+        <ChangePasswordModal
+          isOpen={Boolean(expiredLoginUser)}
+          user={expiredLoginUser.user}
+          policy={passwordPolicy}
+          isForced={true}
+          reasonText={expiredLoginUser.reason}
+          onLogout={() => setExpiredLoginUser(null)}
+          onSuccessChangePassword={async (updatedUser) => {
+            if (onUpdateUserPassword) {
+              await onUpdateUserPassword(updatedUser);
+            }
+            setExpiredLoginUser(null);
+            onLogin(updatedUser);
+          }}
+        />
+      )}
     </div>
   );
 }

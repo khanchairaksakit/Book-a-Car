@@ -11,7 +11,7 @@ import {
   getDocFromServer,
   onSnapshot,
 } from 'firebase/firestore';
-import { Vehicle, User, Booking, RolePermissionsMatrix, AuditLogEntry } from '../types';
+import { Vehicle, User, Booking, RolePermissionsMatrix, AuditLogEntry, PasswordPolicy } from '../types';
 import { INITIAL_VEHICLES, INITIAL_USERS, INITIAL_BOOKINGS } from '../data/mockData';
 import {
   DEFAULT_ROLE_PERMISSIONS,
@@ -19,6 +19,13 @@ import {
   getStoredRolePermissions,
   saveStoredRolePermissions,
 } from '../utils/userHelpers';
+import {
+  normalizePasswordPolicy,
+  getStoredPasswordPolicy,
+  saveStoredPasswordPolicy,
+  getDefaultUserPasswordStartDate,
+  getUserPasswordHistoryList,
+} from '../utils/passwordPolicyUtils';
 import {
   getStoredDepartments,
   saveStoredDepartments,
@@ -197,13 +204,22 @@ export async function getUsers(): Promise<User[]> {
           : source.role === 'Admin'
           ? ['Admin', 'User']
           : ['User'];
+      const resolvedPassword = source.password || initialMatch?.password || 'password123';
       const mergedUser: User = {
         ...source,
         employeeCode: source.employeeCode || initialMatch?.employeeCode || `EMP-${data.id.substring(data.id.length - 3)}`,
         division: source.division !== undefined ? source.division : (initialMatch?.division || 'ฝ่ายบริหารทั่วไป'),
         roles: resolvedRoles as any,
         username: source.username || initialMatch?.username || source.email.split('@')[0],
-        password: source.password || initialMatch?.password || 'password123',
+        password: resolvedPassword,
+        passwordUpdatedAt:
+          source.passwordUpdatedAt ||
+          initialMatch?.passwordUpdatedAt ||
+          getDefaultUserPasswordStartDate(data.id),
+        passwordHistory:
+          Array.isArray(source.passwordHistory) && source.passwordHistory.length > 0
+            ? getUserPasswordHistoryList({ ...source, password: resolvedPassword })
+            : [resolvedPassword],
       };
       users.push(mergedUser);
       if (useLocal) {
@@ -613,6 +629,7 @@ export function subscribeToUsers(onUpdate: (users: User[]) => void): () => void 
             : source.role === 'Admin'
             ? ['Admin', 'User']
             : ['User'];
+        const resolvedPassword = source.password || initialMatch?.password || 'password123';
         list.push({
           ...source,
           employeeCode:
@@ -625,7 +642,15 @@ export function subscribeToUsers(onUpdate: (users: User[]) => void): () => void 
               : initialMatch?.division || 'ฝ่ายบริหารทั่วไป',
           roles: resolvedRoles as any,
           username: source.username || initialMatch?.username || source.email.split('@')[0],
-          password: source.password || initialMatch?.password || 'password123',
+          password: resolvedPassword,
+          passwordUpdatedAt:
+            source.passwordUpdatedAt ||
+            initialMatch?.passwordUpdatedAt ||
+            getDefaultUserPasswordStartDate(data.id),
+          passwordHistory:
+            Array.isArray(source.passwordHistory) && source.passwordHistory.length > 0
+              ? getUserPasswordHistoryList({ ...source, password: resolvedPassword })
+              : [resolvedPassword],
         });
       });
       onUpdate(list);
@@ -782,6 +807,69 @@ export async function saveRolePermissions(matrix: RolePermissionsMatrix): Promis
   } catch (error) {
     console.error('Error saving role permissions to Firestore:', error);
   }
+}
+
+// Password Policy CRUD & Real-time Subscription
+export async function getPasswordPolicy(): Promise<PasswordPolicy> {
+  try {
+    const docRef = doc(db, 'settings', 'password_policy');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data?.policy) {
+        const normalized = normalizePasswordPolicy(data.policy);
+        saveStoredPasswordPolicy(normalized);
+        return normalized;
+      }
+    }
+    const localPolicy = getStoredPasswordPolicy();
+    await setDoc(docRef, {
+      id: 'password_policy',
+      policy: localPolicy,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+    return localPolicy;
+  } catch (error) {
+    console.error('Error fetching password policy from Firestore:', error);
+    return getStoredPasswordPolicy();
+  }
+}
+
+export async function savePasswordPolicy(policy: PasswordPolicy): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  const normalized = normalizePasswordPolicy({ ...policy, updatedAt });
+  saveStoredPasswordPolicy(normalized);
+  try {
+    const docRef = doc(db, 'settings', 'password_policy');
+    await setDoc(docRef, {
+      id: 'password_policy',
+      policy: normalized,
+      updatedAt,
+    });
+  } catch (error) {
+    console.error('Error saving password policy to Firestore:', error);
+  }
+}
+
+export function subscribeToPasswordPolicy(
+  onUpdate: (policy: PasswordPolicy) => void
+): () => void {
+  const docRef = doc(db, 'settings', 'password_policy');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data?.policy) {
+        const normalized = normalizePasswordPolicy(data.policy);
+        saveStoredPasswordPolicy(normalized);
+        onUpdate(normalized);
+      }
+    },
+    (error) => {
+      console.error('Error in subscribeToPasswordPolicy:', error);
+    }
+  );
 }
 
 // Organization Settings (Departments & Divisions) Cloud + Server + LocalStorage Persistence

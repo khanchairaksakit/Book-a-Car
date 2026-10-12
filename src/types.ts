@@ -61,6 +61,19 @@ export type RolePermissionsMatrix = Record<
   Record<AppMenuKey, MenuPermissionSetting>
 >;
 
+export type PreventReuseOption = 0 | 3 | 5 | 7;
+export type PasswordExpiryDaysOption = 0 | 30 | 60 | 90 | 180;
+
+export interface PasswordPolicy {
+  requireLowercase: boolean; // ตัวอักษรอังกฤษ ตัวเล็ก (a-z)
+  requireUppercase: boolean; // ตัวอักษรอังกฤษ ตัวใหญ่ (A-Z)
+  requireSpecialChar: boolean; // อักขระพิเศษ (!@#$%^&*...)
+  requireNumber: boolean; // ตัวเลข (0-9)
+  preventReuseCount: PreventReuseOption; // ห้ามซ้ำกัน xx ครั้ง (0, 3, 5, 7)
+  expiryDays: PasswordExpiryDaysOption; // รหัสผ่านหมดอายุ xx วัน (0, 30, 60, 90, 180)
+  updatedAt?: string;
+}
+
 export interface User {
   id: string;
   employeeCode?: string; // รหัสพนักงาน
@@ -73,6 +86,8 @@ export interface User {
   role?: 'User' | 'Admin'; // legacy fallback
   username?: string; // สำหรับล็อกอินด้วย user
   password?: string; // รหัสผ่านสำหรับล็อกอิน
+  passwordUpdatedAt?: string; // วันเวลาที่เริ่มใช้/เปลี่ยนรหัสผ่านล่าสุดของ user นั้นๆ (ISO string)
+  passwordHistory?: string[]; // ประวัติรหัสผ่านที่เคยใช้ของ user นั้นๆ
   lineUserId?: string; // LINE User ID หรือ LINE ID สำหรับรับแจ้งเตือนอนุมัติ
 }
 

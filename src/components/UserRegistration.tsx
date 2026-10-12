@@ -5,6 +5,7 @@ import {
   AppMenuKey,
   StandardRole,
   RolePermissionsMatrix,
+  PasswordPolicy,
 } from '../types';
 import { Language } from '../utils/translations';
 import {
@@ -16,6 +17,16 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   isUserAdmin,
 } from '../utils/userHelpers';
+import {
+  DEFAULT_PASSWORD_POLICY,
+  validatePasswordAgainstPolicy,
+  generatePasswordForPolicy,
+  applyNewPasswordToUser,
+  getUserPasswordExpiryInfo,
+  getUserPasswordHistoryList,
+  formatThaiDateShort,
+  getPasswordPolicySummaryBadges,
+} from '../utils/passwordPolicyUtils';
 import {
   downloadUserExcelTemplate,
   parseUserExcelFile,
@@ -35,6 +46,7 @@ import {
   subscribeToOrganizationSettings,
 } from '../lib/firebase';
 import DepartmentDivisionModal, { DeptDivRenameItem } from './DepartmentDivisionModal';
+import PasswordPolicyModal from './PasswordPolicyModal';
 import {
   UserCheck,
   Shield,
@@ -77,6 +89,11 @@ interface UserRegistrationProps {
   isLineModuleEnabled?: boolean;
   rolePermissions?: RolePermissionsMatrix;
   onUpdateRolePermissions?: (matrix: RolePermissionsMatrix) => void;
+  passwordPolicy?: PasswordPolicy;
+  onUpdatePasswordPolicy?: (
+    policy: PasswordPolicy,
+    updatedUsers?: User[]
+  ) => Promise<void> | void;
   canEdit?: boolean;
   viewOnly?: boolean;
   onlyShowPermissionsMatrix?: boolean;
@@ -95,6 +112,8 @@ export default function UserRegistration({
   isLineModuleEnabled = true,
   rolePermissions = DEFAULT_ROLE_PERMISSIONS,
   onUpdateRolePermissions,
+  passwordPolicy = DEFAULT_PASSWORD_POLICY,
+  onUpdatePasswordPolicy,
   canEdit = true,
   viewOnly = false,
   onlyShowPermissionsMatrix = false,
@@ -102,6 +121,7 @@ export default function UserRegistration({
   const hasEditPermission = canEdit && !viewOnly;
   const canModifyPermissionsMatrix = isUserAdmin(currentUser);
   const [permissionSavedNotice, setPermissionSavedNotice] = useState<string>('');
+  const [isPasswordPolicyModalOpen, setIsPasswordPolicyModalOpen] = useState(false);
 
   const handleToggleMatrixPermission = (
     role: StandardRole,
@@ -171,7 +191,10 @@ export default function UserRegistration({
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [isUsernameManuallyEdited, setIsUsernameManuallyEdited] = useState(false);
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState(() => generatePasswordForPolicy(passwordPolicy));
+  const [passwordUpdatedAtDate, setPasswordUpdatedAtDate] = useState<string>(
+    () => new Date().toISOString().substring(0, 10)
+  );
   const [lineUserId, setLineUserId] = useState('');
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [roles, setRoles] = useState<UserRole[]>(['User']);
@@ -244,7 +267,8 @@ export default function UserRegistration({
     setEmail('');
     setUsername('');
     setIsUsernameManuallyEdited(false);
-    setPassword('password123');
+    setPassword(generatePasswordForPolicy(passwordPolicy));
+    setPasswordUpdatedAtDate(new Date().toISOString().substring(0, 10));
     setLineUserId('');
     setRoles(['User']);
     setError('');
@@ -313,8 +337,21 @@ export default function UserRegistration({
       email.split('@')[0].replace(/\s+/g, '') ||
       `user${Date.now() % 10000}`
     ).toLowerCase();
-    const cleanPassword = password.trim() || 'password123';
+    const cleanPassword = password.trim() || generatePasswordForPolicy(passwordPolicy, isEditing);
     const effectiveRoles = roles.length > 0 ? roles : (['User'] as UserRole[]);
+
+    // Validate password against active PasswordPolicy
+    const isPasswordChanged = !isEditing || cleanPassword !== (isEditing.password || '');
+    const passValidation = validatePasswordAgainstPolicy(
+      cleanPassword,
+      passwordPolicy,
+      isEditing,
+      isPasswordChanged
+    );
+    if (!passValidation.isValid) {
+      setError(passValidation.errors[0] || 'รหัสผ่านไม่ผ่านเงื่อนไขนโยบายรหัสผ่านของระบบ');
+      return;
+    }
 
     // Validate unique username and email
     const duplicateUser = users.find(
@@ -336,6 +373,28 @@ export default function UserRegistration({
     const legacyRole = effectiveRoles.includes('Admin') ? 'Admin' : 'User';
 
     if (isEditing) {
+      const existingStartDateStr = getUserPasswordExpiryInfo(
+        isEditing,
+        passwordPolicy
+      ).startDateIso.substring(0, 10);
+      const customDateModified =
+        Boolean(passwordUpdatedAtDate) && passwordUpdatedAtDate !== existingStartDateStr;
+
+      let nextPasswordUpdatedAt = isEditing.passwordUpdatedAt || new Date().toISOString();
+      let nextPasswordHistory = getUserPasswordHistoryList(isEditing);
+
+      if (isPasswordChanged) {
+        const applied = applyNewPasswordToUser(
+          isEditing,
+          cleanPassword,
+          customDateModified ? `${passwordUpdatedAtDate}T09:00:00.000Z` : new Date().toISOString()
+        );
+        nextPasswordUpdatedAt = applied.passwordUpdatedAt;
+        nextPasswordHistory = applied.passwordHistory;
+      } else if (customDateModified) {
+        nextPasswordUpdatedAt = `${passwordUpdatedAtDate}T09:00:00.000Z`;
+      }
+
       await onEditUser({
         ...isEditing,
         employeeCode: employeeCode.trim() || isEditing.employeeCode || `EMP-${String(users.length).padStart(3, '0')}`,
@@ -346,6 +405,8 @@ export default function UserRegistration({
         email: email.trim(),
         username: cleanUsername,
         password: cleanPassword,
+        passwordUpdatedAt: nextPasswordUpdatedAt,
+        passwordHistory: nextPasswordHistory,
         lineUserId: lineUserId.trim() || undefined,
         roles: effectiveRoles,
         role: legacyRole,
@@ -354,6 +415,11 @@ export default function UserRegistration({
       setTimeout(() => setImportSuccessMsg(''), 4000);
       resetForm();
     } else if (isAddingNew && onAddUser) {
+      const applied = applyNewPasswordToUser(
+        null,
+        cleanPassword,
+        passwordUpdatedAtDate ? `${passwordUpdatedAtDate}T09:00:00.000Z` : new Date().toISOString()
+      );
       await onAddUser({
         employeeCode: employeeCode.trim() || `EMP-${String(users.length + 1).padStart(3, '0')}`,
         name: name.trim(),
@@ -363,6 +429,8 @@ export default function UserRegistration({
         email: email.trim(),
         username: cleanUsername,
         password: cleanPassword,
+        passwordUpdatedAt: applied.passwordUpdatedAt,
+        passwordHistory: applied.passwordHistory,
         lineUserId: lineUserId.trim() || undefined,
         roles: effectiveRoles,
         role: legacyRole,
@@ -400,7 +468,9 @@ export default function UserRegistration({
     setEmail(user.email);
     setUsername(user.username || user.email.split('@')[0]);
     setIsUsernameManuallyEdited(true);
-    setPassword(user.password || 'password123');
+    setPassword(user.password || generatePasswordForPolicy(passwordPolicy, user));
+    const expiryInfo = getUserPasswordExpiryInfo(user, passwordPolicy);
+    setPasswordUpdatedAtDate(expiryInfo.startDateIso.substring(0, 10));
     setLineUserId(user.lineUserId || '');
     setRoles(getUserRoles(user));
     setError('');
@@ -423,7 +493,8 @@ export default function UserRegistration({
     setEmail('');
     setUsername('');
     setIsUsernameManuallyEdited(false);
-    setPassword('password123');
+    setPassword(generatePasswordForPolicy(passwordPolicy));
+    setPasswordUpdatedAtDate(new Date().toISOString().substring(0, 10));
     setLineUserId('');
     setRoles(['User']);
     setError('');
@@ -694,70 +765,117 @@ export default function UserRegistration({
             </p>
           </div>
 
-          {/* Action Buttons: Add, Download Template, Upload Excel */}
-          {hasEditPermission && (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Download Template Button */}
-              <button
-                id="btn-download-excel-template"
-                type="button"
-                onClick={downloadUserExcelTemplate}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200 shadow-2xs"
-                title="ดาวน์โหลดไฟล์แบบฟอร์ม Excel (.xlsx) สำหรับกรอกข้อมูลผู้ใช้งาน"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-600" />
-                <span>{isEn ? 'Excel Template' : 'ดาวน์โหลด Template Excel'}</span>
-              </button>
+          {/* Action Buttons: Add, Password Policy, Dept & Div, Download Template, Upload Excel */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Password Policy Button */}
+            <button
+              id="btn-password-policy"
+              type="button"
+              onClick={() => setIsPasswordPolicyModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-amber-300 shadow-2xs"
+              title="ตั้งค่านโยบายรหัสผ่านของผู้ใช้งานทั้งหมดบนระบบ"
+            >
+              <KeyRound className="w-4 h-4 text-amber-600" />
+              <span>{isEn ? 'Password Policy' : 'นโยบายรหัสผ่าน'}</span>
+            </button>
 
-              {/* Upload Excel Button */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx, .xls, .csv"
-                onChange={handleExcelFileChange}
-                className="hidden"
-                id="excel-file-uploader-input"
-              />
-              <button
-                id="btn-upload-user-excel"
-                type="button"
-                disabled={importLoading}
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-                title="อัปโหลดไฟล์ Excel เพื่อนำเข้ารายชื่อผู้ใช้งานหลายคนพร้อมกัน"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
-              </button>
-
-              {/* Manage Departments and Divisions Button */}
-              <button
-                id="btn-manage-departments-divisions"
-                type="button"
-                onClick={() => setIsDeptDivModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-indigo-200 shadow-2xs"
-                title="กำหนดและจัดการรายชื่อแผนกและฝ่ายเอง"
-              >
-                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                <span>{isEn ? 'Manage Dept & Div' : '🏢 กำหนดแผนกและฝ่าย'}</span>
-                <span className="text-[10px] bg-indigo-200/80 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
-                  {departments.length + divisions.length}
-                </span>
-              </button>
-
-              {/* Add Manual User Button */}
-              {onAddUser && (
+            {hasEditPermission && (
+              <>
+                {/* Download Template Button */}
                 <button
-                  id="btn-add-user-modal"
-                  onClick={startAddNew}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  id="btn-download-excel-template"
+                  type="button"
+                  onClick={downloadUserExcelTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-200 shadow-2xs"
+                  title="ดาวน์โหลดไฟล์แบบฟอร์ม Excel (.xlsx) สำหรับกรอกข้อมูลผู้ใช้งาน"
                 >
-                  <UserPlus className="w-4 h-4" />
-                  <span>{isEn ? 'Add User' : 'เพิ่มผู้ใช้งาน'}</span>
+                  <Download className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{isEn ? 'Excel Template' : 'ดาวน์โหลด Template Excel'}</span>
                 </button>
-              )}
+
+                {/* Upload Excel Button */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleExcelFileChange}
+                  className="hidden"
+                  id="excel-file-uploader-input"
+                />
+                <button
+                  id="btn-upload-user-excel"
+                  type="button"
+                  disabled={importLoading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                  title="อัปโหลดไฟล์ Excel เพื่อนำเข้ารายชื่อผู้ใช้งานหลายคนพร้อมกัน"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>{importLoading ? (isEn ? 'Reading...' : 'กำลังอ่านไฟล์...') : (isEn ? 'Import Excel' : 'นำเข้าจาก Excel')}</span>
+                </button>
+
+                {/* Manage Departments and Divisions Button */}
+                <button
+                  id="btn-manage-departments-divisions"
+                  type="button"
+                  onClick={() => setIsDeptDivModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-indigo-200 shadow-2xs"
+                  title="กำหนดและจัดการรายชื่อแผนกและฝ่ายเอง"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>{isEn ? 'Manage Dept & Div' : '🏢 กำหนดแผนกและฝ่าย'}</span>
+                  <span className="text-[10px] bg-indigo-200/80 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">
+                    {departments.length + divisions.length}
+                  </span>
+                </button>
+
+                {/* Add Manual User Button */}
+                {onAddUser && (
+                  <button
+                    id="btn-add-user-modal"
+                    onClick={startAddNew}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>{isEn ? 'Add User' : 'เพิ่มผู้ใช้งาน'}</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Active Password Policy Summary Bar */}
+      {!onlyShowPermissionsMatrix && (
+        <div
+          id="active-password-policy-summary-bar"
+          className="bg-amber-50/70 border border-amber-200 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
+        >
+          <div className="flex items-start sm:items-center gap-2.5 flex-wrap">
+            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-900">
+              <KeyRound className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>นโยบายรหัสผ่านที่บังคับใช้ปัจจุบัน:</span>
             </div>
-          )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {getPasswordPolicySummaryBadges(passwordPolicy).map((badge, idx) => (
+                <span
+                  key={idx}
+                  className="px-2.5 py-0.5 bg-white border border-amber-300 text-amber-900 rounded-lg text-[11px] font-semibold"
+                >
+                  {badge}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsPasswordPolicyModalOpen(true)}
+            className="text-xs font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer self-start sm:self-auto shrink-0"
+          >
+            ตั้งค่านโยบายรหัสผ่าน →
+          </button>
         </div>
       )}
 
@@ -1217,6 +1335,35 @@ export default function UserRegistration({
                           {user.email}
                         </span>
                       </div>
+
+                      {/* Per-user Password Expiration Status */}
+                      {(() => {
+                        const expInfo = getUserPasswordExpiryInfo(user, passwordPolicy);
+                        return (
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[10px]">
+                            <span className="text-gray-500">
+                              เริ่มใช้รหัส: {formatThaiDateShort(expInfo.startDate)}
+                            </span>
+                            {expInfo.neverExpires ? (
+                              <span className="font-semibold text-emerald-700">
+                                ไม่หมดอายุ
+                              </span>
+                            ) : expInfo.isExpired ? (
+                              <span className="font-bold text-rose-700 bg-rose-100 px-1.5 py-0.2 rounded border border-rose-200">
+                                หมดอายุแล้ว (ต้องเปลี่ยนรหัส)
+                              </span>
+                            ) : (
+                              <span
+                                className={`font-semibold ${
+                                  expInfo.isExpiringSoon ? 'text-amber-700' : 'text-emerald-700'
+                                }`}
+                              >
+                                หมดอายุใน {expInfo.daysRemaining} วัน ({formatThaiDateShort(expInfo.expiryDate)})
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="text-[11px] text-gray-500 mb-3 flex items-center justify-between gap-2">
@@ -1604,21 +1751,34 @@ export default function UserRegistration({
                     </p>
                   </div>
 
-                  {/* Password Input */}
-                  <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/80 space-y-1.5">
-                    <label className="block text-xs font-bold text-amber-900">
-                      <span className="flex items-center gap-1.5">
-                        <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Password รหัสผ่านเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
-                      </span>
-                    </label>
+                  {/* Password Input with Live Password Policy Checklist */}
+                  <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100/80 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-xs font-bold text-amber-900">
+                        <span className="flex items-center gap-1.5">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Password รหัสผ่านเข้าสู่ระบบ</span> <span className="text-red-500">*</span>
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPassword(generatePasswordForPolicy(passwordPolicy, isEditing, Math.floor(Math.random() * 15)));
+                          setShowFormPassword(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg border border-amber-300 transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>ตั้งรหัสตามนโยบาย</span>
+                      </button>
+                    </div>
                     <div className="relative">
                       <input
                         id="user-input-password"
                         type={showFormPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="password123"
+                        placeholder={generatePasswordForPolicy(passwordPolicy)}
                         className="w-full pl-3 pr-10 py-1.5 border border-amber-200 bg-white rounded-lg text-xs font-mono focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
                         required
                       />
@@ -1629,6 +1789,52 @@ export default function UserRegistration({
                       >
                         {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
+                    </div>
+
+                    {/* Active Password Policy Rules Checklist */}
+                    {(() => {
+                      const isPassModified = !isEditing || password.trim() !== (isEditing.password || '');
+                      const liveCheck = validatePasswordAgainstPolicy(
+                        password.trim(),
+                        passwordPolicy,
+                        isEditing,
+                        isPassModified
+                      );
+                      return (
+                        <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200/80 space-y-1">
+                          <div className="text-[10px] font-bold text-amber-900">
+                            เงื่อนไขตามนโยบายรหัสผ่านของระบบ:
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {liveCheck.checks.map((chk) => (
+                              <span
+                                key={chk.key}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                  chk.passed
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                }`}
+                              >
+                                {chk.passed ? '✓' : '✗'} {chk.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Per-User Password Start Date for Expiry Calculation */}
+                    <div className="pt-1 flex items-center justify-between gap-2 text-[11px]">
+                      <label className="font-semibold text-amber-900">
+                        วันที่เริ่มใช้รหัสผ่านของ User นี้ (ใช้นับวันหมดอายุ):
+                      </label>
+                      <input
+                        id="user-input-password-start-date"
+                        type="date"
+                        value={passwordUpdatedAtDate}
+                        onChange={(e) => setPasswordUpdatedAtDate(e.target.value)}
+                        className="px-2 py-1 border border-amber-200 bg-white rounded-lg text-xs font-mono text-gray-800 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+                      />
                     </div>
                   </div>
 
@@ -1959,6 +2165,22 @@ export default function UserRegistration({
           }
         }}
         language={language}
+      />
+
+      {/* System Password Policy Configuration Modal */}
+      <PasswordPolicyModal
+        isOpen={isPasswordPolicyModalOpen}
+        onClose={() => setIsPasswordPolicyModalOpen(false)}
+        policy={passwordPolicy}
+        users={users}
+        canEdit={hasEditPermission || isUserAdmin(currentUser)}
+        onSavePolicy={async (newPolicy, updatedUsersList) => {
+          if (onUpdatePasswordPolicy) {
+            await onUpdatePasswordPolicy(newPolicy, updatedUsersList);
+          }
+          setImportSuccessMsg('บันทึกการตั้งค่านโยบายรหัสผ่านของระบบเรียบร้อยแล้ว');
+          setTimeout(() => setImportSuccessMsg(''), 4000);
+        }}
       />
         </>
       )}

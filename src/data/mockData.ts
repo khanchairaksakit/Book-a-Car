@@ -106,6 +106,8 @@ export const INITIAL_USERS: User[] = [
     role: 'Admin',
     username: 'somchai',
     password: 'password123',
+    passwordUpdatedAt: '2026-10-05T09:00:00.000Z',
+    passwordHistory: ['password123'],
   },
   {
     id: 'user-2',
@@ -119,6 +121,8 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'somsri',
     password: 'password123',
+    passwordUpdatedAt: '2026-09-25T09:00:00.000Z',
+    passwordHistory: ['password123'],
     lineUserId: '@somsri.hr',
   },
   {
@@ -133,6 +137,8 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'wichai',
     password: 'password123',
+    passwordUpdatedAt: '2026-09-01T09:00:00.000Z',
+    passwordHistory: ['password123'],
     lineUserId: '@wichai.it',
   },
   {
@@ -147,6 +153,8 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'nattapong',
     password: 'password123',
+    passwordUpdatedAt: '2026-08-01T09:00:00.000Z',
+    passwordHistory: ['password123'],
     lineUserId: '@nattapong.po',
   },
   {
@@ -161,6 +169,8 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'kittisak',
     password: 'password123',
+    passwordUpdatedAt: '2026-09-20T09:00:00.000Z',
+    passwordHistory: ['password123'],
     lineUserId: '@kittisak.approve2',
   },
   {
@@ -175,6 +185,8 @@ export const INITIAL_USERS: User[] = [
     role: 'User',
     username: 'pimchanok',
     password: 'password123',
+    passwordUpdatedAt: '2026-03-25T09:00:00.000Z',
+    passwordHistory: ['password123'],
     lineUserId: '@pimchanok.it',
   },
 ];

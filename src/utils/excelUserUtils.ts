@@ -1,5 +1,10 @@
 import * as XLSX from 'xlsx';
 import { User, UserRole } from '../types';
+import {
+  getStoredPasswordPolicy,
+  generatePasswordForPolicy,
+  validatePasswordAgainstPolicy,
+} from './passwordPolicyUtils';
 
 export interface ParsedUserRow {
   employeeCode: string;
@@ -19,6 +24,8 @@ export interface ParsedUserRow {
  * Generates and triggers download of a standardized Excel template for users
  */
 export function downloadUserExcelTemplate(): void {
+  const activePolicy = getStoredPasswordPolicy();
+  const samplePass = generatePasswordForPolicy(activePolicy);
   const sampleData = [
     {
       'รหัสพนักงาน': 'EMP005',
@@ -28,7 +35,7 @@ export function downloadUserExcelTemplate(): void {
       'เบอร์โทร': '089-123-9999',
       'อีเมล': 'prasit.w@company.com',
       'บทบาท (User, Approve, Admin)': 'User, Approve',
-      'รหัสผ่าน (Password)': 'password123',
+      'รหัสผ่าน (Password)': samplePass,
     },
     {
       'รหัสพนักงาน': 'EMP006',
@@ -38,7 +45,7 @@ export function downloadUserExcelTemplate(): void {
       'เบอร์โทร': '084-567-8888',
       'อีเมล': 'kanda.c@company.com',
       'บทบาท (User, Approve, Admin)': 'User',
-      'รหัสผ่าน (Password)': 'password123',
+      'รหัสผ่าน (Password)': samplePass,
     },
     {
       'รหัสพนักงาน': 'EMP007',
@@ -48,7 +55,7 @@ export function downloadUserExcelTemplate(): void {
       'เบอร์โทร': '086-777-6655',
       'อีเมล': 'apisit.m@company.com',
       'บทบาท (User, Operator, Approve 1, Approve 2, Admin)': 'Admin, Operator, Approve 1, Approve 2, User',
-      'รหัสผ่าน (Password)': 'password123',
+      'รหัสผ่าน (Password)': samplePass,
     },
   ];
 
@@ -130,9 +137,12 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
             ''
           ).trim();
 
-          const password = String(
-            row['รหัสผ่าน (Password)'] || row['รหัสผ่าน'] || row['password'] || row['Password'] || 'password123'
-          ).trim() || 'password123';
+          const activePolicy = getStoredPasswordPolicy();
+          const defaultCompliantPass = generatePasswordForPolicy(activePolicy);
+          const rawPassInput = String(
+            row['รหัสผ่าน (Password)'] || row['รหัสผ่าน'] || row['password'] || row['Password'] || ''
+          ).trim();
+          const password = rawPassInput || defaultCompliantPass;
 
           // Extract roles
           const roles: UserRole[] = [];
@@ -184,6 +194,11 @@ export async function parseUserExcelFile(file: File, existingUsers: User[] = [])
           }
           if (employeeCode && existingUsers.some((u) => u.employeeCode && u.employeeCode.toLowerCase() === employeeCode.toLowerCase())) {
             errors.push('รหัสพนักงานนี้มีอยู่ในระบบแล้ว');
+          }
+
+          const passCheck = validatePasswordAgainstPolicy(password, activePolicy, null, false);
+          if (!passCheck.isValid) {
+            errors.push(...passCheck.errors);
           }
 
           return {
