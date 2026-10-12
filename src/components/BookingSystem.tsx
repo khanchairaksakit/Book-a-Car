@@ -10,7 +10,11 @@ import {
   getBookingDivision,
   canUserApproveBooking,
 } from '../utils/userHelpers';
-import { getBookingJobNumber } from '../utils/dateHelpers';
+import {
+  getBookingJobNumber,
+  isEarlyVehicleReturn,
+  EARLY_RETURN_WARNING_TEXT,
+} from '../utils/dateHelpers';
 import {
   Clock,
   MapPin,
@@ -29,6 +33,7 @@ import {
   KeyRound,
   Check,
   AlertCircle,
+  AlertTriangle,
   Eye,
   Trash2,
   Upload,
@@ -206,9 +211,9 @@ export default function BookingSystem({
         );
       case 'Approved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            ✅ อนุมัติแล้ว (พร้อมใช้งาน)
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            🚗 กำลังใช้งาน (ยังไม่ได้คืนรถ)
           </span>
         );
       case 'Completed':
@@ -444,13 +449,14 @@ export default function BookingSystem({
           </button>
           <button
             onClick={() => setStatusFilter('Approved')}
+            title="รถที่เรายืมหรือจองและยังไม่ได้คืนรถ"
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
               statusFilter === 'Approved'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
             }`}
           >
-            <span>อนุมัติแล้ว</span>
+            <span>กำลังใช้งาน</span>
             <span className="px-1.5 py-0.2 bg-white/30 rounded-full text-[10px]">
               {approvedCount}
             </span>
@@ -1153,6 +1159,21 @@ export default function BookingSystem({
                   <span className="font-semibold text-gray-800">{returnBooking.startFuelLevel || '-'}</span>
                 </div>
               </div>
+
+              {/* Early Return Warning Banner */}
+              {isEarlyVehicleReturn(returnBooking, new Date().toISOString()) && (
+                <div className="p-3 bg-amber-50 border-2 border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 shrink-0 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-900">
+                      ⚠️ แจ้งเตือนการคืนรถก่อนกำหนด
+                    </p>
+                    <p className="font-semibold text-amber-800">
+                      &ldquo;{EARLY_RETURN_WARNING_TEXT}&rdquo;
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {returnError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">

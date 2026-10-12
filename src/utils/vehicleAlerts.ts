@@ -120,7 +120,7 @@ export function doesBookingCoverDate(
   targetDateStr: string,
   todayStr?: string
 ): boolean {
-  if (!b || b.status === 'Cancelled') return false;
+  if (!b || b.status === 'Cancelled' || b.status === 'Completed') return false;
   const start = (b.startDate || '').substring(0, 10);
   const end = (b.endDate || '').substring(0, 10) || start;
   if (!start || !targetDateStr) return false;

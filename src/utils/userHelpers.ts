@@ -23,10 +23,16 @@ export const MENU_DEFINITIONS: Array<{
   description: string;
 }> = [
   {
+    key: 'dashboard',
+    label: 'แดชบอร์ด (หน้าแรก)',
+    labelEn: 'Dashboard',
+    description: 'หน้าแรกแจ้งเตือนงานค้างที่ต้องดำเนินการ อนุมัติใบงาน บันทึกไมล์/คืนรถ และภาพรวมจองรถส่วนกลาง',
+  },
+  {
     key: 'calendar',
     label: 'ปฏิทินการจองรถยนต์',
     labelEn: 'Vehicle Booking Calendar',
-    description: 'หน้าปฏิทินจองรถยนต์ส่วนกลาง ดูคิวรถว่าง กดจองรถ และบันทึกไมล์/คืนรถ',
+    description: 'หน้าปฏิทินจองรถยนต์ส่วนกลาง ดูคิวรถว่างรายเดือน และกดจองรถตามวันที่ต้องการ',
   },
   {
     key: 'booking',
@@ -68,6 +74,7 @@ export const MENU_DEFINITIONS: Array<{
 
 export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
   User: {
+    dashboard: { viewOnly: false, canEdit: true },
     calendar: { viewOnly: false, canEdit: true },
     booking: { viewOnly: false, canEdit: true },
     vehicles: { viewOnly: true, canEdit: false },
@@ -77,6 +84,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     manual: { viewOnly: true, canEdit: false },
   },
   Operator: {
+    dashboard: { viewOnly: false, canEdit: true },
     calendar: { viewOnly: false, canEdit: true },
     booking: { viewOnly: false, canEdit: true },
     vehicles: { viewOnly: false, canEdit: true },
@@ -86,6 +94,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     manual: { viewOnly: true, canEdit: false },
   },
   'Approve 1': {
+    dashboard: { viewOnly: false, canEdit: true },
     calendar: { viewOnly: false, canEdit: true },
     booking: { viewOnly: false, canEdit: true },
     vehicles: { viewOnly: true, canEdit: false },
@@ -95,6 +104,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     manual: { viewOnly: true, canEdit: false },
   },
   'Approve 2': {
+    dashboard: { viewOnly: false, canEdit: true },
     calendar: { viewOnly: false, canEdit: true },
     booking: { viewOnly: false, canEdit: true },
     vehicles: { viewOnly: false, canEdit: true },
@@ -104,6 +114,7 @@ export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMatrix = {
     manual: { viewOnly: true, canEdit: false },
   },
   Admin: {
+    dashboard: { viewOnly: false, canEdit: true },
     calendar: { viewOnly: false, canEdit: true },
     booking: { viewOnly: false, canEdit: true },
     vehicles: { viewOnly: false, canEdit: true },

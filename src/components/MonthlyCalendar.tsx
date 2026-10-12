@@ -7,7 +7,6 @@ import {
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
 } from '../utils/userHelpers';
-import VehicleOverview from './VehicleOverview';
 import CameraCaptureModal from './CameraCaptureModal';
 import FuelGaugeGraphic from './FuelGaugeGraphic';
 import { compressImageFile } from '../utils/imageCompression';
@@ -18,6 +17,9 @@ import {
   validateBookingDates,
   getBookingJobNumber,
   generateNextJobNumber,
+  isEarlyVehicleReturn,
+  getEffectiveCompletedEndDateStr,
+  EARLY_RETURN_WARNING_TEXT,
 } from '../utils/dateHelpers';
 import {
   ChevronLeft,
@@ -497,13 +499,16 @@ export default function MonthlyCalendar({
     return days;
   }, [currentYear, currentMonth]);
 
-  // Map bookings to dates for fast lookups (including unreturned active missions up through today)
+  // Map bookings to dates for fast lookups (capping Completed early returns at their actual return date)
   const bookingsByDate = useMemo(() => {
     const map: { [dateStr: string]: Booking[] } = {};
     bookings.forEach((b) => {
       if (b.status === 'Cancelled') return;
       const start = b.startDate.substring(0, 10);
-      const rawEnd = b.endDate.substring(0, 10) || start;
+      const rawEnd =
+        b.status === 'Completed'
+          ? getEffectiveCompletedEndDateStr(b)
+          : b.endDate.substring(0, 10) || start;
       const effectiveEnd =
         isBookingActiveStatus(b.status) && start <= realTodayStr && rawEnd < realTodayStr
           ? realTodayStr
@@ -831,333 +836,7 @@ export default function MonthlyCalendar({
         </div>
       </div>
 
-      {/* User Active Approved Missions Banner & Prominent "เสร็จสิ้นภารกิจ" button */}
-      {hasEditPermission && myActiveBookings.length > 0 && (
-        <div id="user-active-missions-section" className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              <span className="text-emerald-700">ภารกิจการใช้รถยนต์ของคุณในขณะนี้ (Active Trips)</span>
-            </h2>
-            <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-              {myActiveBookings.length} รายการพร้อมใช้งาน
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {myActiveBookings.map((b) => (
-              <div
-                key={b.id}
-                id={`active-trip-card-${b.id}`}
-                className="bg-gradient-to-br from-emerald-50/70 via-white to-white border-2 border-emerald-400/80 rounded-2xl p-5 shadow-sm space-y-3 relative overflow-hidden"
-              >
-                <div className="flex items-start justify-between gap-2 border-b border-emerald-100 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
-                      <Car className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          📄 {getBookingJobNumber(b)}
-                        </span>
-                        <h4 className="font-bold text-gray-900 text-sm leading-snug">
-                          {b.vehicleName}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-gray-500 font-mono">
-                        {formatThaiDate(b.startDate)} → {formatThaiDate(b.endDate)}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    <Check className="w-3.5 h-3.5" /> อนุมัติแล้ว
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs bg-white/80 p-3 rounded-xl border border-emerald-100/80">
-                  <div>
-                    <span className="text-gray-500 block text-[11px]">ปลายทาง:</span>
-                    <strong className="text-gray-900 font-semibold">{b.destination}</strong>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block text-[11px]">วัตถุประสงค์:</span>
-                    <span className="text-gray-800 truncate block">{b.purpose}</span>
-                  </div>
-                </div>
-
-                {/* Departure checklist status indicator */}
-                <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <div>
-                    <span className="text-gray-500 block text-[10px]">ข้อมูลไมล์/น้ำมันเริ่มต้น:</span>
-                    {b.startMileage !== undefined ? (
-                      <span className="font-bold text-indigo-700 font-mono text-[11px]">
-                        ไมล์ {b.startMileage.toLocaleString()} km. • น้ำมัน {b.startFuelLevel || '-'}
-                      </span>
-                    ) : (
-                      <span className="text-amber-600 font-semibold text-[11px]">
-                        ⚠️ ยังไม่ได้บันทึกไมล์เริ่มต้น
-                      </span>
-                    )}
-                  </div>
-                  {b.startMileage === undefined ? (
-                    <button
-                      id={`btn-user-record-departure-${b.id}`}
-                      type="button"
-                      onClick={() => handleOpenDeparture(b)}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                    >
-                      🚗 บันทึกไมล์เริ่ม
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenDeparture(b)}
-                      className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
-                    >
-                      แก้ไขไมล์เริ่ม
-                    </button>
-                  )}
-                </div>
-
-                {/* The prominent GREEN "เสร็จสิ้นภารกิจ" Button (Requirement 3) & Cancel Button */}
-                <div className="pt-1 flex items-center gap-2">
-                  <button
-                    id={`btn-user-complete-mission-${b.id}`}
-                    type="button"
-                    onClick={() => handleOpenReturn(b)}
-                    className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-emerald-700/25 flex items-center justify-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/40"
-                    title="กดปุ่มเพื่อบันทึกไมล์สิ้นสุด น้ำมัน และหลักฐานรูปถ่ายหย่อนกุญแจลงตู้เพื่อเสร็จสิ้นภารกิจ"
-                  >
-                    <Check className="w-5 h-5 stroke-[3]" />
-                    <span>เสร็จสิ้นภารกิจ (คืนรถและกุญแจ)</span>
-                  </button>
-                  {onUpdateBookingStatus && (
-                    <button
-                      id={`btn-user-cancel-active-${b.id}`}
-                      type="button"
-                      onClick={() =>
-                        onUpdateBookingStatus(b.id, 'Cancelled', {
-                          rejectedBy: `${currentUser?.name || b.userName} (ผู้จองยกเลิกการจอง)`,
-                          rejectionReason: 'ผู้ขอใช้รถกดยกเลิกการจองด้วยตนเอง',
-                          rejectedAt: new Date().toISOString(),
-                        })
-                      }
-                      className="py-3 px-3.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0"
-                      title="ยกเลิกการจองใบงานนี้"
-                    >
-                      ยกเลิกการจอง
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Pending Bookings & Quick Approval Section (Visible to Requesters & Approvers immediately) */}
-      {pendingLineBookings.length > 0 && (
-        <div
-          id="pending-approvals-home-section"
-          className="bg-white rounded-2xl border border-amber-200 p-4 sm:p-5 shadow-xs space-y-3"
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-100 pb-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
-              <h2 className="text-sm sm:text-base font-bold text-gray-900">
-                รายการคำขอจองรถที่รอการพิจารณาอนุมัติ ({pendingLineBookings.length} รายการ)
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={onNavigateToBookingList}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1 cursor-pointer self-start sm:self-auto"
-            >
-              <span>ไปที่หน้าตรวจสอบสถานะและอนุมัติทั้งหมด</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {pendingLineBookings.slice(0, 6).map((b) => {
-              const canApproveThis =
-                hasEditPermission && canUserApproveBooking(b, currentUser, users);
-              const isOwnerOfPending =
-                Boolean(currentUser) &&
-                (currentUser?.id === b.userId ||
-                  (Boolean(currentUser?.name) &&
-                    Boolean(b.userName) &&
-                    currentUser!.name.trim().toLowerCase() ===
-                      b.userName.trim().toLowerCase()));
-              const canCancelThis =
-                Boolean(currentUser) && (isOwnerOfPending || isUserAdmin(currentUser));
-              const isStage2 = b.status === 'Pending_Approve2';
-              return (
-                <div
-                  key={b.id}
-                  id={`home-pending-card-${b.id}`}
-                  className="p-4 rounded-xl border border-amber-200/90 bg-amber-50/30 flex flex-col justify-between gap-3"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 text-white">
-                            📄 {getBookingJobNumber(b)}
-                          </span>
-                          <span className="font-bold text-gray-900 text-xs sm:text-sm">
-                            {b.vehicleName}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          <span>
-                            ผู้ขอจอง: <strong>{b.userName}</strong> ({b.userDepartment || '-'})
-                          </span>
-                          {(() => {
-                            const contactPhone =
-                              b.userPhone || users.find((u) => u.id === b.userId)?.phone || '';
-                            if (!contactPhone) return null;
-                            return (
-                              <a
-                                href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
-                                title={`กดเพื่อโทรออก ${contactPhone}`}
-                              >
-                                📞 {contactPhone}
-                              </a>
-                            );
-                          })()}
-                        </div>
-                      </div>
-
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${
-                          isStage2
-                            ? 'bg-blue-50 text-blue-800 border-blue-200'
-                            : 'bg-amber-100 text-amber-800 border-amber-300'
-                        }`}
-                      >
-                        {isStage2
-                          ? `⏳ รอผู้ดูแลรถ (${b.stage2ApproverName || 'ผู้ดูแลรถ'})`
-                          : `⏳ รอผู้จัดการ (${b.assignedApproverName || 'ผู้จัดการ'})`}
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-gray-700 bg-white/90 p-2.5 rounded-lg border border-amber-100 space-y-1">
-                      <div className="flex items-center gap-1.5 text-[11px] font-mono text-gray-700">
-                        <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span>{formatTripDateTime(b.startDate, b.endDate)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-gray-700">
-                        <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                        <span className="truncate">
-                          <strong>ปลายทาง:</strong> {b.destination} • <strong>วัตถุประสงค์:</strong> {b.purpose}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={onNavigateToBookingList}
-                        className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
-                      >
-                        ดูรายละเอียดใบงาน →
-                      </button>
-                      {canCancelThis && onUpdateBookingStatus && (
-                        <button
-                          id={`btn-home-cancel-${b.id}`}
-                          type="button"
-                          onClick={() =>
-                            onUpdateBookingStatus(b.id, 'Cancelled', {
-                              rejectedBy: `${currentUser?.name || b.userName} (ผู้จองยกเลิกการจอง)`,
-                              rejectionReason: 'ผู้ขอใช้รถกดยกเลิกการจองด้วยตนเอง',
-                              rejectedAt: new Date().toISOString(),
-                            })
-                          }
-                          className="px-2.5 py-1 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
-                        >
-                          ยกเลิกการจอง
-                        </button>
-                      )}
-                    </div>
-
-                    {canApproveThis && onUpdateBookingStatus && (
-                      <div className="flex items-center gap-1.5">
-                        {b.status === 'Pending' ? (
-                          <button
-                            id={`btn-home-approve1-${b.id}`}
-                            type="button"
-                            onClick={() =>
-                              onUpdateBookingStatus(b.id, 'Pending_Approve2', {
-                                stage1ApprovedBy: currentUser?.name || 'ผู้จัดการ',
-                                stage1ApprovedAt: new Date().toISOString(),
-                              })
-                            }
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>ผู้จัดการ</span>
-                          </button>
-                        ) : (
-                          <button
-                            id={`btn-home-approve2-${b.id}`}
-                            type="button"
-                            onClick={() =>
-                              onUpdateBookingStatus(b.id, 'Approved', {
-                                stage2ApprovedBy: currentUser?.name || 'ผู้ดูแลรถ',
-                                stage2ApprovedAt: new Date().toISOString(),
-                              })
-                            }
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>ผู้ดูแลรถ</span>
-                          </button>
-                        )}
-                        <button
-                          id={`btn-home-reject-${b.id}`}
-                          type="button"
-                          onClick={() => {
-                            setRejectingBookingState({
-                              booking: b,
-                              stage: b.status === 'Pending' ? 1 : 2,
-                            });
-                            setRejectReasonInput('');
-                            setRejectReasonError('');
-                          }}
-                          className="px-2.5 py-1.5 border border-red-200 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold cursor-pointer"
-                        >
-                          ไม่อนุมัติ
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 2. ภาพรวมระบบจองรถยนต์ส่วนกลาง (Vehicle Overview placed above the calendar) */}
-      <VehicleOverview
-        vehicles={vehicles}
-        bookings={bookings}
-        users={users}
-        selectedDateStr={selectedDateStr}
-        onSelectDate={handleSelectDate}
-        onOpenBookingModal={handleOpenBookingModal}
-        currentUser={currentUser}
-        canEdit={canEdit}
-        viewOnly={viewOnly}
-      />
-
-      {/* 3. Month Controls & Legend Bar */}
+      {/* Month Controls & Legend Bar */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Navigation Buttons */}
         <div className="flex items-center gap-2">
@@ -1312,7 +991,7 @@ export default function MonthlyCalendar({
                         className={`text-[9px] sm:text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
                           isFullyBooked
                             ? 'bg-rose-100 text-rose-800'
-                            : dayBookings.length > 0
+                            : activeDayBookings.length > 0
                             ? 'bg-amber-100 text-amber-800'
                             : 'bg-emerald-100 text-emerald-800'
                         }`}
@@ -2054,7 +1733,7 @@ export default function MonthlyCalendar({
                             }`}
                           >
                             {b.status === 'Approved'
-                              ? 'อนุมัติแล้ว'
+                              ? 'กำลังใช้งาน'
                               : b.status === 'Completed'
                               ? 'เสร็จสิ้น'
                               : b.status === 'Cancelled'
@@ -2325,6 +2004,20 @@ export default function MonthlyCalendar({
                   <span className="font-semibold text-gray-800">{returnBooking.startFuelLevel || '-'}</span>
                 </div>
               </div>
+
+              {isEarlyVehicleReturn(returnBooking, new Date()) && (
+                <div className="p-3 bg-amber-50 border-2 border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 shrink-0 shadow-2xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-900">
+                      ⚠️ แจ้งเตือนการคืนรถก่อนกำหนด
+                    </p>
+                    <p className="font-semibold text-amber-800">
+                      &ldquo;{EARLY_RETURN_WARNING_TEXT}&rdquo;
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {returnError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">

@@ -23,7 +23,7 @@ import { Language } from '../utils/translations';
 
 interface BookingManualProps {
   language?: Language;
-  onNavigateTab?: (tab: 'calendar' | 'booking' | 'vehicles' | 'users' | 'report') => void;
+  onNavigateTab?: (tab: 'dashboard' | 'calendar' | 'booking' | 'vehicles' | 'users' | 'report') => void;
 }
 
 type ManualRoleFilter = 'all' | 'requester' | 'approver' | 'admin';
@@ -42,7 +42,7 @@ interface ManualStep {
   detailsEn: string[];
   tipsTh?: string;
   tipsEn?: string;
-  actionTab?: 'calendar' | 'booking' | 'vehicles' | 'users' | 'report';
+  actionTab?: 'dashboard' | 'calendar' | 'booking' | 'vehicles' | 'users' | 'report';
   actionLabelTh?: string;
   actionLabelEn?: string;
 }
@@ -52,30 +52,64 @@ const MANUAL_STEPS: ManualStep[] = [
     id: 'step-login',
     number: '01',
     roleCategory: ['all', 'requester', 'approver', 'admin'],
-    roleLabelTh: 'ทุกสิทธิ์การใช้งาน · เตรียมความพร้อม',
-    roleLabelEn: 'All Roles · Getting Started',
+    roleLabelTh: 'ทุกสิทธิ์การใช้งาน · การเข้าใช้งานระบบ',
+    roleLabelEn: 'All Roles · Signing In',
     titleTh: 'การเข้าสู่ระบบและตรวจสอบสิทธิ์การใช้งาน',
     titleEn: 'Signing In & Checking Account Permissions',
     summaryTh:
-      'เข้าสู่ระบบด้วยชื่อผู้ใช้ (Username) หรืออีเมลองค์กร พร้อมรหัสผ่านที่ได้รับจากผู้ดูแลระบบ',
+      'เข้าสู่ระบบด้วยชื่อผู้ใช้ (Username) รหัสพนักงาน หรืออีเมลองค์กรที่มีอยู่ในระบบ พร้อมรหัสผ่านที่ถูกต้องโดยไม่มีเว้นวรรค',
     summaryEn:
-      'Sign in using your corporate Username or Email and password assigned by the administrator.',
+      'Sign in using your registered corporate Username, Employee Code, or Email and password without spaces.',
     detailsTh: [
-      'กรอก Username หรือ Email และรหัสผ่านในหน้าเข้าสู่ระบบ หรือเลือกบัญชีจากรายการด่วน (กรณีทดสอบระบบ)',
-      'ตรวจสอบชื่อ-นามสกุล แผนก/ฝ่าย และบทบาทสิทธิ์ของคุณได้ที่แถบด้านซ้ายบน (เช่น ผู้ขอใช้รถ, ผู้จัดการ, ผู้ดูแลรถ, ผู้ดูแลระบบ)',
-      'หากต้องการรับแจ้งเตือนผ่าน LINE สามารถผูก LINE User ID ได้ที่เมนูจัดการผู้ใช้งาน หรือหน้าต่างแจ้งเตือน LINE',
+      'กรอกชื่อผู้ใช้ (Username) รหัสพนักงาน หรืออีเมล และรหัสผ่านในหน้าเข้าสู่ระบบ (ห้ามเคาะเว้นวรรคก่อนหรือหลังชื่อผู้ใช้และรหัสผ่าน โดยระบบจะอนุญาตเฉพาะผู้ใช้งานที่มีรายชื่ออยู่ในฐานข้อมูลจริงเท่านั้น)',
+      'เมื่อเข้าสู่ระบบสำเร็จ ระบบจะนำท่านเข้าสู่หน้า "Dashboard" เป็นหน้าแรกโดยอัตโนมัติ เพื่อให้ตรวจสอบรายการงานหรือเอกสารที่ค้างดำเนินการได้ทันที',
+      'ตรวจสอบชื่อ-นามสกุล แผนก/ฝ่าย และบทบาทสิทธิ์ของท่านได้ที่แถบเมนูด้านซ้ายบน (เช่น ผู้ขอใช้รถ, ผู้จัดการ, ผู้ดูแลรถ, ผู้ดูแลระบบ)',
+      'หากต้องการรับแจ้งเตือนผ่าน LINE สามารถผูก LINE User ID ได้ที่เมนู "กำหนดผู้ใช้งาน" หรือตั้งค่าการแจ้งเตือน LINE',
     ],
     detailsEn: [
-      'Enter your Username or Corporate Email and Password on the Sign-In screen.',
+      'Enter your registered Username, Employee Code, or Email and Password without any whitespace.',
+      'Upon signing in, you are automatically directed to the "Dashboard" as your home screen to review any pending tasks.',
       'Verify your name, department/division, and assigned roles in the left navigation sidebar.',
       'Link your LINE User ID to receive real-time LINE Flex Message notifications.',
     ],
-    tipsTh: 'ระบบแยกการมองเห็นใบงานตามแผนก/ฝ่าย โดยผู้ขอใช้รถจะเห็นใบงานของตนเองและในแผนกที่เกี่ยวข้อง',
-    tipsEn: 'Bookings are filtered by department/division visibility rules.',
+    tipsTh: 'การแจ้งเตือนแบบป๊อปอัพบนหน้าจอจะแสดงเฉพาะผู้ใช้งานที่เกี่ยวข้องกับรายการนั้นๆ และจะปิดตัวเองอัตโนมัติภายใน 5 วินาที',
+    tipsEn: 'In-app notifications are targeted only to relevant users and auto-dismiss after 5 seconds.',
+  },
+  {
+    id: 'step-dashboard',
+    number: '02',
+    roleCategory: ['all', 'requester', 'approver', 'admin'],
+    roleLabelTh: 'ทุกสิทธิ์การใช้งาน · หน้าแรกหลังเข้าสู่ระบบ (Home)',
+    roleLabelEn: 'All Roles · Home Dashboard & Action Center',
+    titleTh: 'การใช้งานหน้า Dashboard (ศูนย์รวมเอกสารและรายการที่ค้างดำเนินการ)',
+    titleEn: 'Using the Dashboard (Pending Tasks, Documents & Fleet Overview)',
+    summaryTh:
+      'หน้าแรกที่ผู้ใช้งานทุกคนจะพบทันทีเมื่อเข้าสู่ระบบ รวบรวมเอกสารคำขอ ใบงานที่รออนุมัติ และภารกิจการใช้รถที่ยังดำเนินการไม่เสร็จสิ้น พร้อมภาพรวมรถยนต์ส่วนกลางในหน้าเดียว',
+    summaryEn:
+      'Your default landing page upon login, consolidating all pending approvals, active vehicle trips awaiting action, and real-time fleet availability.',
+    detailsTh: [
+      'ศูนย์รวมรายการและเอกสารที่ค้างดำเนินการ: ระบบจะคัดกรองเฉพาะใบงานหรือเอกสารที่ท่านต้องดำเนินการต่อมาแสดงให้เห็นอย่างชัดเจนที่ส่วนบนของหน้า Dashboard เพื่อให้กดเข้าไปจัดการจนเสร็จสิ้นได้ทันทีโดยไม่ต้องค้นหาเอง',
+      'สำหรับผู้จัดการ (Approve 1): แสดงรายการเอกสารใบงานขอใช้รถในแผนก/ฝ่ายที่ "รอผู้จัดการอนุมัติ (ขั้นที่ 1)" สามารถกดดูรายละเอียดภารกิจและกดปุ่ม "อนุมัติ" หรือ "ไม่อนุมัติ (Reject)" ได้จากหน้า Dashboard ทันที',
+      'สำหรับผู้ดูแลรถ (Approve 2): แสดงรายการเอกสารใบงานที่ผ่านผู้จัดการแล้วและ "รอผู้ดูแลรถอนุมัติ (ขั้นที่ 2)" เพื่อให้ตรวจสอบความพร้อมของรถยนต์และกดอนุมัติขั้นสุดท้ายได้อย่างรวดเร็ว',
+      'สำหรับผู้ขอใช้รถ (Operator): แสดงใบงานที่อยู่ในสถานะ "กำลังใช้งาน (ยังไม่ได้คืนรถ)" เพื่อให้กด "บันทึกข้อมูลก่อนออกเดินทาง" หรือกด "เสร็จสิ้นภารกิจ & คืนรถยนต์ส่วนกลาง" ได้ทันที รวมถึงแสดงรายการคำขอของตนเองที่ยังอยู่ระหว่างรอการอนุมัติ',
+      'ภาพรวมจองรถยนต์ส่วนกลาง: แสดงสรุปจำนวนรถยนต์ที่ว่างพร้อมใช้งาน รถที่กำลังปฏิบัติภารกิจ รถที่อยู่ระหว่างซ่อมบำรุง และตารางคิวการใช้รถประจำวัน เพื่อช่วยวางแผนการเดินทางได้อย่างแม่นยำ',
+    ],
+    detailsEn: [
+      'Pending Action Center: Automatically highlights documents and bookings requiring your immediate attention right at the top of the Dashboard.',
+      'For Managers (Approve 1): Displays Stage 1 pending requests with direct buttons to review details, Approve, or Reject.',
+      'For Fleet Controllers (Approve 2): Displays Stage 2 pending requests ready for final vehicle check and approval.',
+      'For Requesters (Operators): Shows active "In Use" trips requiring pre-departure logging or vehicle return, plus your requests currently awaiting approval.',
+      'Central Fleet Overview: Displays real-time counts of available, in-use, and maintenance vehicles alongside the daily schedule.',
+    ],
+    tipsTh: 'หากมีตัวเลขแจ้งเตือนสีแดงหรือสีส้มปรากฏในหน้า Dashboard แปลว่าท่านมีเอกสารใบงานค้างอยู่ สามารถคลิกปุ่มบนการ์ดใบงานนั้นเพื่อดำเนินการต่อให้เสร็จสิ้นได้ทันที',
+    tipsEn: 'Action cards on the Dashboard let you complete approvals, pre-departure logs, and vehicle returns in one click.',
+    actionTab: 'dashboard',
+    actionLabelTh: 'ไปที่หน้า Dashboard',
+    actionLabelEn: 'Open Dashboard',
   },
   {
     id: 'step-booking',
-    number: '02',
+    number: '03',
     roleCategory: ['all', 'requester'],
     roleLabelTh: 'ผู้ขอใช้รถ (Operator) · การสร้างคำขอ',
     roleLabelEn: 'Requester (Operator) · Creating a Request',
@@ -90,16 +124,16 @@ const MANUAL_STEPS: ManualStep[] = [
       'ระบุวัน-เวลาเริ่มต้น และวัน-เวลาสิ้นสุดภารกิจ ระบบจะคัดกรองเฉพาะรถยนต์ส่วนกลางที่ "ว่าง" ในช่วงเวลานั้นให้เลือก',
       'เลือกรถยนต์ที่ต้องการ ระบุสถานที่ปลายทาง จำนวนผู้โดยสาร เบอร์โทรศัพท์ติดต่อ และวัตถุประสงค์ของการเดินทาง',
       'เลือกผู้อนุมัติลำดับที่ 1 (ผู้จัดการ) และผู้อนุมัติลำดับที่ 2 (ผู้ดูแลรถ) จากนั้นกดปุ่มยืนยันการจอง',
-      'ระบบจะสร้างเลขที่ใบงานอัตโนมัติในรูปแบบ AX-YYYYMMDD-XXX (เช่น AX-20261008-001) พร้อมส่งแจ้งเตือนไปยังผู้จัดการทาง LINE ทันที',
+      'ระบบจะสร้างเลขที่ใบงานอัตโนมัติในรูปแบบ AX-YYYYMMDD-XXX (เช่น AX-20261008-001) พร้อมส่งรายการไปแสดงในหน้า Dashboard ของผู้อนุมัติและส่งแจ้งเตือนทาง LINE ทันที',
     ],
     detailsEn: [
       'Open "Booking Calendar" and click on your desired departure date or the "+ Book Vehicle" button.',
       'Select start and end date/time; the system automatically filters available vehicles for that slot.',
       'Select a vehicle, enter destination, passenger count, contact phone, and trip purpose.',
       'Confirm Approver 1 (Manager) and Approver 2 (Fleet Controller), then submit.',
-      'An automatic job number (AX-YYYYMMDD-XXX) is generated and sent via LINE to the Manager.',
+      'An automatic job number (AX-YYYYMMDD-XXX) is generated, appearing on the Approver’s Dashboard and sent via LINE.',
     ],
-    tipsTh: 'ไม่สามารถเลือกเวลาสิ้นสุดที่ย้อนหลังกว่าเวลาเริ่มต้น หรือจองซ้อนทับกับใบงานที่ได้รับอนุมัติแล้วได้',
+    tipsTh: 'ไม่สามารถเลือกเวลาสิ้นสุดที่ย้อนหลังกว่าเวลาเริ่มต้น หรือจองซ้อนทับกับใบงานที่กำลังใช้งานอยู่ในช่วงเวลาเดียวกันได้',
     tipsEn: 'Overlapping time slots on the same vehicle are automatically prevented.',
     actionTab: 'calendar',
     actionLabelTh: 'ไปที่หน้าปฏิทินการจองรถ',
@@ -107,116 +141,121 @@ const MANUAL_STEPS: ManualStep[] = [
   },
   {
     id: 'step-approval',
-    number: '03',
+    number: '04',
     roleCategory: ['all', 'approver', 'requester'],
     roleLabelTh: 'ผู้จัดการ & ผู้ดูแลรถ · การพิจารณาอนุมัติ 2 ขั้นตอน',
     roleLabelEn: 'Manager & Fleet Controller · 2-Stage Approval Workflow',
     titleTh: 'ขั้นตอนการอนุมัติคำขอใช้รถยนต์ส่วนกลาง (2 ลำดับขั้น)',
     titleEn: 'Two-Stage Approval Process (Manager & Fleet Controller)',
     summaryTh:
-      'ใบงานทุกใบต้องผ่านการพิจารณาจาก "ผู้จัดการ" (ลำดับที่ 1) และ "ผู้ดูแลรถ" (ลำดับที่ 2) ก่อนนำรถออกใช้งาน',
+      'ใบงานทุกใบต้องผ่านการพิจารณาจาก "ผู้จัดการ" (ลำดับที่ 1) และ "ผู้ดูแลรถ" (ลำดับที่ 2) โดยสามารถกดอนุมัติได้จากหน้า Dashboard เมนูตรวจสอบสถานะ หรือผ่าน LINE',
     summaryEn:
-      'Every request passes through Stage 1 (Manager) and Stage 2 (Fleet Controller) before the vehicle is cleared for departure.',
+      'Every request passes through Stage 1 (Manager) and Stage 2 (Fleet Controller) via the Dashboard, Check Status menu, or LINE.',
     detailsTh: [
-      'ขั้นที่ 1 (รอผู้จัดการ): ผู้จัดการตรวจสอบความเหมาะสมของภารกิจในแผนก/ฝ่าย กด "อนุมัติ" หรือ "ไม่อนุมัติ" (พร้อมระบุเหตุผล) ได้จากเมนู "ตรวจสอบสถานะ" หรือกดผ่านการ์ดแจ้งเตือนใน LINE',
-      'ขั้นที่ 2 (รอผู้ดูแลรถ): เมื่อผู้จัดการอนุมัติแล้ว ระบบจะส่งแจ้งเตือนไปยัง "ผู้ดูแลรถ" เพื่อตรวจสอบความพร้อมของรถยนต์และกดอนุมัติขั้นสุดท้าย',
-      'เมื่ออนุมัติครบทั้ง 2 ขั้นตอน สถานะใบงานจะเปลี่ยนเป็น "อนุมัติแล้ว (พร้อมใช้งาน)" และแจ้งเตือนกลับไปยังผู้ขอใช้รถทันที',
+      'ขั้นที่ 1 (รอผู้จัดการ): เมื่อผู้จัดการเข้าสู่ระบบ หน้า Dashboard จะแจ้งเตือนใบงานที่รออนุมัติทันที ผู้จัดการสามารถตรวจสอบภารกิจและกด "อนุมัติ" หรือ "ไม่อนุมัติ" (พร้อมระบุเหตุผล) ได้จากหน้า Dashboard, เมนู "ตรวจสอบสถานะ" หรือผ่านการ์ดแจ้งเตือนใน LINE',
+      'ขั้นที่ 2 (รอผู้ดูแลรถ): เมื่อผู้จัดการอนุมัติแล้ว ใบงานจะถูกส่งต่อไปยังหน้า Dashboard และ LINE ของ "ผู้ดูแลรถ" เพื่อตรวจสอบความพร้อมของรถยนต์และกดอนุมัติขั้นสุดท้าย',
+      'เมื่ออนุมัติครบทั้ง 2 ขั้นตอน สถานะใบงานจะเปลี่ยนเป็น "กำลังใช้งาน (ยังไม่ได้คืนรถ)" เพื่อให้ผู้ขอใช้รถบันทึกข้อมูลการเดินทางและนำรถออกปฏิบัติงานได้',
       'กรณีไม่อนุมัติ (Reject) ในขั้นตอนใดขั้นตอนหนึ่ง สถานะจะเปลี่ยนเป็น "ผู้จัดการ Reject" หรือ "ผู้ดูแลรถ Reject" พร้อมแสดงเหตุผลในใบงาน',
     ],
     detailsEn: [
-      'Stage 1 (Pending Manager): The Manager reviews trip necessity and approves or rejects with a reason via "Check Status" or LINE.',
-      'Stage 2 (Pending Fleet Controller): Once Stage 1 is approved, the Fleet Controller verifies vehicle readiness and grants final approval.',
-      'Upon Stage 2 approval, the booking status becomes "Approved (Ready for Use)" and notifies the requester.',
+      'Stage 1 (Pending Manager): Shows up immediately on the Manager’s Dashboard. The Manager reviews trip necessity and approves or rejects with a reason via Dashboard, "Check Status", or LINE.',
+      'Stage 2 (Pending Fleet Controller): Once Stage 1 is approved, the Fleet Controller sees the pending task on their Dashboard and LINE to grant final approval.',
+      'Upon Stage 2 approval, the booking status becomes "In Use (Not Yet Returned)" and notifies the requester.',
       'If rejected at either stage, the status updates with the specific rejection reason.',
     ],
-    tipsTh: 'ผู้อนุมัติสามารถกดลิงก์จาก LINE Flex Message เพื่อเข้าสู่หน้าพิจารณาใบงานและกดอนุมัติหรือไม่อนุมัติได้ทันที',
-    tipsEn: 'Approvers can act directly from the LINE Flex Message notification link.',
+    tipsTh: 'ในหน้าตรวจสอบสถานะ สามารถกรองดูใบงานตามสถานะ "รอผู้จัดการ", "รอผู้ดูแลรถ", "กำลังใช้งาน" (รถที่ยืมและยังไม่ได้คืน), "เสร็จสิ้น" และ "ยกเลิก" ได้อย่างสะดวก',
+    tipsEn: 'Use status filters in Check Status to view Pending Manager, Pending Fleet Controller, In Use, Completed, or Cancelled bookings.',
     actionTab: 'booking',
     actionLabelTh: 'ไปที่หน้าตรวจสอบสถานะ',
     actionLabelEn: 'Open Status & Approvals',
   },
   {
     id: 'step-departure',
-    number: '04',
+    number: '05',
     roleCategory: ['all', 'requester'],
     roleLabelTh: 'ผู้ขอใช้รถ (Operator) · ก่อนออกเดินทาง',
     roleLabelEn: 'Requester (Operator) · Pre-Departure Record',
     titleTh: 'การบันทึกข้อมูลก่อนออกเดินทาง (เลขไมล์เริ่มต้น & ระดับน้ำมัน)',
     titleEn: 'Recording Pre-Departure Data (Start Mileage & Fuel Gauge)',
     summaryTh:
-      'เมื่อใบงานได้รับอนุมัติครบ 2 ขั้นตอนแล้ว ก่อนนำรถออกเดินทางให้บันทึกเลขไมล์เริ่มต้นและระดับน้ำมันเริ่มต้น',
+      'เมื่อใบงานเปลี่ยนเป็นสถานะ "กำลังใช้งาน" แล้ว ก่อนนำรถออกเดินทางให้บันทึกเลขไมล์เริ่มต้นและระดับน้ำมันเริ่มต้น',
     summaryEn:
-      'Before departing in an approved vehicle, record the starting odometer mileage and fuel level.',
+      'Before departing in an approved vehicle (status: In Use), record the starting odometer mileage and fuel level.',
     detailsTh: [
-      'ไปที่เมนู "ตรวจสอบสถานะ" หรือดูที่การ์ดใบงานที่ได้รับอนุมัติแล้วในหน้าปฏิทิน กดปุ่ม "บันทึกข้อมูลก่อนออกเดินทาง"',
+      'ที่หน้า "Dashboard" (ในหัวข้อรายการค้างดำเนินการ) หรือที่เมนู "ตรวจสอบสถานะ" กดปุ่ม "บันทึกข้อมูลก่อนออกเดินทาง" บนใบงานที่กำลังใช้งาน',
       'เลขไมล์เริ่มต้น (km.): ระบบจะดึงเลขไมล์ล่าสุดของรถคันนั้นมาแสดงให้อัตโนมัติ โดยผู้ใช้งานสามารถตรวจสอบและปรับแก้ตัวเลขให้ตรงกับหน้าปัดจริงได้',
       'ระดับน้ำมันเริ่มต้น: เลือกตัวเลือกระดับน้ำมัน (เต็มถัง, 3/4, 1/2, 1/4, ใกล้หมด) โดยเข็มกราฟิกหน้าปัดระดับน้ำมันจะขยับตามตัวเลือกที่เลือกทันที',
       'กดปุ่ม "บันทึกข้อมูลออกเดินทาง" (ขั้นตอนนี้ไม่ต้องถ่ายภาพ เพื่อให้สะดวกรวดเร็วในการออกเดินทาง)',
     ],
     detailsEn: [
-      'In "Check Status" or on the Calendar active trip banner, click "Record Pre-Departure Info".',
+      'On the "Dashboard" (under Pending Actions) or in "Check Status", click "Record Pre-Departure Info" on your active trip.',
       'Starting Mileage (km.): Automatically pre-filled from the vehicle’s current odometer, editable if needed.',
       'Starting Fuel Level: Select Full, 3/4, 1/2, or 1/4 — the interactive fuel gauge needle moves to match your selection.',
       'Click Save to confirm departure (no photo upload required at departure).',
     ],
     tipsTh: 'การบันทึกข้อมูลก่อนออกเดินทางเป็นขั้นตอนบังคับก่อนที่จะสามารถกดคืนรถเมื่อเสร็จสิ้นภารกิจได้',
     tipsEn: 'Pre-departure mileage and fuel must be recorded before you can complete and return the vehicle.',
-    actionTab: 'booking',
-    actionLabelTh: 'ไปที่รายการใบงานเพื่อบันทึกออกเดินทาง',
-    actionLabelEn: 'Go to Bookings',
+    actionTab: 'dashboard',
+    actionLabelTh: 'ไปที่หน้า Dashboard เพื่อบันทึกก่อนเดินทาง',
+    actionLabelEn: 'Go to Dashboard',
   },
   {
     id: 'step-return',
-    number: '05',
+    number: '06',
     roleCategory: ['all', 'requester', 'approver'],
     roleLabelTh: 'ผู้ขอใช้รถ (Operator) · เสร็จสิ้นภารกิจและคืนรถ',
     roleLabelEn: 'Requester (Operator) · Mission Complete & Vehicle Return',
-    titleTh: 'การยืนยันคืนรถยนต์ส่วนกลางและอัปเดตเลขไมล์อัตโนมัติ',
-    titleEn: 'Returning the Vehicle, Key Drop Photo & Auto Mileage Sync',
+    titleTh: 'การยืนยันคืนรถยนต์ส่วนกลาง การคืนรถก่อนกำหนด และอัปเดตเลขไมล์อัตโนมัติ',
+    titleEn: 'Returning the Vehicle, Early Return Policy & Auto Mileage Sync',
     summaryTh:
-      'เมื่อกลับมาถึงบริษัท ให้บันทึกเลขไมล์สิ้นสุด ระดับน้ำมัน และถ่ายภาพขณะหย่อนกุญแจลงตู้เพื่อจบภารกิจ',
+      'เมื่อกลับมาถึงบริษัท ให้กดคืนรถจากหน้า Dashboard หรือหน้าตรวจสอบสถานะ พร้อมบันทึกเลขไมล์สิ้นสุด ระดับน้ำมัน และถ่ายภาพขณะหย่อนกุญแจลงตู้',
     summaryEn:
       'Upon returning, enter the ending mileage, fuel level, and capture a photo of returning the key to the drop box.',
     detailsTh: [
-      'กดปุ่ม "เสร็จสิ้นภารกิจ & คืนรถยนต์ส่วนกลาง" ในใบงานที่บันทึกข้อมูลออกเดินทางเรียบร้อยแล้ว',
+      'กดปุ่ม "เสร็จสิ้นภารกิจ & คืนรถยนต์ส่วนกลาง" จากรายการค้างในหน้า Dashboard หรือในเมนูตรวจสอบสถานะ',
+      'กรณีคืนรถก่อนกำหนดเวลาสิ้นสุดที่จองไว้: ในหน้าต่างกดคืนรถ ระบบจะแสดงป้ายแจ้งเตือน "การคืนรถก่อนกำหนด หากต้องการยืมให้ขอในระบบใหม่" เพื่อให้ผู้ขอใช้รถรับทราบว่าเมื่อกดยืนยันคืนรถแล้ว ใบงานนี้จะถือว่าเสร็จสิ้นทันทีและสถานะรถจะกลับไปว่างพร้อมให้ผู้อื่นจองต่อ',
       'กรอก "เลขไมล์สิ้นสุด (km.)" โดยต้องมีค่าไม่น้อยกว่าเลขไมล์เริ่มต้น ระบบจะคำนวณระยะทางที่ใช้เดินทางในภารกิจให้อัตโนมัติ',
       'เลือกระดับน้ำมันคงเหลือจากหน้าปัดกราฟิกระดับน้ำมัน (เต็มถัง, 3/4, 1/2, 1/4, ใกล้หมด)',
       'ถ่ายภาพหลักฐาน "เฉพาะขณะหย่อนกุญแจลงตู้คืนกุญแจ" (สามารถเปิดกล้องถ่ายสดหรืออัปโหลดรูปภาพ)',
-      'เมื่อกดยืนยันคืนรถแล้ว: (1) ระบบจะอัปเดตเลขไมล์ล่าสุดไปยังเมนู "จัดการข้อมูลรถยนต์" อัตโนมัติ และ (2) ส่ง LINE แจ้งเตือนยืนยันการคืนรถไปยังผู้ขอใช้รถ (Operator) และผู้ดูแลรถ (Approve 2) ทันที',
+      'เมื่อกดยืนยันคืนรถแล้ว: (1) สถานะใบงานจะเปลี่ยนเป็น "เสร็จสิ้น" และรายการจะหายไปจากงานค้างในหน้า Dashboard (2) สถานะรถยนต์จะกลับมาว่างพร้อมใช้งานและอัปเดตเลขไมล์ล่าสุดไปยังเมนู "จัดการข้อมูลรถยนต์" อัตโนมัติ และ (3) ส่ง LINE แจ้งเตือนยืนยันการคืนรถ',
     ],
     detailsEn: [
-      'Click "Complete Mission & Return Vehicle" on your active booking.',
+      'Click "Complete Mission & Return Vehicle" from your Dashboard pending list or Check Status page.',
+      'Early Return Notice: If returning before the scheduled end time, the return modal displays a notice: "Early return — if you need the vehicle again, please submit a new request." Once returned, the vehicle immediately becomes available.',
       'Enter the Ending Mileage (must be >= starting mileage); total distance traveled is calculated automatically.',
       'Select the ending fuel level on the interactive fuel gauge.',
       'Take or upload a photo of dropping the vehicle key into the return box.',
-      'Upon confirmation: (1) the vehicle’s master mileage in Fleet Management updates automatically, and (2) LINE notifications are sent to both the Operator and Fleet Controller (Approve 2).',
+      'Upon confirmation: booking status changes to "Completed", vehicle status returns to "Available" with updated master mileage, and LINE notifications are sent.',
     ],
-    tipsTh: 'เลขไมล์ที่กรอกตอนคืนรถจะไปอัปเดตฐานข้อมูลรถยนต์ทันที เพื่อให้ผู้จองคนถัดไปเห็นเลขไมล์ล่าสุดเสมอ',
-    tipsEn: 'The ending mileage automatically updates the vehicle master record for the next driver.',
+    tipsTh: 'หากคืนรถก่อนกำหนดและต้องการนำรถออกไปใช้งานอีกครั้งในภายหลัง จะต้องสร้างใบงานขอใช้รถใหม่ในระบบเสมอ',
+    tipsEn: 'Once a vehicle is returned early, a new booking request must be submitted for any subsequent use.',
+    actionTab: 'booking',
+    actionLabelTh: 'ไปที่หน้าตรวจสอบสถานะ / คืนรถ',
+    actionLabelEn: 'Open Check Status',
   },
   {
     id: 'step-cancel-admin',
-    number: '06',
+    number: '07',
     roleCategory: ['all', 'requester', 'admin'],
-    roleLabelTh: 'นโยบายการยกเลิกใบงาน & การตั้งค่าระบบ',
-    roleLabelEn: 'Cancellation Policy & System Administration',
-    titleTh: 'การยกเลิกการจอง การลบข้อมูล และการจัดการแผนก/ฝ่าย',
-    titleEn: 'Cancelling Bookings, Admin Deletion & Department Management',
+    roleLabelTh: 'การจัดการระบบ · รายงานการใช้รถยนต์ & Audit Log',
+    roleLabelEn: 'System Administration · Fleet Reports, Permissions & Audit Log',
+    titleTh: 'การยกเลิกการจอง การกำหนดสิทธิ์เมนู รายงานการใช้รถยนต์ และ Audit Log',
+    titleEn: 'Cancelling Bookings, Menu Permissions, Vehicle Usage Reports & Audit Log',
     summaryTh:
-      'เข้าใจความแตกต่างระหว่าง "การยกเลิกใบงาน" (ผู้ขอใช้รถทำได้) และ "การลบข้อมูลออกจากระบบ" (เฉพาะผู้ดูแลระบบ)',
+      'แนวทางการยกเลิกใบงานของผู้ขอใช้รถ และการบริหารจัดการสิทธิ์ผู้ใช้งาน รายงานการใช้รถยนต์ รวมถึงการตรวจสอบประวัติการใช้งานระบบ (Audit Log) สำหรับผู้ดูแลระบบ',
     summaryEn:
-      'Understand the distinction between cancelling a booking (allowed for requesters) and permanently deleting records (Admin only).',
+      'Guidelines for cancelling bookings, configuring role-based menu permissions, viewing Vehicle Usage Reports, and auditing system history.',
     detailsTh: [
       'การยกเลิกใบงาน (Cancel): ผู้ขอใช้รถสามารถกด "ยกเลิกการจอง" ในใบงานของตนเองที่ยังไม่ได้นำรถออกเดินทางได้ (สถานะจะเปลี่ยนเป็นยกเลิก แต่ประวัติใบงานยังอยู่ในระบบเพื่อความโปร่งใส)',
-      'การลบใบงานออกจากระบบ (Delete): ห้ามผู้ใช้งานทั่วไปลบข้อมูลการยืมรถเองโดยเด็ดขาด สิทธิ์การลบใบงานออกจากฐานข้อมูลสงวนไว้สำหรับ "ผู้ดูแลระบบ (Admin)" เท่านั้น',
-      'การกำหนดแผนกและฝ่าย (สำหรับ Admin): ในเมนู "กำหนดผู้ใช้งาน" กดปุ่ม "กำหนดแผนก / ฝ่าย" เมื่อทำการเพิ่ม แก้ไข หรือลบแผนก/ฝ่ายแล้ว ต้องกดปุ่ม "บันทึกข้อมูล" เพื่อยืนยันการเปลี่ยนแปลงทุกครั้ง',
-      'การเพิ่มผู้ใช้งานใหม่: ระบบจะดึงรายชื่อฝ่ายและแผนกจากหน้ากำหนดแผนกและฝ่ายมาให้เลือกในรูปแบบตัวเลือก (Dropdown) เพื่อให้โครงสร้างองค์กรตรงกันทั้งระบบ',
+      'การลบใบงานออกจากระบบ (Delete): สิทธิ์การลบใบงานออกจากฐานข้อมูลถาวรสงวนไว้สำหรับ "ผู้ดูแลระบบ (Admin)" เท่านั้น',
+      'ตารางกำหนดสิทธิ์การใช้งาน (สำหรับ Admin): ในเมนู "กำหนดผู้ใช้งาน" ผู้ดูแลระบบสามารถกำหนดสิทธิ์ให้แต่ละบทบาทมองเห็นหรือเข้าถึงเมนูต่างๆ ได้ตามต้องการ รวมถึงเมนู "รายงานการใช้รถยนต์", "ประวัติการใช้งาน (Audit Log)" และ "คู่มือการใช้งาน"',
+      'รายงานการใช้รถยนต์ & Audit Log: ตรวจสอบสถิติระยะทางและประวัติการใช้รถได้ที่เมนู "รายงานการใช้รถยนต์" และตรวจสอบประวัติการทำรายการย้อนหลัง (ใครทำอะไร เวลาใด) ได้ที่เมนู "Audit Log"',
     ],
     detailsEn: [
       'Cancelling a Booking: Requesters can cancel their own upcoming trips before departure.',
-      'Deleting a Record: Standard users cannot delete booking records; permanent deletion is strictly restricted to Administrators.',
-      'Department & Division Setup (Admin): In User Management > Department/Division Setup, click "Save Changes" after adding, editing, or removing items.',
-      'Adding Users: Department and division fields pull directly from the saved organization structure.',
+      'Deleting a Record: Permanent deletion of booking records is strictly restricted to Administrators.',
+      'Role Permission Matrix (Admin): Configure which roles can view each menu, including Vehicle Usage Reports, Audit Log, and User Manual.',
+      'Vehicle Usage Reports & Audit Log: Analyze fleet mileage/utilization in "Vehicle Usage Reports" and track all user actions in "Audit Log".',
     ],
     actionTab: 'users',
     actionLabelTh: 'ไปที่หน้ากำหนดผู้ใช้งาน',
@@ -233,20 +272,36 @@ interface FaqItem {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
+    questionTh: 'หน้า Dashboard แสดงข้อมูลอะไรบ้าง และช่วยให้ทำงานสะดวกขึ้นอย่างไร?',
+    questionEn: 'What does the Dashboard show, and how does it help my workflow?',
+    answerTh:
+      'หน้า Dashboard เป็นหน้าแรกที่แสดงทันทีหลังเข้าสู่ระบบ โดยจะรวบรวม "รายการหรือเอกสารที่ค้างดำเนินการ" ของผู้ใช้งานท่านนั้นมาแสดงไว้ในที่เดียว เช่น ผู้จัดการและผู้ดูแลรถจะเห็นใบงานที่รออนุมัติและกดอนุมัติได้ทันที ส่วนผู้ขอใช้รถจะเห็นใบงานที่กำลังใช้งานเพื่อกดบันทึกไมล์ก่อนเดินทางหรือกดคืนรถได้ทันที พร้อมแสดงภาพรวมสถานะรถยนต์ส่วนกลางประจำวัน',
+    answerEn:
+      'The Dashboard is your home screen upon login. It consolidates all pending tasks and documents requiring your action (pending approvals for Approvers, active trips needing departure/return logs for Operators) alongside a live overview of fleet availability.',
+  },
+  {
     questionTh: 'ทำไมกดปุ่ม "เสร็จสิ้นภารกิจ & คืนรถ" ยังไม่ได้?',
     questionEn: 'Why is the "Return Vehicle" button not available yet?',
     answerTh:
-      'ต้องให้ใบงานได้รับการอนุมัติครบทั้ง 2 ขั้นตอน (ผู้จัดการ และ ผู้ดูแลรถ) จนสถานะเป็น "อนุมัติแล้ว" และผู้ขอใช้รถต้องกด "บันทึกข้อมูลก่อนออกเดินทาง" (กรอกไมล์เริ่มต้นและระดับน้ำมันเริ่มต้น) ก่อน จึงจะปรากฏปุ่มยืนยันการคืนรถ',
+      'ต้องให้ใบงานได้รับการอนุมัติครบทั้ง 2 ขั้นตอน (ผู้จัดการ และ ผู้ดูแลรถ) จนสถานะเป็น "กำลังใช้งาน (ยังไม่ได้คืนรถ)" และผู้ขอใช้รถต้องกด "บันทึกข้อมูลก่อนออกเดินทาง" (กรอกไมล์เริ่มต้นและระดับน้ำมันเริ่มต้น) ก่อน จึงจะปรากฏปุ่มยืนยันการคืนรถ',
     answerEn:
-      'The booking must first be approved by both Stage 1 (Manager) and Stage 2 (Fleet Controller), and you must complete the "Pre-Departure Record" first.',
+      'The booking must first be approved by both Stage 1 (Manager) and Stage 2 (Fleet Controller) to reach "In Use" status, and you must complete the "Pre-Departure Record" first.',
   },
   {
-    questionTh: 'ผู้ใช้งานทั่วไปสามารถยกเลิกใบงานจองรถของตัวเองได้หรือไม่?',
-    questionEn: 'Can a regular user cancel their own booking?',
+    questionTh: 'หากเสร็จภารกิจเร็วกว่ากำหนด และกดคืนรถก่อนเวลาที่จองไว้ จะเป็นอย่างไร?',
+    questionEn: 'What happens if I finish my mission early and return the vehicle ahead of schedule?',
     answerTh:
-      'ยกเลิกได้ครับ ผู้ขอใช้รถสามารถกดปุ่ม "ยกเลิกการจอง" ในใบงานของตนเองที่ยังไม่เริ่มเดินทางได้ตามปกติ แต่จะไม่สามารถ "ลบใบงาน" ออกจากฐานข้อมูลได้ (การลบข้อมูลทำได้เฉพาะสิทธิ์ Admin เท่านั้น)',
+      'เมื่อกดปุ่มคืนรถก่อนเวลาสิ้นสุดที่ระบุไว้ในใบงาน หน้าต่างคืนรถจะแสดงข้อความแจ้งเตือนว่า "การคืนรถก่อนกำหนด หากต้องการยืมให้ขอในระบบใหม่" เมื่อยืนยันการคืนรถแล้ว สถานะรถจะกลับมาว่างพร้อมใช้งานทันที หากท่านต้องการใช้รถอีกครั้งจะต้องสร้างใบงานขอใช้รถใหม่ในระบบ',
     answerEn:
-      'Yes. Requesters can cancel their own bookings prior to departure. Only permanent deletion of records is restricted to Admins.',
+      'When returning a vehicle ahead of schedule, the return modal displays a notice: "Early return — if you need the vehicle again, please submit a new request." Once confirmed, the vehicle immediately becomes available for others.',
+  },
+  {
+    questionTh: 'ทำไมพิมพ์ชื่อผู้ใช้ (Username) โดยมีเว้นวรรค แล้วไม่สามารถเข้าสู่ระบบได้?',
+    questionEn: 'Why can’t I sign in if there is a space in my Username or Password?',
+    answerTh:
+      'เพื่อความปลอดภัยและความถูกต้องของข้อมูล ระบบตรวจสอบชื่อผู้ใช้ รหัสพนักงาน อีเมล และรหัสผ่านแบบตรงตัว 100% กับฐานข้อมูลผู้ใช้งานที่มีอยู่จริง ห้ามเคาะเว้นวรรค (ช่องว่าง) ก่อนหน้า ระหว่างคำ หรือต่อท้ายชื่อผู้ใช้และรหัสผ่าน',
+    answerEn:
+      'For security, the system strictly validates credentials against registered users without allowing leading, trailing, or internal spaces.',
   },
   {
     questionTh: 'ตอนบันทึกก่อนออกเดินทาง และตอนคืนรถ ต้องถ่ายรูปอะไรบ้าง?',
@@ -257,12 +312,12 @@ const FAQ_ITEMS: FaqItem[] = [
       'No photo is required before departure. Upon return, only 1 photo is required: dropping the key into the key return box.',
   },
   {
-    questionTh: 'เลขไมล์เริ่มต้นมาจากไหน หากไม่ตรงกับหน้าปัดรถจริงแก้ไขได้ไหม?',
-    questionEn: 'Where does the starting mileage come from, and can I edit it?',
+    questionTh: 'ผู้ใช้งานทั่วไปสามารถยกเลิกใบงานจองรถของตัวเองได้หรือไม่?',
+    questionEn: 'Can a regular user cancel their own booking?',
     answerTh:
-      'ระบบดึงเลขไมล์ล่าสุดของรถคันนั้นจากฐานข้อมูลมาแสดงให้อัตโนมัติ หากตัวเลขหน้าปัดจริงคลาดเคลื่อน ผู้ใช้สามารถพิมพ์แก้ไขตัวเลขไมล์เริ่มต้นได้เองก่อนกดบันทึก',
+      'ยกเลิกได้ครับ ผู้ขอใช้รถสามารถกดปุ่ม "ยกเลิกการจอง" ในใบงานของตนเองที่ยังไม่เริ่มเดินทางได้ตามปกติ แต่จะไม่สามารถ "ลบใบงาน" ออกจากฐานข้อมูลได้ (การลบข้อมูลทำได้เฉพาะสิทธิ์ Admin เท่านั้น)',
     answerEn:
-      'It is automatically pulled from the vehicle’s latest recorded odometer, and you can freely edit it to match the actual dashboard reading.',
+      'Yes. Requesters can cancel their own bookings prior to departure. Only permanent deletion of records is restricted to Admins.',
   },
 ];
 
@@ -306,7 +361,7 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
               <BookOpen className="w-4 h-4 text-indigo-600 shrink-0" />
               <span>{isEn ? 'Standard Operating Procedure' : 'เอกสารคู่มือมาตรฐานการปฏิบัติงาน'}</span>
               <span aria-hidden="true">·</span>
-              <span className="tabular-nums">{isEn ? '6 Core Steps' : '6 ขั้นตอนหลัก'}</span>
+              <span className="tabular-nums">{isEn ? '7 Core Steps' : '7 ขั้นตอนหลัก'}</span>
               <span aria-hidden="true">·</span>
               <span>{isEn ? 'Corporate Fleet System' : 'สำหรับผู้ขอใช้รถ ผู้อนุมัติ และผู้ดูแลระบบ'}</span>
             </div>
@@ -317,8 +372,8 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
             </h1>
             <p className="text-sm text-slate-600 leading-relaxed">
               {isEn
-                ? 'Step-by-step guide covering vehicle reservation, 2-stage approval (Manager & Fleet Controller), pre-departure odometer/fuel logging, and key-drop return confirmation.'
-                : 'แนวทางการใช้งานตั้งแต่การตรวจสอบตารางรถว่าง การสร้างใบงานขอใช้รถ ขั้นตอนการอนุมัติ 2 ลำดับขั้น (ผู้จัดการ และ ผู้ดูแลรถ) การบันทึกเลขไมล์และระดับน้ำมันก่อนเดินทาง จนถึงการถ่ายภาพหย่อนกุญแจคืนรถ'}
+                ? 'Complete guide covering the Home Dashboard (pending action center & fleet overview), vehicle reservation, 2-stage approval, pre-departure logging, and vehicle return confirmation.'
+                : 'แนวทางการใช้งานตั้งแต่การตรวจสอบรายการค้างดำเนินการและภาพรวมรถยนต์ในหน้า Dashboard การสร้างใบงานขอใช้รถ ขั้นตอนการอนุมัติ 2 ลำดับขั้น การบันทึกเลขไมล์และระดับน้ำมันก่อนเดินทาง จนถึงการถ่ายภาพหย่อนกุญแจคืนรถ'}
             </p>
           </div>
 
@@ -326,11 +381,21 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
             {onNavigateTab && (
               <button
                 type="button"
-                onClick={() => onNavigateTab('calendar')}
+                onClick={() => onNavigateTab('dashboard')}
                 className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
+                <ClipboardList className="w-4 h-4" />
+                <span>{isEn ? 'Go to Dashboard' : 'ไปที่หน้า Dashboard'}</span>
+              </button>
+            )}
+            {onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('calendar')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
                 <CalendarDays className="w-4 h-4" />
-                <span>{isEn ? 'Start Booking Now' : 'ไปหน้าจองรถยนต์ทันที'}</span>
+                <span>{isEn ? 'Start Booking Now' : 'ไปหน้าจองรถยนต์'}</span>
               </button>
             )}
             <button
@@ -344,12 +409,25 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
           </div>
         </div>
 
-        {/* Workflow Summary Strip (5 Stages) */}
+        {/* Workflow Summary Strip (6 Key Stages including Dashboard) */}
         <div className="pt-6">
           <div className="text-xs font-semibold text-slate-500 mb-3">
-            {isEn ? 'End-to-End Booking Lifecycle' : 'แผนผังสถานะใบงานตั้งแต่ต้นจนจบภารกิจ'}
+            {isEn ? 'End-to-End Workflow & Action Center' : 'แผนผังการใช้งานและสถานะใบงานตั้งแต่เริ่มต้นจนจบภารกิจ'}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-200">
+              <div className="flex items-center justify-between text-xs text-indigo-700 mb-1">
+                <span className="font-mono font-semibold tabular-nums">HOME</span>
+                <span>Dashboard</span>
+              </div>
+              <div className="text-sm font-bold text-slate-900">
+                {isEn ? 'Pending Actions' : 'หน้าแรก Dashboard'}
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                {isEn ? 'View pending tasks & fleet overview' : 'รวมเอกสาร/งานค้างที่ต้องทำ & ภาพรวมรถ'}
+              </p>
+            </div>
+
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                 <span className="font-mono font-semibold tabular-nums text-indigo-600">STEP 01</span>
@@ -372,7 +450,7 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 {isEn ? 'Manager Approval' : '2. ผู้จัดการอนุมัติ'}
               </div>
               <p className="text-xs text-slate-600 mt-1">
-                {isEn ? 'Stage 1 review via Web/LINE' : 'สถานะ: รอผู้จัดการ พิจารณาใบงาน'}
+                {isEn ? 'Stage 1 review via Dashboard/LINE' : 'สถานะ: รอผู้จัดการ (กดได้จาก Dashboard)'}
               </p>
             </div>
 
@@ -385,20 +463,20 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 {isEn ? 'Fleet Controller' : '3. ผู้ดูแลรถอนุมัติ'}
               </div>
               <p className="text-xs text-slate-600 mt-1">
-                {isEn ? 'Stage 2 final vehicle check' : 'สถานะ: รอผู้ดูแลรถ อนุมัติพร้อมใช้'}
+                {isEn ? 'Stage 2 final vehicle check' : 'สถานะ: รอผู้ดูแลรถ อนุมัติขั้นสุดท้าย'}
               </p>
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
               <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                 <span className="font-mono font-semibold tabular-nums text-emerald-700">STEP 04</span>
-                <span>Pre-Trip</span>
+                <span>In Use</span>
               </div>
               <div className="text-sm font-bold text-slate-900">
-                {isEn ? 'Record Departure' : '4. บันทึกก่อนเดินทาง'}
+                {isEn ? 'In Use & Departure' : '4. กำลังใช้งาน'}
               </div>
               <p className="text-xs text-slate-600 mt-1">
-                {isEn ? 'Verify start mileage & fuel gauge' : 'เช็คเลขไมล์เริ่มต้น + เลือกหน้าปัดน้ำมัน'}
+                {isEn ? 'Record start mileage & fuel gauge' : 'บันทึกไมล์เริ่มต้น + ระดับน้ำมันก่อนเดินทาง'}
               </p>
             </div>
 
@@ -431,7 +509,7 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            {isEn ? 'All Steps (6)' : 'ทุกขั้นตอน (6)'}
+            {isEn ? 'All Steps (7)' : 'ทุกขั้นตอน (7)'}
           </button>
           <button
             type="button"
@@ -477,8 +555,8 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={
               isEn
-                ? 'Search manual (e.g. mileage, fuel, LINE, cancel)...'
-                : 'ค้นหาหัวข้อคู่มือ (เช่น เลขไมล์, น้ำมัน, คืนกุญแจ, ยกเลิก)...'
+                ? 'Search manual (e.g. dashboard, mileage, fuel, return)...'
+                : 'ค้นหาหัวข้อคู่มือ (เช่น dashboard, งานค้าง, เลขไมล์, คืนรถ)...'
             }
             className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800"
           />
@@ -569,13 +647,13 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
         <div className="p-6 border-b border-slate-200">
           <h2 className="text-lg font-bold text-slate-900">
             {isEn
-              ? 'Role Responsibilities & Permissions Summary'
-              : 'ตารางสรุปบทบาทและหน้าที่ความรับผิดชอบในระบบ'}
+              ? 'Role Responsibilities & Dashboard Pending Actions Summary'
+              : 'ตารางสรุปบทบาท หน้าที่ และรายการค้างดำเนินการที่แสดงในหน้า Dashboard'}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
             {isEn
-              ? 'Overview of permissions across Requesters, Managers, Fleet Controllers, and Administrators.'
-              : 'เปรียบเทียบสิทธิ์การดำเนินการของแต่ละบทบาท เพื่อให้การใช้งานเป็นไปตามระเบียบปฏิบัติขององค์กร'}
+              ? 'Overview of permissions and pending items displayed on the Dashboard for each user role.'
+              : 'เปรียบเทียบหน้าที่หลักและรายการเอกสารค้างดำเนินการที่จะปรากฏในหน้า Dashboard ของแต่ละสิทธิ์ผู้ใช้งาน'}
           </p>
         </div>
 
@@ -585,7 +663,7 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
                 <th className="py-3.5 px-5">{isEn ? 'Role / Position' : 'บทบาท / สิทธิ์ในระบบ'}</th>
                 <th className="py-3.5 px-5">{isEn ? 'Primary Responsibilities' : 'หน้าที่หลักในกระบวนการจองรถ'}</th>
-                <th className="py-3.5 px-5">{isEn ? 'LINE Notifications Received' : 'การแจ้งเตือนผ่าน LINE ที่ได้รับ'}</th>
+                <th className="py-3.5 px-5">{isEn ? 'Pending Items Shown on Dashboard' : 'รายการค้างดำเนินการที่แสดงในหน้า Dashboard'}</th>
                 <th className="py-3.5 px-5">{isEn ? 'Cancel / Delete Rights' : 'สิทธิ์การยกเลิก / ลบใบงาน'}</th>
               </tr>
             </thead>
@@ -601,8 +679,8 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
-                    ? 'When approved/rejected, and upon vehicle return completion.'
-                    : 'เมื่อใบงานได้รับอนุมัติ / ไม่อนุมัติ และแจ้งเตือนยืนยันเมื่อคืนรถสำเร็จ'}
+                    ? 'Active "In Use" trips awaiting pre-departure log or vehicle return, plus own requests pending approval.'
+                    : 'ใบงานสถานะ "กำลังใช้งาน" ที่รอการบันทึกก่อนออกเดินทางหรือรอการกดคืนรถ และใบงานของตนเองที่อยู่ระหว่างรออนุมัติ'}
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
@@ -621,8 +699,8 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
-                    ? 'Immediately when a new booking is created.'
-                    : 'รับแจ้งเตือนทันทีเมื่อพนักงานส่งคำขอจองรถใหม่'}
+                    ? 'Stage 1 pending booking documents awaiting Manager approval (with direct Approve/Reject actions).'
+                    : 'เอกสารใบงานที่ค้าง "รอผู้จัดการอนุมัติ (ขั้นที่ 1)" พร้อมปุ่มกดอนุมัติหรือไม่อนุมัติได้ทันที'}
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
@@ -641,8 +719,8 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
-                    ? 'After Manager approves Stage 1, and when the user returns the vehicle.'
-                    : 'เมื่อผู้จัดการอนุมัติขั้นที่ 1 แล้ว และเมื่อผู้ใช้ยืนยันการคืนรถยนต์ส่วนกลาง'}
+                    ? 'Stage 2 pending booking documents cleared by Manager and awaiting final Fleet Controller approval.'
+                    : 'เอกสารใบงานที่ผ่านผู้จัดการแล้วและค้าง "รอผู้ดูแลรถอนุมัติ (ขั้นที่ 2)" พร้อมปุ่มกดอนุมัติขั้นสุดท้าย'}
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
@@ -656,13 +734,13 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
-                    ? 'Manage vehicles, users, departments/divisions, role permissions, and fleet reports.'
-                    : 'จัดการข้อมูลรถยนต์ กำหนดแผนก/ฝ่าย เพิ่มผู้ใช้งาน กำหนดสิทธิ์เมนู และดูรายงานสรุปการใช้รถ'}
+                    ? 'Manage vehicles, users, departments/divisions, role permissions, vehicle usage reports, and audit logs.'
+                    : 'จัดการข้อมูลรถยนต์ กำหนดแผนก/ฝ่าย เพิ่มผู้ใช้งาน กำหนดสิทธิ์การมองเห็นเมนู ดูรายงานการใช้รถยนต์ และตรวจสอบ Audit Log'}
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
-                    ? 'Can monitor all LINE notification statuses across the system.'
-                    : 'ตรวจสอบสถานะการส่งแจ้งเตือน LINE ได้ทุกใบงาน'}
+                    ? 'Full overview of all pending approvals, active vehicle missions, and daily fleet utilization.'
+                    : 'เห็นภาพรวมรายการรออนุมัติทั้งหมด รถที่กำลังใช้งานในภารกิจ และสรุปสถานะรถยนต์ส่วนกลางทั้งองค์กร'}
                 </td>
                 <td className="py-3.5 px-5">
                   {isEn
@@ -686,7 +764,7 @@ export default function BookingManual({ language = 'th', onNavigateTab }: Bookin
             <p className="text-xs text-slate-500">
               {isEn
                 ? 'Quick answers to common questions during vehicle booking and return.'
-                : 'รวบรวมข้อสงสัยในการใช้งานระบบการจอง การอนุมัติ และการคืนรถยนต์ส่วนกลาง'}
+                : 'รวบรวมข้อสงสัยในการใช้งานหน้า Dashboard การจอง การอนุมัติ และการคืนรถยนต์ส่วนกลาง'}
             </p>
           </div>
         </div>

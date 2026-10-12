@@ -298,7 +298,16 @@ export default function UserRegistration({
       return;
     }
 
-    const cleanUsername = (username.trim() || name.trim() || email.split('@')[0] || `user${Date.now() % 10000}`).toLowerCase();
+    if (username && /\s/.test(username)) {
+      setError('ชื่อผู้ใช้ (Username) ห้ามมีเว้นวรรค (ช่องว่าง)');
+      return;
+    }
+
+    const cleanUsername = (
+      username.replace(/\s+/g, '') ||
+      email.split('@')[0].replace(/\s+/g, '') ||
+      `user${Date.now() % 10000}`
+    ).toLowerCase();
     const cleanPassword = password.trim() || 'password123';
     const effectiveRoles = roles.length > 0 ? roles : (['User'] as UserRole[]);
 

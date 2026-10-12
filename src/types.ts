@@ -40,6 +40,7 @@ export interface Vehicle {
 export type UserRole = 'User' | 'Operator' | 'Approve 1' | 'Approve 2' | 'Admin' | 'Approve';
 
 export type AppMenuKey =
+  | 'dashboard'
   | 'calendar'
   | 'booking'
   | 'vehicles'

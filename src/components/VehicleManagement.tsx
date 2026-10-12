@@ -217,13 +217,19 @@ export default function VehicleManagement({
     setQuickMileageVal('');
   };
 
-  // Compute effective vehicle status synchronized with active bookings
+  // Compute effective vehicle status synchronized with active bookings covering today
   const getEffectiveStatus = (v: Vehicle): VehicleStatus => {
     if (v.status === 'Maintenance') return 'Maintenance';
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const hasActiveMission = bookings.some(
-      (b) => doesBookingMatchVehicle(b, v) && isBookingActiveStatus(b.status)
+      (b) =>
+        doesBookingMatchVehicle(b, v) &&
+        isBookingActiveStatus(b.status) &&
+        (b.startDate.substring(0, 10) <= todayStr &&
+          (b.endDate.substring(0, 10) >= todayStr || b.status === 'Approved'))
     );
-    if (hasActiveMission || v.status === 'In Use') return 'In Use';
+    if (hasActiveMission) return 'In Use';
     return 'Available';
   };
 

@@ -37,6 +37,7 @@ import BookingSystem from './components/BookingSystem';
 import VehicleManagement from './components/VehicleManagement';
 import UserRegistration from './components/UserRegistration';
 import MonthlyCalendar from './components/MonthlyCalendar';
+import DashboardView from './components/DashboardView';
 import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
 import AuditLogView from './components/AuditLogView';
@@ -54,15 +55,27 @@ import {
   getUserRoles,
   getRoleBadgeInfo,
   canUserViewBooking,
+  canUserApproveBooking,
   hasRole,
   getStoredRolePermissions,
   saveStoredRolePermissions,
   getUserEffectiveMenuPermission,
 } from './utils/userHelpers';
-import { getRealTodayStr, generateNextJobNumber, getBookingJobNumber } from './utils/dateHelpers';
-import { doesBookingMatchVehicle, isBookingActiveStatus } from './utils/vehicleAlerts';
+import {
+  getRealTodayStr,
+  generateNextJobNumber,
+  getBookingJobNumber,
+  isEarlyVehicleReturn,
+  EARLY_RETURN_WARNING_TEXT,
+} from './utils/dateHelpers';
+import {
+  doesBookingMatchVehicle,
+  isBookingActiveStatus,
+  doesBookingCoverDate,
+} from './utils/vehicleAlerts';
 
 import {
+  LayoutDashboard,
   CalendarDays,
   Car,
   Users,
@@ -167,13 +180,40 @@ export default function App() {
       try {
         const u = JSON.parse(saved);
         if (u && u.id) {
+          // Verify that the saved session user exists in our active users list
+          const savedUsersRaw = localStorage.getItem('car_booking_users');
+          let pool: User[] = INITIAL_USERS;
+          if (savedUsersRaw) {
+            try {
+              const parsed = JSON.parse(savedUsersRaw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                pool = parsed;
+              }
+            } catch {
+              // ignore
+            }
+          }
+          const matchedUser = pool.find(
+            (existing) =>
+              existing.id === u.id ||
+              (u.username &&
+                existing.username &&
+                existing.username.trim().toLowerCase() === u.username.trim().toLowerCase()) ||
+              (u.email &&
+                existing.email &&
+                existing.email.trim().toLowerCase() === u.email.trim().toLowerCase())
+          );
+          if (!matchedUser) {
+            localStorage.removeItem('car_booking_current_user');
+            return null;
+          }
           const initialMatch = INITIAL_USERS.find(
-            (iu) => iu.id === u.id || iu.email?.toLowerCase() === u.email?.toLowerCase()
+            (iu) => iu.id === matchedUser.id || iu.email?.toLowerCase() === matchedUser.email?.toLowerCase()
           );
           return {
-            ...u,
-            username: u.username || initialMatch?.username || u.email?.split('@')[0] || 'user',
-            password: u.password || initialMatch?.password || 'password123',
+            ...matchedUser,
+            username: matchedUser.username || initialMatch?.username || matchedUser.email?.split('@')[0] || '',
+            password: matchedUser.password || initialMatch?.password || 'password123',
           };
         }
       } catch {
@@ -187,17 +227,51 @@ export default function App() {
   const [isLoginPageOpen, setIsLoginPageOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => getLocalAuditLogs());
 
+  // User-scoped toast notification state (never crosses users, auto-closes in 5 seconds)
+  const [toastState, setToastState] = useState<{
+    message: string;
+    userId: string | null;
+    id: number;
+  } | null>(null);
+
+  const setToastMessage = (msg: string | null, forUserId?: string | null) => {
+    if (!msg) {
+      setToastState(null);
+      return;
+    }
+    setToastState({
+      message: msg,
+      userId: forUserId !== undefined ? forUserId : currentUser?.id || null,
+      id: Date.now(),
+    });
+  };
+
+  useEffect(() => {
+    if (!toastState) return;
+    if (toastState.userId && currentUser?.id !== toastState.userId) {
+      setToastState(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setToastState(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [toastState, currentUser?.id]);
+
   const getCurrentActorRole = (u?: User | null) => {
     if (!u) return 'System';
     return getUserRoles(u).join(', ');
   };
 
   const handleLogin = (user: User) => {
+    setToastState(null);
     setCurrentUser(user);
+    setActiveTab('dashboard');
     setUsers((prev) => {
-      const next = prev.some((u) => u.id === user.id)
-        ? prev.map((u) => (u.id === user.id ? user : u))
-        : [...prev, user];
+      if (!prev.some((u) => u.id === user.id)) {
+        return prev;
+      }
+      const next = prev.map((u) => (u.id === user.id ? user : u));
       localStorage.setItem('car_booking_users', JSON.stringify(next));
       return next;
     });
@@ -230,12 +304,16 @@ export default function App() {
         channel: 'Web',
       }).catch(() => {});
     }
+    setToastState(null);
     setCurrentUser(null);
+    setActiveTab('dashboard');
     localStorage.removeItem('car_booking_current_user');
     setIsLoginPageOpen(true);
   };
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'booking' | 'vehicles' | 'users' | 'report' | 'audit' | 'manual'>('calendar');
+  const [activeTab, setActiveTab] = useState<
+    'dashboard' | 'calendar' | 'booking' | 'vehicles' | 'users' | 'report' | 'audit' | 'manual'
+  >('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
@@ -304,7 +382,11 @@ export default function App() {
                 u.username &&
                 u.username.toLowerCase() === prevUser.username.toLowerCase())
           );
-          return matched || prevUser;
+          if (!matched) {
+            localStorage.removeItem('car_booking_current_user');
+            return null;
+          }
+          return matched;
         });
       } catch (error) {
         console.error('Error fetching data from Firestore:', error);
@@ -338,7 +420,11 @@ export default function App() {
               u.username &&
               u.username.toLowerCase() === prevUser.username.toLowerCase())
         );
-        return matched || prevUser;
+        if (!matched) {
+          localStorage.removeItem('car_booking_current_user');
+          return null;
+        }
+        return matched;
       });
     });
 
@@ -417,8 +503,9 @@ export default function App() {
 
   // Handlers for Users with Firebase persistence
   const handleSelectUser = (user: User) => {
+    setToastState(null);
     setCurrentUser(user);
-    setActiveTab('calendar');
+    setActiveTab('dashboard');
   };
 
   const handleAddUser = async (newUserData: Omit<User, 'id'>) => {
@@ -630,10 +717,16 @@ export default function App() {
 
   const handleDeleteUser = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    setUsers(users.filter((u) => u.id !== userId));
+    const remaining = users.filter((u) => u.id !== userId);
+    setUsers(remaining);
+    try {
+      localStorage.setItem('car_booking_users', JSON.stringify(remaining));
+    } catch {
+      // ignore
+    }
     if (currentUser?.id === userId) {
-      const remaining = users.filter((u) => u.id !== userId);
-      setCurrentUser(remaining.length > 0 ? remaining[0] : null);
+      setCurrentUser(null);
+      localStorage.removeItem('car_booking_current_user');
     }
     recordAuditLog({
       category: 'USER',
@@ -851,6 +944,7 @@ export default function App() {
     if (vehicles.length === 0) return;
     let hasVehicleUpdates = false;
     const vehiclesToSave: Vehicle[] = [];
+    const todayStr = getRealTodayStr();
 
     const nextVehicles = vehicles.map((v) => {
       const relatedBookings = bookings.filter(
@@ -866,10 +960,12 @@ export default function App() {
         }
       }
 
-      const hasActiveMission = relatedBookings.some((b) => isBookingActiveStatus(b.status));
+      const hasActiveMissionToday = relatedBookings.some((b) =>
+        doesBookingCoverDate(b, todayStr, todayStr)
+      );
       let nextStatus = v.status;
       if (v.status !== 'Maintenance') {
-        nextStatus = hasActiveMission ? 'In Use' : 'Available';
+        nextStatus = hasActiveMissionToday ? 'In Use' : 'Available';
       }
 
       const mileageChanged = maxRecordedMileage > (v.currentMileage || 0);
@@ -899,7 +995,8 @@ export default function App() {
   const handleUpdateBookingStatus = async (
     bookingId: string,
     status: BookingStatus,
-    extraData?: Partial<Booking>
+    extraData?: Partial<Booking>,
+    options?: { silentToast?: boolean }
   ) => {
     let approverName: string | undefined = undefined;
     let approvedAt: string | undefined = undefined;
@@ -958,9 +1055,11 @@ export default function App() {
           targetLineId: targetStage2LineId,
         }).catch(() => {});
       }
-      setToastMessage(
-        `ผู้จัดการอนุมัติ (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ผู้ดูแลรถ (${booking.stage2ApproverName || 'ผู้ดูแลรถ'}) พิจารณา`
-      );
+      if (!options?.silentToast) {
+        setToastMessage(
+          `ผู้จัดการอนุมัติ (ใบงาน ${jobNo}) สำเร็จ! ส่งต่อคำขอให้ผู้ดูแลรถ (${booking.stage2ApproverName || 'ผู้ดูแลรถ'}) พิจารณา`
+        );
+      }
     } else if (status === 'Approved') {
       if (isLineModuleEnabled) {
         const reqUser = users.find((u) => u.id === booking.userId);
@@ -973,9 +1072,11 @@ export default function App() {
           targetLineId: targetReqLineId,
         }).catch(() => {});
       }
-      setToastMessage(
-        `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
-      );
+      if (!options?.silentToast) {
+        setToastMessage(
+          `อนุมัติใบงาน ${jobNo} (${booking.vehicleName}) เรียบร้อยแล้ว (อนุมัติครบ 2 ขั้น)`
+        );
+      }
     } else if (status === 'Completed') {
       if (isLineModuleEnabled) {
         const operatorUsers = users.filter((u) => hasRole(u, 'Operator'));
@@ -1012,9 +1113,15 @@ export default function App() {
         extraData?.endMileage !== undefined
           ? ` อัปเดตเลขไมล์รถเป็น ${extraData.endMileage.toLocaleString()} km.`
           : '';
-      setToastMessage(
-        `เสร็จสิ้นภารกิจใบงาน ${jobNo}${newMileageText} และส่ง LINE แจ้งเตือน Operator & ผู้ดูแลรถ (Approve 2) เรียบร้อยแล้ว`
-      );
+      const isEarlyReturn = isEarlyVehicleReturn(booking);
+      const earlyReturnWarning = isEarlyReturn
+        ? ` ⚠️ แจ้งเตือน: "${EARLY_RETURN_WARNING_TEXT}"`
+        : '';
+      if (!options?.silentToast) {
+        setToastMessage(
+          `คืนรถใบงาน ${jobNo} เรียบร้อยแล้ว (สถานะรถกลับมาใช้งานได้ทันที)${newMileageText}${earlyReturnWarning}`
+        );
+      }
     } else if (status === 'Cancelled') {
       const isUserSelfCancel = Boolean(
         extraData?.rejectedBy && extraData.rejectedBy.includes('ผู้จองยกเลิก')
@@ -1030,13 +1137,15 @@ export default function App() {
           targetLineId: targetReqLineId,
         }).catch(() => {});
       }
-      setToastMessage(
-        isUserSelfCancel
-          ? `ยกเลิกการจองใบงาน ${jobNo} เรียบร้อยแล้ว`
-          : booking.rejectionReason
-          ? `ไม่อนุมัติใบงาน ${jobNo} (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
-          : `ยกเลิก/ปฏิเสธใบงาน ${jobNo} เรียบร้อยแล้ว`
-      );
+      if (!options?.silentToast) {
+        setToastMessage(
+          isUserSelfCancel
+            ? `ยกเลิกการจองใบงาน ${jobNo} เรียบร้อยแล้ว`
+            : booking.rejectionReason
+            ? `ไม่อนุมัติใบงาน ${jobNo} (เหตุผล: ${booking.rejectionReason}) และแจ้งเตือนผู้จองเรียบร้อยแล้ว`
+            : `ยกเลิก/ปฏิเสธใบงาน ${jobNo} เรียบร้อยแล้ว`
+        );
+      }
     }
 
     // Immediately compute atomic vehicle update (both mileage & status) so state never overwrites mileage
@@ -1053,9 +1162,7 @@ export default function App() {
     let vehicleToSave: Vehicle | undefined;
     setVehicles((prevVehicles) =>
       prevVehicles.map((v) => {
-        const isTargetVehicle =
-          v.id === booking.vehicleId ||
-          (booking.plateNumber && v.plateNumber === booking.plateNumber);
+        const isTargetVehicle = doesBookingMatchVehicle(booking, v);
         if (!isTargetVehicle) return v;
 
         let nextStatus = v.status;
@@ -1065,12 +1172,10 @@ export default function App() {
           const otherActive = updatedBookings.some(
             (b) =>
               b.id !== bookingId &&
-              (b.vehicleId === v.id || (b.plateNumber && b.plateNumber === v.plateNumber)) &&
-              b.status === 'Approved' &&
-              todayStr >= b.startDate.substring(0, 10) &&
-              todayStr <= b.endDate.substring(0, 10)
+              doesBookingMatchVehicle(b, v) &&
+              doesBookingCoverDate(b, todayStr, todayStr)
           );
-          if (!otherActive && v.status === 'In Use') {
+          if (!otherActive && v.status !== 'Maintenance') {
             nextStatus = 'Available';
           }
         }
@@ -1217,8 +1322,6 @@ export default function App() {
     }
   };
 
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
   // LINE Notification Module (Always enabled for notifications)
   const [isLineModuleEnabled, setIsLineModuleEnabled] = useState<boolean>(true);
 
@@ -1279,7 +1382,7 @@ export default function App() {
     }
   };
 
-  // Sync any pending LINE OA Webhook postback actions
+  // Sync any pending LINE OA Webhook postback actions (silently without cross-user toast)
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -1292,22 +1395,37 @@ export default function App() {
           if (targetBooking) {
             if (act.action === 'approve') {
               if (targetBooking.status === 'Pending') {
-                await handleUpdateBookingStatus(targetBooking.id, 'Pending_Approve2', {
-                  stage1ApprovedBy: `${targetBooking.assignedApproverName || 'Approve 1'} (LINE OA)`,
-                  stage1ApprovedAt: act.timestamp,
-                  approvedVia: 'LINE',
-                });
+                await handleUpdateBookingStatus(
+                  targetBooking.id,
+                  'Pending_Approve2',
+                  {
+                    stage1ApprovedBy: `${targetBooking.assignedApproverName || 'Approve 1'} (LINE OA)`,
+                    stage1ApprovedAt: act.timestamp,
+                    approvedVia: 'LINE',
+                  },
+                  { silentToast: true }
+                );
               } else if (targetBooking.status === 'Pending_Approve2') {
-                await handleUpdateBookingStatus(targetBooking.id, 'Approved', {
-                  stage2ApprovedBy: `Approve 2 (LINE OA)`,
-                  stage2ApprovedAt: act.timestamp,
-                  approvedVia: 'LINE',
-                });
+                await handleUpdateBookingStatus(
+                  targetBooking.id,
+                  'Approved',
+                  {
+                    stage2ApprovedBy: `Approve 2 (LINE OA)`,
+                    stage2ApprovedAt: act.timestamp,
+                    approvedVia: 'LINE',
+                  },
+                  { silentToast: true }
+                );
               }
             } else if (act.action === 'reject') {
-              await handleUpdateBookingStatus(targetBooking.id, 'Cancelled', {
-                approvedVia: 'LINE',
-              });
+              await handleUpdateBookingStatus(
+                targetBooking.id,
+                'Cancelled',
+                {
+                  approvedVia: 'LINE',
+                },
+                { silentToast: true }
+              );
             }
           }
           await fetch('/api/line/ack-webhook-action', {
@@ -1332,6 +1450,7 @@ export default function App() {
     : null;
 
   // Compute effective permissions for each menu according to RolePermissionsMatrix
+  const dashboardPerm = getUserEffectiveMenuPermission(currentUser, 'dashboard', rolePermissions);
   const calendarPerm = getUserEffectiveMenuPermission(currentUser, 'calendar', rolePermissions);
   const bookingPerm = getUserEffectiveMenuPermission(currentUser, 'booking', rolePermissions);
   const vehiclesPerm = getUserEffectiveMenuPermission(currentUser, 'vehicles', rolePermissions);
@@ -1341,6 +1460,7 @@ export default function App() {
   const manualPerm = getUserEffectiveMenuPermission(currentUser, 'manual', rolePermissions);
 
   const canAccessMenu = (key: AppMenuKey) => {
+    if (key === 'dashboard') return true;
     const perm = getUserEffectiveMenuPermission(currentUser, key, rolePermissions);
     if (key === 'users' && isUserAdmin(currentUser)) return true;
     return perm.viewOnly || perm.canEdit;
@@ -1350,6 +1470,7 @@ export default function App() {
     if (!currentUser) return;
     if (!canAccessMenu(activeTab)) {
       const orderedKeys: AppMenuKey[] = [
+        'dashboard',
         'calendar',
         'booking',
         'vehicles',
@@ -1364,6 +1485,24 @@ export default function App() {
       }
     }
   }, [currentUser, rolePermissions, activeTab]);
+
+  // Count user's actionable items on Dashboard (pending approvals + user's unreturned approved trips)
+  const myDashboardTaskCount = bookings.filter((b) => {
+    if (!currentUser) return false;
+    const isMyBooking =
+      b.userId === currentUser.id ||
+      (Boolean(currentUser.name) &&
+        Boolean(b.userName) &&
+        currentUser.name.trim().toLowerCase() === b.userName.trim().toLowerCase());
+    if (isMyBooking && b.status === 'Approved') return true;
+    if (
+      (b.status === 'Pending' || b.status === 'Pending_Approve2') &&
+      canUserApproveBooking(b, currentUser, users)
+    ) {
+      return true;
+    }
+    return false;
+  }).length;
 
   // If not logged in or login page was explicitly opened, show the Login Page (plus LINE Quick Approve Modal if opened via LINE link)
   if (!currentUser || isLoginPageOpen) {
@@ -1407,11 +1546,11 @@ export default function App() {
             <div
               id="brand-home-link"
               onClick={() => {
-                setActiveTab('calendar');
+                setActiveTab('dashboard');
                 setIsSidebarOpen(false);
               }}
               className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity"
-              title="กลับสู่หน้าแรก (ปฏิทินจองรถ)"
+              title="กลับสู่หน้าแรก (แดชบอร์ด)"
             >
               <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-sm shadow-indigo-500/20">
                 🚘
@@ -1478,6 +1617,29 @@ export default function App() {
 
           {/* Nav Links */}
           <nav className="flex-1 px-3 space-y-1.5">
+            {canAccessMenu('dashboard') && (
+              <button
+                id="nav-tab-dashboard"
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/10'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{t.navDashboard}</span>
+                {myDashboardTaskCount > 0 && (
+                  <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {myDashboardTaskCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {canAccessMenu('calendar') && (
               <button
                 id="nav-tab-calendar"
@@ -1779,6 +1941,29 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.15 }}
             >
+              {activeTab === 'dashboard' && (
+                <DashboardView
+                  vehicles={vehicles}
+                  bookings={bookings}
+                  currentUser={currentUser}
+                  users={users}
+                  canEdit={dashboardPerm.canEdit || calendarPerm.canEdit}
+                  viewOnly={dashboardPerm.viewOnly && !dashboardPerm.canEdit && !calendarPerm.canEdit}
+                  onAddBooking={handleAddBooking}
+                  onUpdateBookingStatus={handleUpdateBookingStatus}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
+                  isLineModuleEnabled={isLineModuleEnabled}
+                  onOpenLineShare={(booking) => setLineShareBookingId(booking.id)}
+                  onOpenLineQuickApprove={(booking, stage, action = 'approve') =>
+                    setLineQuickApproveState({
+                      bookingId: booking.id,
+                      stage,
+                      action,
+                    })
+                  }
+                />
+              )}
+
               {activeTab === 'calendar' && (
                 <MonthlyCalendar
                   vehicles={vehicles}
@@ -1938,13 +2123,16 @@ export default function App() {
         />
       )}
 
-      {/* Floating Toast Message */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 text-xs font-semibold flex items-center gap-3 animate-fade-in">
-          <span>🔔 {toastMessage}</span>
+      {/* Floating Toast Message (Scoped to currentUser, auto-dismisses after 5 seconds) */}
+      {toastState && (!toastState.userId || toastState.userId === currentUser?.id) && (
+        <div
+          id="app-toast-notification"
+          className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 text-xs font-semibold flex items-center gap-3 max-w-md animate-fade-in"
+        >
+          <span className="leading-relaxed">🔔 {toastState.message}</span>
           <button
-            onClick={() => setToastMessage(null)}
-            className="text-slate-400 hover:text-white p-0.5 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
+            onClick={() => setToastState(null)}
+            className="text-slate-400 hover:text-white p-0.5 rounded-md hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-3.5 h-3.5" />
           </button>

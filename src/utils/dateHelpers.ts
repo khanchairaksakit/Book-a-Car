@@ -131,3 +131,84 @@ export function getBookingJobNumber(booking: {
   return `AX-${dateStamp}-${suffix.padStart(3, '0')}`;
 }
 
+export const EARLY_RETURN_WARNING_TEXT =
+  'การคืนรถก่อนกำหนด หากต้องการยืมให้ขอในระบบใหม่';
+
+/**
+ * Formats a Date object as YYYY-MM-DD in local time
+ */
+export function toLocalDateStr(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Checks whether a booking is being (or was) returned before its scheduled endDate
+ */
+export function isEarlyVehicleReturn(
+  booking: {
+    startDate?: string;
+    endDate?: string;
+    endRecordedAt?: string;
+    status?: string;
+  },
+  referenceNow?: Date
+): boolean {
+  if (!booking || !booking.endDate) return false;
+  const scheduledEndDay = booking.endDate.substring(0, 10);
+  if (!scheduledEndDay) return false;
+
+  const retDateObj = booking.endRecordedAt
+    ? new Date(booking.endRecordedAt)
+    : referenceNow || new Date();
+  const actualReturnDay = !isNaN(retDateObj.getTime())
+    ? toLocalDateStr(retDateObj)
+    : getRealTodayStr();
+
+  if (actualReturnDay < scheduledEndDay) {
+    return true;
+  }
+
+  if (actualReturnDay === scheduledEndDay && booking.endDate.includes('T')) {
+    const endMs = new Date(booking.endDate).getTime();
+    const retMs = retDateObj.getTime();
+    if (!isNaN(endMs) && !isNaN(retMs) && retMs < endMs - 15 * 60 * 1000) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Returns the effective end date (YYYY-MM-DD) for a completed booking so that
+ * vehicles returned early do not appear as occupying future dates on the calendar.
+ */
+export function getEffectiveCompletedEndDateStr(booking: {
+  startDate?: string;
+  endDate?: string;
+  endRecordedAt?: string;
+}): string {
+  const start = (booking.startDate || '').substring(0, 10);
+  const rawEnd = (booking.endDate || '').substring(0, 10) || start;
+  if (!booking.endRecordedAt) {
+    const todayStr = getRealTodayStr();
+    if (todayStr < rawEnd) {
+      return todayStr < start ? start : todayStr;
+    }
+    return rawEnd;
+  }
+  const retDate = new Date(booking.endRecordedAt);
+  const retDayStr = !isNaN(retDate.getTime())
+    ? toLocalDateStr(retDate)
+    : booking.endRecordedAt.substring(0, 10);
+
+  if (retDayStr < rawEnd) {
+    return retDayStr < start ? start : retDayStr;
+  }
+  return rawEnd;
+}
+
+

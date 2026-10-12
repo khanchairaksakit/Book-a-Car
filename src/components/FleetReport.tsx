@@ -531,7 +531,7 @@ export default function FleetReport({
               className="w-full px-3 py-2 bg-slate-50 border border-gray-300 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             >
               <option value="All">{isEn ? 'All Statuses' : 'ทุกสถานะ'}</option>
-              <option value="Approved">{isEn ? 'Approved' : 'อนุมัติแล้ว'}</option>
+              <option value="Approved">{isEn ? 'In Use' : 'กำลังใช้งาน (ยังไม่ได้คืนรถ)'}</option>
               <option value="Completed">{isEn ? 'Completed' : 'เสร็จสิ้นภารกิจ'}</option>
               <option value="Pending">{isEn ? 'Pending' : 'รอดำเนินการ'}</option>
               <option value="Cancelled">{isEn ? 'Cancelled' : 'ยกเลิก / ไม่อนุมัติ'}</option>

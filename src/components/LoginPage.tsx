@@ -36,34 +36,41 @@ export default function LoginPage({
 
   const t = translations[language];
 
-  const findMatchingUser = (pool: User[], normalized: string): User | undefined => {
+  const findMatchingUser = (pool: User[], exactLower: string): User | undefined => {
+    if (!exactLower || /\s/.test(exactLower)) return undefined;
     return pool.find((u) => {
+      if (!u || !u.id) return false;
       const userUsername = (u.username || '').trim().toLowerCase();
       const userEmail = (u.email || '').trim().toLowerCase();
-      const emailPrefix = u.email ? u.email.split('@')[0].trim().toLowerCase() : '';
       const userCode = (u.employeeCode || '').trim().toLowerCase();
-      const userName = (u.name || '').trim().toLowerCase();
       return (
-        userUsername === normalized ||
-        emailPrefix === normalized ||
-        userEmail === normalized ||
-        userCode === normalized ||
-        userName === normalized
+        (Boolean(userUsername) && userUsername === exactLower) ||
+        (Boolean(userEmail) && userEmail === exactLower) ||
+        (Boolean(userCode) && userCode === exactLower)
       );
     });
   };
 
-  // Handle standard credential verification
+  // Handle standard credential verification (strictly no spaces allowed, only real existing users)
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const trimmedIdentifier = identifierInput.trim();
-    if (!trimmedIdentifier) {
+    if (!identifierInput || !identifierInput.trim()) {
       setError(
         language === 'th'
           ? 'กรุณาระบุชื่อผู้ใช้ (Username), รหัสพนักงาน หรืออีเมลองค์กร'
           : 'Please enter your username, employee code, or work email'
+      );
+      return;
+    }
+
+    // Reject any leading, trailing, or internal whitespace in the username/identifier input
+    if (/\s/.test(identifierInput)) {
+      setError(
+        language === 'th'
+          ? 'ชื่อผู้ใช้ (Username) รหัสพนักงาน หรืออีเมล ห้ามมีเว้นวรรค (ช่องว่าง) กรุณาตรวจสอบอีกครั้ง'
+          : 'Username, employee code, or email must not contain spaces.'
       );
       return;
     }
@@ -77,32 +84,37 @@ export default function LoginPage({
       return;
     }
 
+    if (/\s/.test(passwordInput)) {
+      setError(
+        language === 'th'
+          ? 'รหัสผ่านห้ามมีเว้นวรรค (ช่องว่าง) กรุณาตรวจสอบรหัสผ่านแล้วลองอีกครั้ง'
+          : 'Password must not contain spaces.'
+      );
+      return;
+    }
+
     setIsLoading(true);
-    const normalized = trimmedIdentifier.toLowerCase();
+    const exactIdentifier = identifierInput.toLowerCase();
 
-    // 1. Check current users prop
-    let targetUser = findMatchingUser(users, normalized);
+    // 1. Check active users state (synced from Firestore / User Management)
+    let activePool: User[] = Array.isArray(users) && users.length > 0 ? users : [];
 
-    // 2. Check localStorage users if not found
-    if (!targetUser) {
+    // 2. If users prop is empty, fetch authoritative users from Firestore
+    if (activePool.length === 0) {
       try {
-        const raw = localStorage.getItem('car_booking_users');
-        if (raw) {
-          const parsed: User[] = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            targetUser = findMatchingUser(parsed, normalized);
-          }
-        }
+        activePool = await getUsers();
       } catch {
-        // ignore
+        activePool = [];
       }
     }
 
-    // 3. Fetch latest users from Firestore if still not found
+    let targetUser = findMatchingUser(activePool, exactIdentifier);
+
+    // 3. If still not found in local state, re-verify directly against Firestore users collection
     if (!targetUser) {
       try {
         const cloudUsers = await getUsers();
-        targetUser = findMatchingUser(cloudUsers, normalized);
+        targetUser = findMatchingUser(cloudUsers, exactIdentifier);
       } catch {
         // ignore
       }
@@ -112,14 +124,14 @@ export default function LoginPage({
       setIsLoading(false);
       setError(
         language === 'th'
-          ? 'ไม่พบบัญชีผู้ใช้งานในระบบ กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสพนักงานอีกครั้ง'
-          : 'User account not found. Please verify your username or employee code.'
+          ? 'ไม่พบบัญชีผู้ใช้งานนี้ในระบบ (อนุญาตเฉพาะผู้ใช้งานที่มีรายชื่ออยู่ในระบบจริงเท่านั้น)'
+          : 'User account not found in the system.'
       );
       return;
     }
 
     const expectedPassword = targetUser.password || 'password123';
-    if (passwordInput.trim() !== expectedPassword) {
+    if (passwordInput !== expectedPassword) {
       setIsLoading(false);
       setError(
         language === 'th'

@@ -12,6 +12,7 @@ export const translations = {
     currentDate: 'วันที่ปัจจุบัน',
     
     // Navigation Menu
+    navDashboard: 'แดชบอร์ด (หน้าแรก)',
     navCalendar: 'ปฏิทินการจองรถยนต์',
     navStatus: 'ตรวจสอบสถานะ',
     navVehicles: 'จัดการข้อมูลรถยนต์',
@@ -68,6 +69,7 @@ export const translations = {
     currentDate: 'Current Date',
     
     // Navigation Menu
+    navDashboard: 'Dashboard',
     navCalendar: 'Booking Calendar',
     navStatus: 'Check Status',
     navVehicles: 'Fleet Management',

@@ -87,12 +87,7 @@ export default function VehicleOverview({
     });
   }, [bookings, selectedDateStr, todayStr]);
 
-  // All currently active missions/bookings across the fleet (Approved, Pending, Pending_Approve2)
-  const allActiveFleetBookings = useMemo(() => {
-    return bookings.filter((b) => b && isBookingActiveStatus(b.status));
-  }, [bookings]);
-
-  // Determine vehicle status for the selected date (and reflect active missions on default today view)
+  // Determine vehicle status for the selected date
   const vehiclesWithDailyStatus = useMemo(() => {
     const statusPriority = (st: string) => {
       if (st === 'Approved') return 3;
@@ -106,26 +101,13 @@ export default function VehicleOverview({
         .filter((b) => doesBookingMatchVehicle(b, v))
         .sort((a, b) => statusPriority(b.status) - statusPriority(a.status));
 
-      // If viewing today, also check if this vehicle has an active uncompleted mission in the system
-      const activeFleetMatchedBookings = isToday
-        ? allActiveFleetBookings
-            .filter((b) => doesBookingMatchVehicle(b, v))
-            .sort((a, b) => statusPriority(b.status) - statusPriority(a.status))
-        : [];
-
-      const vBookings =
-        dateMatchedBookings.length > 0 ? dateMatchedBookings : activeFleetMatchedBookings;
-
       const hasBookingOnSelectedDate = dateMatchedBookings.length > 0;
-      const hasActiveBooking =
-        vBookings.length > 0 || (isToday && v.status === 'In Use');
-
-      const primaryBooking = vBookings[0];
+      const primaryBooking = dateMatchedBookings[0];
 
       let dailyStatus: 'Available' | 'In Use' | 'Maintenance' = 'Available';
       if (v.status === 'Maintenance') {
         dailyStatus = 'Maintenance';
-      } else if (hasActiveBooking) {
+      } else if (hasBookingOnSelectedDate) {
         dailyStatus = 'In Use';
       }
 
@@ -133,24 +115,17 @@ export default function VehicleOverview({
         vehicle: v,
         dailyStatus,
         booking: primaryBooking,
-        allBookings: vBookings,
+        allBookings: dateMatchedBookings,
         isBusyOnSelectedDate:
-          v.status === 'Maintenance' ||
-          hasBookingOnSelectedDate ||
-          (isToday && v.status === 'In Use' && !primaryBooking),
+          v.status === 'Maintenance' || hasBookingOnSelectedDate,
       };
     });
-  }, [vehicles, bookingsCoveringSelectedDate, allActiveFleetBookings, isToday]);
+  }, [vehicles, bookingsCoveringSelectedDate]);
 
   // Bookings list to count in the overview metric card
   const bookingsOnDate = useMemo(() => {
-    const map = new Map<string, Booking>();
-    bookingsCoveringSelectedDate.forEach((b) => map.set(b.id, b));
-    if (isToday) {
-      allActiveFleetBookings.forEach((b) => map.set(b.id, b));
-    }
-    return Array.from(map.values());
-  }, [bookingsCoveringSelectedDate, allActiveFleetBookings, isToday]);
+    return bookingsCoveringSelectedDate;
+  }, [bookingsCoveringSelectedDate]);
 
   // Metrics calculation
   const totalVehicles = vehicles.length;
