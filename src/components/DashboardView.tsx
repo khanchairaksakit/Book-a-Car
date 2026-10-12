@@ -380,6 +380,81 @@ export default function DashboardView({
     [users, currentUser]
   );
 
+  // Helper to calculate end date string from start date and total days (1 = same day, 2 = next day, etc.)
+  const calculateEndDateStr = (startStr: string, totalDays: number): string => {
+    if (!startStr) return startStr;
+    const parts = startStr.split('-');
+    if (parts.length !== 3) return startStr;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const d = new Date(year, month, day);
+    d.setDate(d.getDate() + (totalDays - 1));
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
+
+  // Helper to calculate total days count between start date and end date
+  const getSelectedDaysCount = (startStr: string, endStr: string): number => {
+    if (!startStr || !endStr) return 1;
+    const p1 = startStr.split('-').map(Number);
+    const p2 = endStr.split('-').map(Number);
+    if (p1.length !== 3 || p2.length !== 3) return 1;
+    const d1 = new Date(p1[0], p1[1] - 1, p1[2]);
+    const d2 = new Date(p2[0], p2[1] - 1, p2[2]);
+    const diffTime = d2.getTime() - d1.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays > 0 ? diffDays : 1;
+  };
+
+  // Quick preset actions
+  const handleQuickPresetHalfMorning = () => {
+    setStartTime('08:30');
+    setEndTime('12:00');
+    setEndDateStr(selectedDateStr);
+  };
+
+  const handleQuickPresetHalfAfternoon = () => {
+    setStartTime('13:00');
+    setEndTime('17:00');
+    setEndDateStr(selectedDateStr);
+  };
+
+  const handleQuickPresetDays = (days: number) => {
+    setStartTime('08:30');
+    setEndTime('17:30');
+    setEndDateStr(calculateEndDateStr(selectedDateStr, days));
+  };
+
+  // Active state computations for quick presets
+  const currentDurationDays = getSelectedDaysCount(selectedDateStr, endDateStr);
+  const isPresetHalfMorning =
+    selectedDateStr === endDateStr && startTime === '08:30' && endTime === '12:00';
+  const isPresetHalfAfternoon =
+    selectedDateStr === endDateStr && startTime === '13:00' && endTime === '17:00';
+  const isPresetFullDay =
+    currentDurationDays === 1 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+  const isPreset2Days =
+    currentDurationDays === 2 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+  const isPreset3Days =
+    currentDurationDays === 3 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+  const isPreset5Days =
+    currentDurationDays === 5 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+  const isPreset7Days =
+    currentDurationDays === 7 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+
   const handleOpenBookingModal = (dateStr?: string, vehicleId?: string) => {
     if (!hasEditPermission) return;
     let targetDate = dateStr || selectedDateStr || realTodayStr;
@@ -1318,17 +1393,18 @@ export default function DashboardView({
               className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Modal Header */}
               <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-700 to-indigo-900 text-white flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white">
-                    <Car className="w-5 h-5 text-indigo-200" />
+                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white backdrop-blur-xs">
+                    <CalendarDays className="w-5 h-5 text-indigo-200" />
                   </div>
                   <div>
                     <h3 className="font-bold text-base sm:text-lg text-white">
                       จองรถยนต์ส่วนกลางทันที
                     </h3>
                     <p className="text-xs text-indigo-200">
-                      วันที่เริ่มต้น:{' '}
+                      สำหรับวันที่:{' '}
                       <span className="font-bold text-white underline">
                         {formatThaiDate(selectedDateStr)}
                       </span>
@@ -1336,14 +1412,16 @@ export default function DashboardView({
                   </div>
                 </div>
                 <button
+                  id="btn-close-quick-booking"
                   type="button"
                   onClick={() => setIsBookingModalOpen(false)}
-                  className="p-1.5 text-white/80 hover:text-white rounded-full hover:bg-white/10 cursor-pointer"
+                  className="p-1.5 text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
+              {/* Modal Content - Scrollable */}
               <form
                 onSubmit={handleConfirmBooking}
                 className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 text-xs sm:text-sm"
@@ -1362,12 +1440,43 @@ export default function DashboardView({
                   </div>
                 )}
 
-                {/* Vehicle Selector */}
+                {/* 1. User Info Header */}
+                <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                      {currentUser ? currentUser.name.substring(0, 2) : '?'}
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-400 block font-semibold">
+                        ผู้ขอจอง:
+                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-gray-900 text-xs">
+                          {currentUser
+                            ? `${currentUser.name} (${currentUser.department})`
+                            : 'ไม่ได้เลือกผู้ใช้'}
+                        </span>
+                        {currentUser?.phone && (
+                          <a
+                            href={`tel:${currentUser.phone.replace(/[^0-9+]/g, '')}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                            title={`กดเพื่อโทรออก ${currentUser.phone}`}
+                          >
+                            📞 {currentUser.phone}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Choose Vehicle */}
                 <div className="space-y-2">
                   <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
                     เลือกรถยนต์ที่ต้องการจอง <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto p-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto p-1">
                     {vehicles.map((v) => {
                       const matchedDayBooking = bookings.find(
                         (b) =>
@@ -1380,9 +1489,30 @@ export default function DashboardView({
                       const isMaintenance = v.status === 'Maintenance';
                       const isSelected = selectedVehicleId === v.id;
 
+                      let statusBadge = (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                          🟢 ว่างในวันนี้
+                        </span>
+                      );
+
+                      if (isMaintenance) {
+                        statusBadge = (
+                          <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded">
+                            🔴 ซ่อมบำรุง
+                          </span>
+                        );
+                      } else if (isBooked && matchedDayBooking) {
+                        statusBadge = (
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                            🟡 ติดภารกิจ/จอง (คุณ {matchedDayBooking.userName})
+                          </span>
+                        );
+                      }
+
                       return (
                         <div
                           key={v.id}
+                          id={`modal-vehicle-card-${v.id}`}
                           onClick={() => {
                             if (!isMaintenance) setSelectedVehicleId(v.id);
                           }}
@@ -1412,21 +1542,7 @@ export default function DashboardView({
                             <span className="text-[11px] font-mono text-gray-500 block truncate">
                               {v.plateNumber} • {v.capacity} ที่นั่ง
                             </span>
-                            <div className="mt-1">
-                              {isMaintenance ? (
-                                <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded">
-                                  🔴 ซ่อมบำรุง
-                                </span>
-                              ) : isBooked && matchedDayBooking ? (
-                                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                                  🟡 ติดภารกิจ (คุณ {matchedDayBooking.userName})
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                                  🟢 ว่างพร้อมใช้งาน
-                                </span>
-                              )}
-                            </div>
+                            <div className="mt-1">{statusBadge}</div>
                           </div>
                         </div>
                       );
@@ -1434,158 +1550,430 @@ export default function DashboardView({
                   </div>
                 </div>
 
-                {/* Dates & Times */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      วันที่เริ่มต้นเดินทาง
-                    </label>
-                    <input
-                      type="date"
-                      min={realTodayStr}
-                      value={selectedDateStr}
-                      onChange={(e) => {
-                        const newStart = e.target.value;
-                        if (isDateInPast(newStart)) return;
-                        setSelectedDateStr(newStart);
-                        if (endDateStr < newStart) setEndDateStr(newStart);
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white"
-                      required
-                    />
+                {/* 3. Trip Times and Dates */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      กำหนดวันและเวลาเดินทาง <span className="text-red-500">*</span>
+                    </span>
+                    <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
+                      <span>🔒 ห้ามจองย้อนหลัง</span>
+                    </span>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      เวลาเริ่มต้น
-                    </label>
-                    <input
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      วันที่สิ้นสุดเดินทาง
-                    </label>
-                    <input
-                      type="date"
-                      min={selectedDateStr || realTodayStr}
-                      value={endDateStr}
-                      onChange={(e) => setEndDateStr(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      เวลาสิ้นสุด
-                    </label>
-                    <input
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white"
-                      required
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        วันที่เริ่มต้นเดินทาง{' '}
+                        <span className="text-gray-400 font-normal">(วันนี้เป็นต้นไป)</span>
+                      </label>
+                      <input
+                        id="input-quick-start-date"
+                        type="date"
+                        min={realTodayStr}
+                        value={selectedDateStr}
+                        onChange={(e) => {
+                          const newStart = e.target.value;
+                          if (isDateInPast(newStart)) {
+                            setBookingError(
+                              `ไม่อนุญาตให้จองย้อนหลัง กรุณาเลือกตั้งแต่วันที่ปัจจุบัน (${formatThaiDate(
+                                realTodayStr
+                              )}) เป็นต้นไป`
+                            );
+                            return;
+                          }
+                          setBookingError('');
+                          const prevDuration = getSelectedDaysCount(selectedDateStr, endDateStr);
+                          setSelectedDateStr(newStart);
+                          if (prevDuration > 1) {
+                            setEndDateStr(calculateEndDateStr(newStart, prevDuration));
+                          } else if (endDateStr < newStart) {
+                            setEndDateStr(newStart);
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        เวลาเริ่มต้น
+                      </label>
+                      <input
+                        id="input-quick-start-time"
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        วันที่สิ้นสุดเดินทาง
+                      </label>
+                      <input
+                        id="input-quick-end-date"
+                        type="date"
+                        min={selectedDateStr || realTodayStr}
+                        value={endDateStr}
+                        onChange={(e) => {
+                          const newEnd = e.target.value;
+                          if (newEnd < selectedDateStr) {
+                            setBookingError('วันที่สิ้นสุดการเดินทางต้องไม่น้อยกว่าวันที่เริ่มต้น');
+                            return;
+                          }
+                          setBookingError('');
+                          setEndDateStr(newEnd);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        เวลาสิ้นสุด
+                      </label>
+                      <input
+                        id="input-quick-end-time"
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Stage 1 Approver Selection */}
-                <div className="space-y-2 pt-2 border-t border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                      <Shield className="w-4 h-4 text-indigo-600" />
-                      <span>เลือกผู้อนุมัติขั้นที่ 1 (Approve 1) *</span>
-                    </label>
+                {/* Quick time preset shortcuts: ครึ่งเช้า, ครึ่งบ่าย, เต็มวัน, 2 วัน, 3 วัน, 5 วัน, 7 วัน */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+                    <span className="text-gray-500 font-semibold">เวลารวดเร็ว:</span>
                     <button
+                      id="btn-preset-half-morning"
                       type="button"
-                      onClick={() => setShowAllDeptApprovers((p) => !p)}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 cursor-pointer"
+                      onClick={handleQuickPresetHalfMorning}
+                      title="ครึ่งเช้า (08:30 - 12:00 น.)"
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPresetHalfMorning
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
                     >
-                      {showAllDeptApprovers
-                        ? 'แสดงเฉพาะแผนก/ฝ่ายเดียวกัน'
-                        : 'แสดงผู้อนุมัติทั้งหมด'}
+                      ครึ่งเช้า
+                    </button>
+                    <button
+                      id="btn-preset-half-afternoon"
+                      type="button"
+                      onClick={handleQuickPresetHalfAfternoon}
+                      title="ครึ่งบ่าย (13:00 - 17:00 น.)"
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPresetHalfAfternoon
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      ครึ่งบ่าย
+                    </button>
+                    <button
+                      id="btn-preset-1-day"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(1)}
+                      title="เต็มวัน (08:30 - 17:30 น.)"
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPresetFullDay
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      เต็มวัน
+                    </button>
+                    <button
+                      id="btn-preset-2-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(2)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset2Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      2 วัน
+                    </button>
+                    <button
+                      id="btn-preset-3-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(3)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset3Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      3 วัน
+                    </button>
+                    <button
+                      id="btn-preset-5-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(5)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset5Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      5 วัน
+                    </button>
+                    <button
+                      id="btn-preset-7-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(7)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset7Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      7 วัน
                     </button>
                   </div>
-                  <select
-                    value={selectedApproverId}
-                    onChange={(e) => setSelectedApproverId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white font-semibold"
-                    required
-                  >
-                    {eligibleApprovers.map((app) => (
-                      <option key={app.id} value={app.id}>
-                        {app.name} ({app.department}
-                        {app.division ? ` • ${app.division}` : ''})
-                      </option>
-                    ))}
-                  </select>
+
+                  {/* Summary of selected duration */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-indigo-50/70 border border-indigo-100 rounded-lg px-3 py-2 text-indigo-950">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>
+                        ระยะเวลาที่เลือก:{' '}
+                        <strong className="font-bold text-indigo-700">
+                          {currentDurationDays} วัน
+                        </strong>
+                        {isPresetHalfMorning && ' (ครึ่งเช้า 08:30 - 12:00)'}
+                        {isPresetHalfAfternoon && ' (ครึ่งบ่าย 13:00 - 17:00)'}
+                        {isPresetFullDay && ' (เต็มวัน 08:30 - 17:30)'}
+                        {isPreset2Days && ' (2 วัน เดินทางต่อเนื่อง)'}
+                        {isPreset3Days && ' (3 วัน เดินทางต่อเนื่อง)'}
+                        {isPreset5Days && ' (5 วัน เดินทางต่อเนื่อง)'}
+                        {isPreset7Days && ' (7 วัน เดินทางต่อเนื่อง)'}
+                      </span>
+                    </div>
+                    <div className="text-gray-600 text-[10px] sm:text-[11px] font-medium">
+                      {formatThaiDate(selectedDateStr)} {startTime} น. →{' '}
+                      {formatThaiDate(endDateStr)} {endTime} น.
+                    </div>
+                  </div>
                 </div>
 
-                {/* Destination & Purpose */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      สถานที่ปลายทาง *
+                {/* 4. Choose Approver 1 */}
+                <div
+                  className="space-y-3 pt-2 border-t border-gray-100"
+                  id="booking-approver-selection-section"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <label className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-indigo-600" />
+                      <span>
+                        เลือกผู้อนุมัติขั้นที่ 1 (Approve 1){' '}
+                        <span className="text-red-500">*</span>
+                      </span>
                     </label>
-                    <input
-                      type="text"
-                      value={destination}
-                      onChange={(e) => setDestination(e.target.value)}
-                      placeholder="เช่น นิคมอุตสาหกรรมอมตะซิตี้ ชลบุรี"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
-                      required
-                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDeptApprovers((prev) => !prev)}
+                        className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 cursor-pointer"
+                      >
+                        {showAllDeptApprovers
+                          ? 'แสดงเฉพาะแผนก/ฝ่ายเดียวกัน'
+                          : 'แสดงผู้อนุมัติขั้นที่ 1 ทั้งหมด'}
+                      </button>
+                      <span className="text-[10px] text-emerald-700 bg-emerald-50 font-semibold px-2 py-0.5 rounded-full border border-emerald-200 w-fit">
+                        ผ่าน Approve 1 แล้วส่งต่อ Approve 2 อัตโนมัติ
+                      </span>
+                    </div>
                   </div>
+                  <p className="text-[11px] text-gray-500">
+                    แสดงเฉพาะผู้มีสิทธิ์ <strong>Approve 1</strong> ที่สังกัดในแผนกหรือฝ่ายเดียวกับผู้ขอจอง (
+                    {currentUser?.department || '-'}
+                    {currentUser?.division ? ` • ${currentUser.division}` : ''}) เท่านั้น
+                  </p>
+
+                  {eligibleApprovers.length === 0 ? (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        ไม่พบผู้อนุมัติขั้นที่ 1 (Approve 1) ในแผนกหรือฝ่ายของคุณ (
+                        {currentUser?.department || '-'}
+                        {currentUser?.division ? ` / ${currentUser.division}` : ''})
+                        กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดผู้อนุมัติประจำแผนก/ฝ่าย
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {eligibleApprovers.map((approver) => {
+                        const isSelected = selectedApproverId === approver.id;
+
+                        return (
+                          <div
+                            key={approver.id}
+                            id={`approver-card-${approver.id}`}
+                            onClick={() => setSelectedApproverId(approver.id)}
+                            className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 ${
+                              isSelected
+                                ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-600/30 shadow-xs'
+                                : 'border-gray-200 hover:border-indigo-300 bg-white hover:bg-slate-50/50'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-2xs">
+                              {approver.name.substring(0, 2)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold text-gray-900 truncate block">
+                                  {approver.name}{' '}
+                                  {approver.employeeCode ? (
+                                    <span className="text-[10px] font-mono text-gray-500 font-normal">
+                                      [{approver.employeeCode}]
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {isSelected && (
+                                  <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                                )}
+                              </div>
+                              <span className="text-[11px] text-gray-600 block truncate font-medium">
+                                {approver.department}
+                                {approver.division ? ` • ${approver.division}` : ''}
+                              </span>
+                              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">
+                                  Approve 1
+                                </span>
+                                {approver.phone && (
+                                  <a
+                                    href={`tel:${approver.phone.replace(/[^0-9+]/g, '')}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[10px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
+                                    title={`กดเพื่อโทรออก ${approver.phone}`}
+                                  >
+                                    📞 {approver.phone}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Purpose & Destination */}
+                <div className="space-y-3 pt-1">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      จำนวนผู้โดยสาร (คน)
+                      สถานที่ปลายทาง (Destination) <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={15}
-                      value={passengersCount}
-                      onChange={(e) =>
-                        setPassengersCount(Math.max(1, parseInt(e.target.value, 10) || 1))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
-                    />
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                      <input
+                        id="input-quick-destination"
+                        type="text"
+                        value={destination}
+                        onChange={(e) => setDestination(e.target.value)}
+                        placeholder="เช่น สำนักงานเทศบาลนนทบุรี หรือ ศูนย์ประชุมไบเทค บางนา"
+                        className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        วัตถุประสงค์การใช้งาน (Purpose) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="input-quick-purpose"
+                        type="text"
+                        value={purpose}
+                        onChange={(e) => setPurpose(e.target.value)}
+                        placeholder="เช่น ไปพบลูกค้าเพื่อเซ็นสัญญาซื้อขาย"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        จำนวนผู้โดยสาร
+                      </label>
+                      <input
+                        id="input-quick-passengers"
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={passengersCount}
+                        onChange={(e) => setPassengersCount(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-hidden"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    วัตถุประสงค์การใช้รถ *
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={purpose}
-                    onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="ระบุรายละเอียดภารกิจ..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
-                    required
-                  />
-                </div>
+                {/* Inline Error/Success Alert right above submit button */}
+                {bookingError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{bookingError}</span>
+                  </div>
+                )}
 
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsBookingModalOpen(false)}
-                    className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
-                  >
-                    ยกเลิก
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingBooking}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
-                  >
-                    {isSubmittingBooking ? 'กำลังบันทึก...' : 'ยืนยันการจองรถ'}
-                  </button>
+                {bookingSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{bookingSuccess}</span>
+                  </div>
+                )}
+
+                {/* Modal Footer Controls */}
+                <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                  {isLineModuleEnabled ? (
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#059440] bg-[#06C755]/10 px-3 py-1.5 rounded-xl border border-[#06C755]/25 font-semibold">
+                      <MessageCircle className="w-3.5 h-3.5 fill-[#06C755] text-[#06C755] shrink-0" />
+                      <span>
+                        หลังกดยืนยัน ระบบจะส่งแจ้งเตือนทาง LINE ให้ผู้อนุมัติโดยอัตโนมัติ
+                      </span>
+                    </div>
+                  ) : (
+                    <div />
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBookingModalOpen(false)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+
+                    <button
+                      id="btn-submit-quick-booking"
+                      type="submit"
+                      disabled={isSubmittingBooking}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>
+                        {isSubmittingBooking ? 'กำลังบันทึก...' : 'ยืนยันการจองรถยนต์'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>

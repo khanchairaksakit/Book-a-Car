@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Vehicle, VehicleType, VehicleStatus, User, Booking } from '../types';
 import {
   Plus,
@@ -19,6 +19,9 @@ import {
   UserCheck,
   MapPin,
   CircleUser,
+  Upload,
+  Camera,
+  RotateCcw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -31,6 +34,8 @@ import {
   doesBookingMatchVehicle,
   isBookingActiveStatus,
 } from '../utils/vehicleAlerts';
+import { compressImageFile } from '../utils/imageCompression';
+import CameraCaptureModal from './CameraCaptureModal';
 
 interface VehicleManagementProps {
   vehicles: Vehicle[];
@@ -147,6 +152,41 @@ export default function VehicleManagement({
     if (newType === 'Pickup') setCapacity(5);
   };
 
+  // Image upload & camera capture state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+
+  const defaultImagesByType: Record<VehicleType, string> = {
+    Sedan: 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&q=80&w=600',
+    SUV: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600',
+    Van: 'https://images.unsplash.com/photo-1530541930197-ff16ac917b0e?auto=format&fit=crop&q=80&w=600',
+    Pickup: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=600',
+  };
+
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('กรุณาเลือกไฟล์รูปภาพเท่านั้น (JPG, PNG, WEBP)');
+      return;
+    }
+    try {
+      setIsUploadingImage(true);
+      setError('');
+      const compressedDataUrl = await compressImageFile(file, 960, 0.78);
+      setImageUrl(compressedDataUrl);
+    } catch (err) {
+      console.error('Failed to process vehicle image:', err);
+      setError('ไม่สามารถอ่านไฟล์รูปภาพได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setIsUploadingImage(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!brand.trim() || !model.trim() || !plateNumber.trim()) {
@@ -156,13 +196,7 @@ export default function VehicleManagement({
     }
 
     // Default image if blank
-    const defaultImg = {
-      Sedan: 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&q=80&w=600',
-      SUV: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&q=80&w=600',
-      Van: 'https://images.unsplash.com/photo-1530541930197-ff16ac917b0e?auto=format&fit=crop&q=80&w=600',
-      Pickup: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=600',
-    }[type];
-
+    const defaultImg = defaultImagesByType[type];
     const finalImageUrl = imageUrl.trim() || defaultImg;
 
     const parsedMileage = parseInt(currentMileage, 10);
@@ -998,19 +1032,106 @@ export default function VehicleManagement({
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">ลิงก์รูปภาพรถ (URL)</label>
-                      <input
-                        id="car-input-img"
-                        type="url"
-                        value={imageUrl}
-                        onChange={(e) => setImageUrl(e.target.value)}
-                        placeholder="ปล่อยว่างเพื่อเลือกภาพมาตรฐานให้อัตโนมัติ"
-                        className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
-                      />
-                      <span className="text-[10px] text-gray-400 mt-1 block">
-                        หากไม่ใส่ลิงก์ ระบบจะเลือกภาพมาตรฐานของประเภทรถให้โดยอัตโนมัติ
-                      </span>
+                    <div className="space-y-2.5 bg-slate-50/80 border border-slate-200 rounded-xl p-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="block text-xs font-semibold text-gray-700 uppercase">
+                          รูปภาพรถยนต์ (อัปโหลดรูปภาพ หรือ ใส่ลิงก์ URL)
+                        </label>
+                        <span className="text-[11px] font-medium text-indigo-700">
+                          {imageUrl.startsWith('data:image/')
+                            ? '✓ อัปโหลดรูปภาพจากเครื่องแล้ว'
+                            : imageUrl.trim()
+                            ? '✓ ใช้รูปภาพที่กำหนดเอง'
+                            : 'ใช้ภาพมาตรฐานตามประเภทรถ'}
+                        </span>
+                      </div>
+
+                      {/* Image Preview & Upload Controls */}
+                      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                        <div
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full sm:w-44 aspect-video rounded-lg overflow-hidden border border-slate-200 bg-white relative group cursor-pointer shrink-0"
+                          title="คลิกเพื่ออัปโหลดรูปภาพรถยนต์"
+                        >
+                          <img
+                            src={imageUrl.trim() || defaultImagesByType[type]}
+                            alt="ตัวอย่างรูปภาพรถยนต์"
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = defaultImagesByType[type];
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-semibold gap-1.5">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>เปลี่ยนรูป</span>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 space-y-2">
+                          <input
+                            ref={fileInputRef}
+                            id="car-input-file-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageFileUpload}
+                            className="hidden"
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              id="btn-upload-vehicle-image"
+                              disabled={isUploadingImage}
+                              onClick={() => fileInputRef.current?.click()}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>{isUploadingImage ? 'กำลังประมวลผลรูป...' : 'อัปโหลดรูปภาพจากเครื่อง'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              id="btn-camera-vehicle-image"
+                              onClick={() => setIsCameraModalOpen(true)}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>ถ่ายภาพรถ</span>
+                            </button>
+
+                            {imageUrl.trim() !== '' && (
+                              <button
+                                type="button"
+                                id="btn-reset-vehicle-image"
+                                onClick={() => setImageUrl('')}
+                                className="inline-flex items-center gap-1 px-2.5 py-2 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                                title="กลับไปใช้ภาพมาตรฐานของประเภทรถ"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>ใช้ภาพมาตรฐาน</span>
+                              </button>
+                            )}
+                          </div>
+
+                          <div>
+                            <input
+                              id="car-input-img"
+                              type="text"
+                              value={imageUrl.startsWith('data:image/') ? '' : imageUrl}
+                              onChange={(e) => setImageUrl(e.target.value)}
+                              placeholder={
+                                imageUrl.startsWith('data:image/')
+                                  ? 'ใช้ไฟล์รูปภาพที่อัปโหลดแล้ว (หรือวางลิงก์ URL ที่นี่เพื่อเปลี่ยน)'
+                                  : 'หรือวางลิงก์รูปภาพ (https://...) ที่นี่'
+                              }
+                              className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
+                            />
+                            <span className="text-[10px] text-gray-500 mt-1 block">
+                              รองรับการอัปโหลดไฟล์ JPG, PNG, WEBP จากคอมพิวเตอร์/มือถือ หรือใส่ลิงก์รูปภาพ
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
@@ -1326,6 +1447,22 @@ export default function VehicleManagement({
           </div>
         </div>
       )}
+
+      {/* Camera Capture Modal for Vehicle Photo */}
+      <CameraCaptureModal
+        isOpen={isCameraModalOpen}
+        title="ถ่ายภาพรถยนต์ส่วนกลาง"
+        subtitle={
+          brand || model || plateNumber
+            ? `${brand} ${model} ${plateNumber ? `(${plateNumber})` : ''}`.trim()
+            : 'ถ่ายภาพตัวรถเพื่อใช้แสดงในระบบจองรถยนต์ส่วนกลาง'
+        }
+        onCapture={(base64Image) => {
+          setImageUrl(base64Image);
+          setIsCameraModalOpen(false);
+        }}
+        onClose={() => setIsCameraModalOpen(false)}
+      />
     </div>
   );
 }

@@ -58,6 +58,17 @@ testConnection();
 
 // Vehicles CRUD and seeding
 export async function getVehicles(): Promise<Vehicle[]> {
+  const localRaw = typeof window !== 'undefined' ? localStorage.getItem('car_booking_vehicles') : null;
+  let localVehicles: Vehicle[] = [];
+  if (localRaw) {
+    try {
+      const parsed = JSON.parse(localRaw);
+      if (Array.isArray(parsed)) localVehicles = parsed;
+    } catch {
+      // ignore
+    }
+  }
+
   try {
     const colRef = collection(db, 'vehicles');
     const snapshot = await getDocs(colRef);
@@ -70,7 +81,7 @@ export async function getVehicles(): Promise<Vehicle[]> {
         batch.set(docRef, vehicle);
       }
       await batch.commit();
-      return INITIAL_VEHICLES;
+      return localVehicles.length > 0 ? localVehicles : INITIAL_VEHICLES;
     }
     
     const vehicles: Vehicle[] = [];
@@ -80,7 +91,7 @@ export async function getVehicles(): Promise<Vehicle[]> {
     return vehicles;
   } catch (error) {
     console.error('Error fetching vehicles from Firestore:', error);
-    return INITIAL_VEHICLES;
+    return localVehicles.length > 0 ? localVehicles : INITIAL_VEHICLES;
   }
 }
 
@@ -102,7 +113,13 @@ function cleanFirestoreData<T>(obj: T): T {
 }
 
 export async function saveVehicle(vehicle: Vehicle): Promise<void> {
-  const cleaned = cleanFirestoreData(vehicle);
+  const compressedImg = vehicle.imageUrl?.startsWith('data:image/')
+    ? await compressDataUrlIfNeeded(vehicle.imageUrl, 960, 0.78)
+    : vehicle.imageUrl;
+  const cleaned = cleanFirestoreData({
+    ...vehicle,
+    ...(compressedImg ? { imageUrl: compressedImg } : {}),
+  });
   if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem('car_booking_vehicles');
