@@ -303,6 +303,11 @@ export default function UserRegistration({
       return;
     }
 
+    if (password && /\s/.test(password)) {
+      setError('รหัสผ่าน (Password) ห้ามมีเว้นวรรค (ช่องว่าง)');
+      return;
+    }
+
     const cleanUsername = (
       username.replace(/\s+/g, '') ||
       email.split('@')[0].replace(/\s+/g, '') ||

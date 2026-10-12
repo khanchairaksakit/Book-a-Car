@@ -21,7 +21,6 @@ import {
   CircleUser,
   Upload,
   Camera,
-  RotateCcw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -1098,19 +1097,6 @@ export default function VehicleManagement({
                               <Camera className="w-3.5 h-3.5 text-indigo-600" />
                               <span>ถ่ายภาพรถ</span>
                             </button>
-
-                            {imageUrl.trim() !== '' && (
-                              <button
-                                type="button"
-                                id="btn-reset-vehicle-image"
-                                onClick={() => setImageUrl('')}
-                                className="inline-flex items-center gap-1 px-2.5 py-2 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-                                title="กลับไปใช้ภาพมาตรฐานของประเภทรถ"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>ใช้ภาพมาตรฐาน</span>
-                              </button>
-                            )}
                           </div>
 
                           <div>
