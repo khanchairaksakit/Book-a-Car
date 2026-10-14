@@ -154,15 +154,22 @@ export function isEarlyVehicleReturn(
     endRecordedAt?: string;
     status?: string;
   },
-  referenceNow?: Date
+  referenceNow?: Date | string
 ): boolean {
   if (!booking || !booking.endDate) return false;
   const scheduledEndDay = booking.endDate.substring(0, 10);
   if (!scheduledEndDay) return false;
 
+  const refDateObj =
+    typeof referenceNow === 'string'
+      ? new Date(referenceNow)
+      : referenceNow instanceof Date
+      ? referenceNow
+      : new Date();
+
   const retDateObj = booking.endRecordedAt
     ? new Date(booking.endRecordedAt)
-    : referenceNow || new Date();
+    : refDateObj;
   const actualReturnDay = !isNaN(retDateObj.getTime())
     ? toLocalDateStr(retDateObj)
     : getRealTodayStr();

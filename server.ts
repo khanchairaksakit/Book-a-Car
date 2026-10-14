@@ -227,6 +227,7 @@ function buildBookingFlexMessage(params: {
     endMileage?: number;
     startFuelLevel?: string;
     endFuelLevel?: string;
+    maintenanceAlerts?: string[];
   };
   stage: 1 | 2 | 'approved' | 'rejected' | 'completed';
   approverName?: string;
@@ -400,9 +401,12 @@ function buildBookingFlexMessage(params: {
     });
   }
 
+  const hasMaintAlerts =
+    Array.isArray(booking.maintenanceAlerts) && booking.maintenanceAlerts.length > 0;
+
   return {
     type: 'flex',
-    altText: `[${jobNo}] ${headerTitle} - ${booking.userName} (${booking.vehicleName})`,
+    altText: `${hasMaintAlerts ? '⚠️ [มีแจ้งเตือนเช็คระยะ/ยาง/ภาษี] ' : ''}[${jobNo}] ${headerTitle} - ${booking.userName} (${booking.vehicleName})`,
     contents: {
       type: 'bubble',
       size: 'mega',
@@ -560,6 +564,38 @@ function buildBookingFlexMessage(params: {
               },
             ],
           },
+          ...(hasMaintAlerts
+            ? [
+                {
+                  type: 'box',
+                  layout: 'vertical',
+                  backgroundColor: '#FEF3C7',
+                  borderColor: '#F59E0B',
+                  borderWidth: '1px',
+                  cornerRadius: '8px',
+                  paddingAll: '10px',
+                  margin: 'md',
+                  spacing: 'xs',
+                  contents: [
+                    {
+                      type: 'text',
+                      text: '⚠️ แจ้งเตือนสถานะรถยนต์ (ใกล้ถึงกำหนด):',
+                      weight: 'bold',
+                      size: 'xs',
+                      color: '#B45309',
+                      wrap: true,
+                    },
+                    ...booking.maintenanceAlerts!.map((msg: string) => ({
+                      type: 'text',
+                      text: `• ${msg}`,
+                      size: 'xxs',
+                      color: '#92400E',
+                      wrap: true,
+                    })),
+                  ],
+                },
+              ]
+            : []),
           {
             type: 'separator',
             margin: 'md',

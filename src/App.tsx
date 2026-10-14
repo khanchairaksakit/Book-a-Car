@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey, AuditLogEntry } from './types';
+import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey, AuditLogEntry, PasswordPolicy } from './types';
 import {
   INITIAL_VEHICLES,
   INITIAL_USERS,
@@ -31,7 +31,14 @@ import {
   getLocalAuditLogs,
   recordAuditLog,
   subscribeToAuditLogs,
+  getPasswordPolicy,
+  savePasswordPolicy,
+  subscribeToPasswordPolicy,
 } from './lib/firebase';
+import {
+  getStoredPasswordPolicy,
+  saveStoredPasswordPolicy,
+} from './utils/passwordPolicyUtils';
 
 import BookingSystem from './components/BookingSystem';
 import VehicleManagement from './components/VehicleManagement';
@@ -98,8 +105,13 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   // Language locked to Thai ('th')
-  const language: Language = 'th';
+  const [language] = useState<Language>('th');
   const t = translations[language];
+
+  // Password Policy state (synchronized with Firestore & localStorage)
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicy>(() => {
+    return getStoredPasswordPolicy();
+  });
 
   // 1. Optimistic states falling back to localStorage/Mock data initially (with production clean wipe of old bookings)
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
@@ -344,6 +356,40 @@ export default function App() {
     }
   };
 
+  const handleUpdatePasswordPolicy = async (newPolicy: PasswordPolicy, updatedUsers?: User[]) => {
+    setPasswordPolicy(newPolicy);
+    saveStoredPasswordPolicy(newPolicy);
+    if (updatedUsers && updatedUsers.length > 0) {
+      setUsers(updatedUsers);
+      try {
+        localStorage.setItem('car_booking_users', JSON.stringify(updatedUsers));
+        await saveMultipleUsers(updatedUsers);
+      } catch (e) {
+        console.error('Failed saving updated users for policy:', e);
+      }
+    }
+    recordAuditLog({
+      category: 'PERMISSION',
+      action: 'อัปเดตนโยบายรหัสผ่าน (Password Policy)',
+      actorId: currentUser?.id,
+      actorName: currentUser?.name || 'Admin',
+      actorRole: getCurrentActorRole(currentUser),
+      actorDepartment: currentUser?.department,
+      targetLabel: 'Password Policy',
+      details: 'ตั้งค่านโยบายความปลอดภัยรหัสผ่านสำหรับผู้ใช้งานทั้งระบบ',
+      channel: 'Web',
+    }).catch(() => {});
+    try {
+      await savePasswordPolicy(newPolicy);
+    } catch (e) {
+      console.error('Failed to save password policy to cloud:', e);
+    }
+  };
+
+  const handleUpdateUserPassword = async (updatedUser: User) => {
+    await handleEditUser(updatedUser);
+  };
+
   // Fetch real-time/latest data from Firestore & Server on Mount + Real-time Subscriptions
   useEffect(() => {
     let isMounted = true;
@@ -351,13 +397,14 @@ export default function App() {
     async function loadCloudData() {
       try {
         setIsLoading(true);
-        const [dbVehicles, dbUsers, dbBookings, dbRolePerms, , dbAuditLogs] = await Promise.all([
+        const [dbVehicles, dbUsers, dbBookings, dbRolePerms, , dbAuditLogs, dbPolicy] = await Promise.all([
           getVehicles(),
           getUsers(),
           getBookings(),
           getRolePermissions(),
           getOrganizationSettings(),
           getAuditLogs(),
+          getPasswordPolicy(),
         ]);
         if (!isMounted) return;
         setVehicles(dbVehicles);
@@ -368,6 +415,9 @@ export default function App() {
         }
         if (dbAuditLogs) {
           setAuditLogs(dbAuditLogs);
+        }
+        if (dbPolicy) {
+          setPasswordPolicy(dbPolicy);
         }
         setIsCloudSynced(true);
 
@@ -438,6 +488,11 @@ export default function App() {
       setAuditLogs(cloudLogs);
     });
 
+    const unsubPolicy = subscribeToPasswordPolicy((cloudPolicy) => {
+      if (!isMounted) return;
+      setPasswordPolicy(cloudPolicy);
+    });
+
     const handleLocalAuditEvent = () => {
       if (!isMounted) return;
       setAuditLogs(getLocalAuditLogs());
@@ -463,6 +518,7 @@ export default function App() {
       unsubUsers();
       unsubVehicles();
       unsubAuditLogs();
+      unsubPolicy();
       window.removeEventListener('audit-log-updated', handleLocalAuditEvent);
       clearInterval(syncInterval);
     };
@@ -913,29 +969,67 @@ export default function App() {
       channel: 'Web',
     }).catch(() => {});
 
-    // 3. Automatically push notification to Approve 1's LINE ID from User Management
-    if (isLineModuleEnabled && newBooking.status === 'Pending') {
+    // 3. Automatically push notification to Approver and Vehicle Caretaker (ผู้ดูแลรถ)
+    if (isLineModuleEnabled) {
       const stage1Approver = users.find((u) => u.id === newBooking.assignedApproverId);
       const targetLineId = newBooking.assignedApproverLineId || stage1Approver?.lineUserId;
-      triggerServerLineApprovalPush({
-        booking: newBooking,
-        stage: 1,
-        approverUser: stage1Approver,
-        approverName: newBooking.assignedApproverName || stage1Approver?.name,
-        targetLineId,
-      })
-        .then((res) => {
-          if (res?.oaPushSuccess) {
-            setToastMessage(
-              `จองรถสำเร็จ (ใบงาน ${jobNumber})! ส่งแจ้งเตือนไปยัง LINE ของ ${newBooking.assignedApproverName || 'Approve 1'} (${targetLineId || 'LINE OA'}) เรียบร้อยแล้ว`
-            );
-          } else {
-            setToastMessage(
-              `บันทึกใบงาน ${jobNumber} และส่งต่อให้ ${newBooking.assignedApproverName || 'Approve 1'}${targetLineId ? ` (LINE ID: ${targetLineId})` : ''} พิจารณาอนุมัติเรียบร้อยแล้ว`
-            );
-          }
+
+      const hasMaintenanceAlerts =
+        Array.isArray(newBooking.maintenanceAlerts) && newBooking.maintenanceAlerts.length > 0;
+
+      // Find vehicle caretaker / Stage 2 approver
+      const stage2Approver =
+        users.find((u) => u.id === newBooking.stage2ApproverId) ||
+        users.find((u) => hasRole(u, 'Approve 2') || hasRole(u, 'Admin'));
+      const targetStage2LineId = newBooking.stage2ApproverLineId || stage2Approver?.lineUserId;
+
+      const targetLineIds = Array.from(
+        new Set(
+          [
+            targetLineId,
+            ...(hasMaintenanceAlerts ? [targetStage2LineId] : []),
+          ]
+            .filter(Boolean)
+            .map((id) => String(id).trim())
+            .filter(Boolean)
+        )
+      );
+
+      if (newBooking.status === 'Pending') {
+        triggerServerLineApprovalPush({
+          booking: newBooking,
+          stage: 1,
+          approverUser: stage1Approver,
+          approverName: newBooking.assignedApproverName || stage1Approver?.name,
+          targetLineId: targetLineId || targetStage2LineId,
+          targetLineIds: targetLineIds.length > 0 ? targetLineIds : undefined,
         })
-        .catch(() => {});
+          .then((res) => {
+            const maintText = hasMaintenanceAlerts
+              ? ' (พร้อมแจ้งเตือนสถานะใกล้รอบเช็คระยะ/ยาง/ภาษี ไปยังผู้ดูแลรถด้วย)'
+              : '';
+            if (res?.oaPushSuccess) {
+              setToastMessage(
+                `จองรถสำเร็จ (ใบงาน ${jobNumber})! ส่งแจ้งเตือนไปยัง LINE ของ ${newBooking.assignedApproverName || 'Approve 1'}${maintText} เรียบร้อยแล้ว`
+              );
+            } else {
+              setToastMessage(
+                `บันทึกใบงาน ${jobNumber} และส่งต่อให้ ${newBooking.assignedApproverName || 'Approve 1'}${maintText} พิจารณาอนุมัติเรียบร้อยแล้ว`
+              );
+            }
+          })
+          .catch(() => {});
+      } else if (newBooking.status === 'Approved' && hasMaintenanceAlerts && targetStage2LineId) {
+        // If booking is already approved (e.g. Admin self-approval), notify vehicle caretaker about maintenance status
+        triggerServerLineApprovalPush({
+          booking: newBooking,
+          stage: 2,
+          approverUser: stage2Approver,
+          approverName: newBooking.stage2ApproverName || stage2Approver?.name || 'ผู้ดูแลรถ',
+          targetLineId: targetStage2LineId,
+          targetLineIds: [targetStage2LineId],
+        }).catch(() => {});
+      }
     }
   };
 
@@ -1512,6 +1606,8 @@ export default function App() {
           users={users}
           onLogin={handleLogin}
           language={language}
+          passwordPolicy={passwordPolicy}
+          onUpdateUserPassword={handleUpdateUserPassword}
         />
         {lineQuickApproveState && activeLineQuickApproveBooking && (
           <LineQuickApproveModal
@@ -2035,6 +2131,8 @@ export default function App() {
                   viewOnly={usersPerm.viewOnly}
                   rolePermissions={rolePermissions}
                   onUpdateRolePermissions={handleUpdateRolePermissions}
+                  passwordPolicy={passwordPolicy}
+                  onUpdatePasswordPolicy={handleUpdatePasswordPolicy}
                   onSelectUser={handleSelectUser}
                   onAddUser={handleAddUser}
                   onAddMultipleUsers={handleAddMultipleUsers}

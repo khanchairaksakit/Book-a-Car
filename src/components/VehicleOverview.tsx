@@ -22,6 +22,7 @@ import {
   doesBookingMatchVehicle,
   isBookingActiveStatus,
   doesBookingCoverDate,
+  getVehicleBookingAlerts,
 } from '../utils/vehicleAlerts';
 import { getRealTodayStr, isDateInPast, isDateToday } from '../utils/dateHelpers';
 
@@ -441,6 +442,29 @@ export default function VehicleOverview({
                       <span>{formatMileage(vehicle.currentMileage)}</span>
                     </span>
                   </div>
+
+                  {/* Approaching Maintenance Alerts (1,000 km / 1 month notice) */}
+                  {(() => {
+                    const vAlerts = getVehicleBookingAlerts(vehicle);
+                    if (vAlerts.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {vAlerts.map((a, i) => (
+                          <span
+                            key={i}
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+                              a.severity === 'critical'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            <span>⚠️ {a.shortLabel}</span>
+                            <span className="opacity-80">({a.badge})</span>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Booking Details if In Use (Always shows booker name & destination directly) */}
                   {isBooked && booking && (

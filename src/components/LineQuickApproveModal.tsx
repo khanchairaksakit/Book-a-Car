@@ -31,6 +31,7 @@ import {
   Building2,
   Phone,
   AlertCircle,
+  AlertTriangle,
   Send,
 } from 'lucide-react';
 
@@ -550,6 +551,20 @@ export default function LineQuickApproveModal({
                 <span className="font-bold text-gray-900">วัตถุประสงค์: </span>
                 <span>{booking.purpose}</span>
               </div>
+
+              {Array.isArray(booking.maintenanceAlerts) && booking.maintenanceAlerts.length > 0 && (
+                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-xs space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>⚠️ แจ้งเตือนสถานะรถยนต์ (ใกล้ถึงกำหนด):</span>
+                  </div>
+                  <ul className="space-y-0.5 pl-5 list-disc text-amber-800 text-[11px]">
+                    {booking.maintenanceAlerts.map((alertText, idx) => (
+                      <li key={idx}>{alertText}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
 
             {/* 2-Stage Progress Indicator with LINE IDs */}

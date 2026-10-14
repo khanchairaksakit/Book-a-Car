@@ -26,7 +26,10 @@ import {
   formatTripDateTime,
   doesBookingMatchVehicle,
   doesBookingCoverDate,
+  getVehicleBookingAlerts,
+  formatMaintenanceAlertsForLine,
 } from '../utils/vehicleAlerts';
+import VehicleMaintenanceAlertModal from './VehicleMaintenanceAlertModal';
 import {
   Clock,
   MapPin,
@@ -415,6 +418,18 @@ export default function BookingSystem({
   const [bookingError, setBookingError] = useState<string>('');
   const [bookingSuccess, setBookingSuccess] = useState<string>('');
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
+  const [isMaintenanceAlertModalOpen, setIsMaintenanceAlertModalOpen] = useState(false);
+  const [hasAcknowledgedAlertsForVehicleId, setHasAcknowledgedAlertsForVehicleId] = useState<string | null>(null);
+
+  const selectedVehicleObj = useMemo(
+    () => vehicles.find((v) => v.id === selectedVehicleId) || null,
+    [vehicles, selectedVehicleId]
+  );
+
+  const currentVehicleBookingAlerts = useMemo(
+    () => getVehicleBookingAlerts(selectedVehicleObj),
+    [selectedVehicleObj]
+  );
 
   const eligibleApprovers = useMemo(
     () => getEligibleStage1Approvers(users, currentUser, showAllDeptApprovers),
@@ -509,6 +524,14 @@ export default function BookingSystem({
     currentDurationDays === 7 &&
     startTime === '08:30' &&
     (endTime === '17:00' || endTime === '17:30');
+  const isPreset15Days =
+    currentDurationDays === 15 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
+  const isPreset30Days =
+    currentDurationDays === 30 &&
+    startTime === '08:30' &&
+    (endTime === '17:00' || endTime === '17:30');
 
   const handleOpenBookingModal = (dateStr?: string, vehicleId?: string) => {
     if (!hasEditPermission || !onAddBooking) return;
@@ -522,9 +545,11 @@ export default function BookingSystem({
     setEndTime('17:00');
     setBookingError('');
     setBookingSuccess('');
+    setHasAcknowledgedAlertsForVehicleId(null);
 
-    if (vehicleId) {
-      setSelectedVehicleId(vehicleId);
+    let targetVehicleId = vehicleId;
+    if (targetVehicleId) {
+      setSelectedVehicleId(targetVehicleId);
     } else {
       const available = vehicles.filter((v) => {
         if (v.status === 'Maintenance') return false;
@@ -537,9 +562,21 @@ export default function BookingSystem({
         );
       });
       if (available.length > 0) {
+        targetVehicleId = available[0].id;
         setSelectedVehicleId(available[0].id);
       } else if (vehicles.length > 0) {
+        targetVehicleId = vehicles[0].id;
         setSelectedVehicleId(vehicles[0].id);
+      }
+    }
+
+    if (targetVehicleId) {
+      const targetV = vehicles.find((v) => v.id === targetVehicleId);
+      if (targetV) {
+        const alerts = getVehicleBookingAlerts(targetV);
+        if (alerts.length > 0) {
+          setIsMaintenanceAlertModalOpen(true);
+        }
       }
     }
 
@@ -652,6 +689,16 @@ export default function BookingSystem({
       return;
     }
 
+    // Check approaching maintenance alerts: mileage check, tire replacement, tax expiry
+    const vehicleBookingAlerts = getVehicleBookingAlerts(selectedVehicle);
+    if (
+      vehicleBookingAlerts.length > 0 &&
+      hasAcknowledgedAlertsForVehicleId !== selectedVehicle.id
+    ) {
+      setIsMaintenanceAlertModalOpen(true);
+      return;
+    }
+
     const conflict = checkOverlap(
       selectedVehicleId,
       selectedDateStr,
@@ -695,6 +742,13 @@ export default function BookingSystem({
       requesterLineId: currentUser.lineUserId || undefined,
       approverName: isSelfApproval ? `${currentUser.name} (Admin)` : undefined,
       approvedAt: isSelfApproval ? new Date().toISOString() : undefined,
+      maintenanceAlerts:
+        vehicleBookingAlerts.length > 0
+          ? formatMaintenanceAlertsForLine(vehicleBookingAlerts)
+          : undefined,
+      maintenanceAlertsAcknowledged: vehicleBookingAlerts.length > 0 ? true : undefined,
+      maintenanceAlertsAcknowledgedAt:
+        vehicleBookingAlerts.length > 0 ? new Date().toISOString() : undefined,
     };
 
     try {
@@ -1520,6 +1574,40 @@ export default function BookingSystem({
                 </div>
               )}
 
+              {/* Vehicle Approaching Maintenance Alert Callout during Return */}
+              {(() => {
+                const returnVehicle =
+                  vehicles.find((v) => v.id === returnBooking.vehicleId) ||
+                  vehicles.find((v) => doesBookingMatchVehicle(returnBooking, v));
+                if (!returnVehicle) return null;
+                const endMileageNum = parseInt(endMileageInput, 10);
+                const effectiveMileage =
+                  !isNaN(endMileageNum) && endMileageNum > 0
+                    ? endMileageNum
+                    : returnVehicle.currentMileage || returnBooking.startMileage || 0;
+                const vehicleForAlert: Vehicle = {
+                  ...returnVehicle,
+                  currentMileage: effectiveMileage,
+                };
+                const returnAlerts = getVehicleBookingAlerts(vehicleForAlert);
+                if (returnAlerts.length === 0) return null;
+                return (
+                  <div className="p-3 bg-amber-50 border-2 border-amber-300 rounded-xl text-xs space-y-1.5 shrink-0 shadow-2xs">
+                    <div className="flex items-center gap-2 font-bold text-amber-950">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>⚠️ แจ้งเตือนการซ่อมบำรุงรถยนต์ ({returnAlerts.length} รายการ):</span>
+                    </div>
+                    <div className="space-y-1 pl-6">
+                      {returnAlerts.map((a, i) => (
+                        <div key={i} className="text-amber-900 text-[11px]">
+                          <strong>• {a.shortLabel}:</strong> {a.remainingText} ({a.badge})
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {returnError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 shrink-0">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -2013,7 +2101,13 @@ export default function BookingSystem({
                           key={v.id}
                           id={`modal-vehicle-card-${v.id}`}
                           onClick={() => {
-                            if (!isMaintenance) setSelectedVehicleId(v.id);
+                            if (!isMaintenance) {
+                              setSelectedVehicleId(v.id);
+                              const alerts = getVehicleBookingAlerts(v);
+                              if (alerts.length > 0 && hasAcknowledgedAlertsForVehicleId !== v.id) {
+                                setIsMaintenanceAlertModalOpen(true);
+                              }
+                            }
                           }}
                           className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-start gap-2.5 ${
                             isSelected
@@ -2047,6 +2141,33 @@ export default function BookingSystem({
                       );
                     })}
                   </div>
+
+                  {/* Approaching Maintenance Warning Banner in Vehicle Selection */}
+                  {currentVehicleBookingAlerts.length > 0 && selectedVehicleObj && (
+                    <div className="mt-2.5 p-3 bg-amber-50 border-2 border-amber-300 rounded-xl text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-amber-950 flex items-center gap-1.5 flex-wrap">
+                            <span>⚠️ รถคันนี้มีรายการใกล้ถึงกำหนด ({currentVehicleBookingAlerts.length} รายการ)</span>
+                            <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-semibold">
+                              เตือนก่อน 1,000 กม. / ภาษี 1 เดือน
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-amber-800 mt-0.5">
+                            {currentVehicleBookingAlerts.map((a) => `${a.shortLabel} (${a.badge})`).join(' • ')}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsMaintenanceAlertModalOpen(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-2xs self-start sm:self-auto"
+                      >
+                        กดดูรายละเอียด / รับทราบ
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. Trip Times and Dates */}
@@ -2239,6 +2360,30 @@ export default function BookingSystem({
                     >
                       7 วัน
                     </button>
+                    <button
+                      id="btn-preset-15-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(15)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset15Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      15 วัน
+                    </button>
+                    <button
+                      id="btn-preset-30-days"
+                      type="button"
+                      onClick={() => handleQuickPresetDays(30)}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer border ${
+                        isPreset30Days
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-2xs'
+                          : 'bg-slate-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-700 border-slate-200'
+                      }`}
+                    >
+                      30 วัน
+                    </button>
                   </div>
 
                   {/* Summary of selected duration */}
@@ -2257,6 +2402,8 @@ export default function BookingSystem({
                         {isPreset3Days && ' (3 วัน เดินทางต่อเนื่อง)'}
                         {isPreset5Days && ' (5 วัน เดินทางต่อเนื่อง)'}
                         {isPreset7Days && ' (7 วัน เดินทางต่อเนื่อง)'}
+                        {isPreset15Days && ' (15 วัน เดินทางต่อเนื่อง)'}
+                        {isPreset30Days && ' (30 วัน เดินทางต่อเนื่อง)'}
                       </span>
                     </div>
                     <div className="text-gray-600 text-[10px] sm:text-[11px] font-medium">
@@ -2491,6 +2638,22 @@ export default function BookingSystem({
           preferredFacingMode="environment"
         />
       )}
+
+      {/* Maintenance Alerts Acknowledgment Popup Modal */}
+      <VehicleMaintenanceAlertModal
+        isOpen={isMaintenanceAlertModalOpen}
+        vehicle={selectedVehicleObj}
+        alerts={currentVehicleBookingAlerts}
+        onAcknowledge={() => {
+          if (selectedVehicleId) {
+            setHasAcknowledgedAlertsForVehicleId(selectedVehicleId);
+          }
+          setIsMaintenanceAlertModalOpen(false);
+        }}
+        onCancelOrChangeVehicle={() => {
+          setIsMaintenanceAlertModalOpen(false);
+        }}
+      />
     </div>
   );
 }

@@ -145,6 +145,11 @@ export interface Booking {
   endFuelLevel?: FuelLevel; // น้ำมันส่งคืน: 'เต็มถัง' | '3/4' | '1/2' | '1/4'
   keyReturnPhoto?: string; // แนบรูปหลักฐานหย่อนกุญแจลงตู้ (Base64)
   endRecordedAt?: string; // เวลาบันทึกเสร็จสิ้นภารกิจ
+
+  // Maintenance Alerts & Acknowledgment at Booking time
+  maintenanceAlerts?: string[]; // รายการแจ้งเตือนใกล้ถึงกำหนด (เช็คระยะ/เปลี่ยนยาง/ภาษี)
+  maintenanceAlertsAcknowledged?: boolean; // ผู้ขอจองกดยืนยันรับทราบผ่าน popup แล้ว
+  maintenanceAlertsAcknowledgedAt?: string; // เวลาที่กดยืนยันรับทราบ
 }
 
 export type AuditLogCategory =

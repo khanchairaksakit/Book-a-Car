@@ -177,6 +177,11 @@ export function buildLineShareMessage(
       ? `\n✔️ ขั้นที่ 1 (ผู้จัดการ) อนุมัติแล้วโดย: ${booking.stage1ApprovedBy}`
       : '';
 
+  const maintenanceNote =
+    Array.isArray(booking.maintenanceAlerts) && booking.maintenanceAlerts.length > 0
+      ? `\n⚠️ แจ้งเตือนสถานะรถยนต์ (ใกล้ถึงกำหนด):\n${booking.maintenanceAlerts.map((m) => `  • ${m}`).join('\n')}`
+      : '';
+
   return [
     stageTitle,
     `📄 หมายเลขใบงาน: ${jobNo}`,
@@ -188,7 +193,7 @@ export function buildLineShareMessage(
     `📅 เริ่มเดินทาง: ${formatThaiDateTimeForLine(booking.startDate)}`,
     `🏁 คืนรถยนต์: ${formatThaiDateTimeForLine(booking.endDate)}`,
     `📍 ปลายทาง: ${booking.destination} (${booking.passengersCount} คน)`,
-    `📝 ภารกิจ: ${booking.purpose}${stage1Note}`,
+    `📝 ภารกิจ: ${booking.purpose}${stage1Note}${maintenanceNote}`,
     `━━━━━━━━━━━━━━`,
     `🔍 ดูรายละเอียด:`,
     `${links.reviewUrl}`,

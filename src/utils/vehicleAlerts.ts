@@ -294,7 +294,7 @@ export function getVehicleAlerts(vehicle: Vehicle, referenceDate: Date = new Dat
         currentValue: `${vehicle.currentMileage.toLocaleString()} กม.`,
         targetValue: `${vehicle.tireAlertMileage.toLocaleString()} กม.`,
       });
-    } else if (remainingTireKm <= 1500) {
+    } else if (remainingTireKm <= 1000) {
       alerts.push({
         id: `${vehicle.id}-tires-mileage-warning`,
         type: 'tires',
@@ -311,3 +311,153 @@ export function getVehicleAlerts(vehicle: Vehicle, referenceDate: Date = new Dat
 
   return alerts;
 }
+
+export interface VehicleBookingAlert {
+  type: 'mileage' | 'tires' | 'tax';
+  severity: 'warning' | 'critical';
+  title: string;
+  shortLabel: string;
+  description: string;
+  badge: string;
+  currentValueText: string;
+  targetValueText: string;
+  remainingText: string;
+}
+
+/**
+ * Checks approaching maintenance items specifically for the booking process:
+ * 1. เลขไมล์ใกล้ถึงกำหนดเช็คระยะ (แสดงก่อน 1,000 กม. และแสดงต่อเนื่องหากเลยแล้ว)
+ * 2. ยางใกล้ถึงกำหนดการเปลี่ยน (แสดงก่อน 1,000 กม. และแสดงต่อเนื่องหากเลยแล้ว)
+ * 3. ภาษีใกล้หมดอายุ (แสดงก่อนหมดอายุ 1 เดือน / 30 วัน และแสดงต่อเนื่องหากหมดอายุแล้ว)
+ */
+export function getVehicleBookingAlerts(
+  vehicle?: Vehicle | null,
+  referenceDate: Date = new Date()
+): VehicleBookingAlert[] {
+  if (!vehicle) return [];
+  const alerts: VehicleBookingAlert[] = [];
+
+  // 1. เลขไมล์ใกล้ถึงกำหนดเช็คระยะ (ก่อน 1,000 กม. หรือเกินกำหนดแล้ว)
+  if (
+    vehicle.currentMileage !== undefined &&
+    vehicle.currentMileage > 0 &&
+    vehicle.mileageAlertThreshold !== undefined &&
+    vehicle.mileageAlertThreshold > 0
+  ) {
+    const remainingKm = vehicle.mileageAlertThreshold - vehicle.currentMileage;
+    if (remainingKm <= 0) {
+      // เลยกำหนดเช็คระยะแล้ว
+      const overdue = Math.abs(remainingKm);
+      alerts.push({
+        type: 'mileage',
+        severity: 'critical',
+        title: 'เลขไมล์ถึง/เลยกำหนดเช็คระยะแล้ว',
+        shortLabel: 'เลขไมล์เลยกำหนดเช็คระยะ',
+        description: `เลขไมล์ปัจจุบัน ${vehicle.currentMileage.toLocaleString()} กม. เลยกำหนดเช็คระยะ (${vehicle.mileageAlertThreshold.toLocaleString()} กม.) มาแล้ว ${overdue.toLocaleString()} กม. ควรนำรถเข้าศูนย์บริการทันที`,
+        badge: `เกินกำหนด ${overdue.toLocaleString()} กม.`,
+        currentValueText: `${vehicle.currentMileage.toLocaleString()} กม.`,
+        targetValueText: `${vehicle.mileageAlertThreshold.toLocaleString()} กม.`,
+        remainingText: `เลยกำหนดมาแล้ว ${overdue.toLocaleString()} กม.`,
+      });
+    } else if (remainingKm <= 1000) {
+      // ใกล้ถึงกำหนด (เหลือ <= 1,000 กม.)
+      alerts.push({
+        type: 'mileage',
+        severity: 'warning',
+        title: 'เลขไมล์ใกล้ถึงกำหนดเช็คระยะ',
+        shortLabel: 'เลขไมล์ใกล้ถึงกำหนดเช็คระยะ',
+        description: `เลขไมล์ปัจจุบัน ${vehicle.currentMileage.toLocaleString()} กม. ใกล้ถึงรอบเช็คระยะ (${vehicle.mileageAlertThreshold.toLocaleString()} กม.) เหลืออีกเพียง ${remainingKm.toLocaleString()} กม.`,
+        badge: `เหลือ ${remainingKm.toLocaleString()} กม.`,
+        currentValueText: `${vehicle.currentMileage.toLocaleString()} กม.`,
+        targetValueText: `${vehicle.mileageAlertThreshold.toLocaleString()} กม.`,
+        remainingText: `เหลืออีก ${remainingKm.toLocaleString()} กม.`,
+      });
+    }
+  }
+
+  // 2. ยางใกล้ถึงกำหนดการเปลี่ยน (ก่อน 1,000 กม. หรือเกินกำหนดแล้ว)
+  if (
+    vehicle.currentMileage !== undefined &&
+    vehicle.currentMileage > 0 &&
+    vehicle.tireAlertMileage !== undefined &&
+    vehicle.tireAlertMileage > 0
+  ) {
+    const remainingTireKm = vehicle.tireAlertMileage - vehicle.currentMileage;
+    if (remainingTireKm <= 0) {
+      const overdue = Math.abs(remainingTireKm);
+      alerts.push({
+        type: 'tires',
+        severity: 'critical',
+        title: 'ถึง/เลยกำหนดการเปลี่ยนยางรถยนต์แล้ว',
+        shortLabel: 'เลยกำหนดเปลี่ยนยาง',
+        description: `เลขไมล์ปัจจุบัน ${vehicle.currentMileage.toLocaleString()} กม. ถึงรอบเปลี่ยนยาง (${vehicle.tireAlertMileage.toLocaleString()} กม.) เลยมาแล้ว ${overdue.toLocaleString()} กม. ${vehicle.tireInfo ? `(${vehicle.tireInfo})` : ''}`,
+        badge: `เกินกำหนด ${overdue.toLocaleString()} กม.`,
+        currentValueText: `${vehicle.currentMileage.toLocaleString()} กม.`,
+        targetValueText: `${vehicle.tireAlertMileage.toLocaleString()} กม.`,
+        remainingText: `เลยกำหนดมาแล้ว ${overdue.toLocaleString()} กม.`,
+      });
+    } else if (remainingTireKm <= 1000) {
+      alerts.push({
+        type: 'tires',
+        severity: 'warning',
+        title: 'ยางใกล้ถึงกำหนดการเปลี่ยน',
+        shortLabel: 'ยางใกล้ถึงกำหนดการเปลี่ยน',
+        description: `เลขไมล์ปัจจุบัน ${vehicle.currentMileage.toLocaleString()} กม. ใกล้ถึงรอบเปลี่ยนยาง (${vehicle.tireAlertMileage.toLocaleString()} กม.) เหลืออีกเพียง ${remainingTireKm.toLocaleString()} กม. ${vehicle.tireInfo ? `(${vehicle.tireInfo})` : ''}`,
+        badge: `เหลือ ${remainingTireKm.toLocaleString()} กม.`,
+        currentValueText: `${vehicle.currentMileage.toLocaleString()} กม.`,
+        targetValueText: `${vehicle.tireAlertMileage.toLocaleString()} กม.`,
+        remainingText: `เหลืออีก ${remainingTireKm.toLocaleString()} กม.`,
+      });
+    }
+  }
+
+  // 3. ภาษีใกล้หมดอายุ (ก่อนหมดอายุ 1 เดือน / 30 วัน หรือหมดอายุแล้ว)
+  if (vehicle.taxExpiryDate) {
+    const daysRemaining = getDaysRemaining(vehicle.taxExpiryDate, referenceDate);
+    if (daysRemaining !== null) {
+      if (daysRemaining < 0) {
+        alerts.push({
+          type: 'tax',
+          severity: 'critical',
+          title: 'ภาษีรถยนต์หมดอายุแล้ว!',
+          shortLabel: 'ภาษีรถยนต์หมดอายุแล้ว',
+          description: `ภาษีรถยนต์หมดอายุเมื่อ ${formatThaiDate(vehicle.taxExpiryDate)} (เลยกำหนดมา ${Math.abs(daysRemaining)} วัน) ห้ามนำรถออกวิ่งบนทางสาธารณะ`,
+          badge: 'ภาษีหมดอายุ',
+          currentValueText: formatThaiDate(vehicle.taxExpiryDate),
+          targetValueText: 'หมดอายุแล้ว',
+          remainingText: `หมดอายุแล้ว ${Math.abs(daysRemaining)} วัน`,
+        });
+      } else if (daysRemaining <= 30) {
+        alerts.push({
+          type: 'tax',
+          severity: 'warning',
+          title: 'ภาษีใกล้หมดอายุ',
+          shortLabel: 'ภาษีใกล้หมดอายุ',
+          description: `ภาษีรถยนต์จะหมดอายุในวันที่ ${formatThaiDate(vehicle.taxExpiryDate)} (เหลือเวลาอีก ${daysRemaining} วัน)`,
+          badge: `เหลือ ${daysRemaining} วัน`,
+          currentValueText: formatThaiDate(vehicle.taxExpiryDate),
+          targetValueText: formatThaiDate(vehicle.taxExpiryDate),
+          remainingText: `เหลืออีก ${daysRemaining} วัน`,
+        });
+      }
+    }
+  }
+
+  return alerts;
+}
+
+/**
+ * Formats maintenance alerts as clean lines for LINE Flex / text messages
+ */
+export function formatMaintenanceAlertsForLine(alerts: VehicleBookingAlert[]): string[] {
+  return alerts.map((a) => {
+    if (a.type === 'mileage') {
+      return `${a.shortLabel}: ${a.remainingText} (ไมล์ปัจจุบัน ${a.currentValueText} / รอบเช็ค ${a.targetValueText})`;
+    }
+    if (a.type === 'tires') {
+      return `${a.shortLabel}: ${a.remainingText} (ไมล์ปัจจุบัน ${a.currentValueText} / รอบเปลี่ยน ${a.targetValueText})`;
+    }
+    return `${a.shortLabel}: ${a.remainingText} (วันหมดอายุ ${a.currentValueText})`;
+  });
+}
+

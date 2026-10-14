@@ -531,11 +531,17 @@ export default function VehicleManagement({
                           {formatMileage(vehicle.currentMileage)}
                         </div>
                         {vehicle.currentMileage && vehicle.mileageAlertThreshold && (
-                          <div className="text-[10px] text-gray-500">
+                          <div className="text-[10px]">
                             {vehicle.currentMileage >= vehicle.mileageAlertThreshold ? (
-                              <span className="text-rose-600 font-bold">เกินกำหนดเช็ค</span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 font-bold border border-rose-200">
+                                เกินกำหนดเช็ค ({Math.abs(vehicle.mileageAlertThreshold - vehicle.currentMileage).toLocaleString()} กม.)
+                              </span>
+                            ) : vehicle.mileageAlertThreshold - vehicle.currentMileage <= 1000 ? (
+                              <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-bold border border-amber-300">
+                                ⚠️ ใกล้ถึงรอบเช็ค ({Math.max(0, vehicle.mileageAlertThreshold - vehicle.currentMileage).toLocaleString()} กม.)
+                              </span>
                             ) : (
-                              <span>เหลือ {Math.max(0, vehicle.mileageAlertThreshold - vehicle.currentMileage).toLocaleString()} กม.</span>
+                              <span className="text-gray-500">เหลือ {Math.max(0, vehicle.mileageAlertThreshold - vehicle.currentMileage).toLocaleString()} กม.</span>
                             )}
                           </div>
                         )}
@@ -1360,6 +1366,49 @@ export default function VehicleManagement({
                     รอบเช็คระยะถัดไป: {quickMileageVehicle.mileageAlertThreshold.toLocaleString()} กม.
                   </span>
                 )}
+                {(() => {
+                  const val = parseInt(quickMileageVal, 10);
+                  if (isNaN(val) || val <= 0) return null;
+                  const msgs: React.ReactNode[] = [];
+                  if (quickMileageVehicle.mileageAlertThreshold) {
+                    const rem = quickMileageVehicle.mileageAlertThreshold - val;
+                    if (rem <= 0) {
+                      msgs.push(
+                        <p key="m-over" className="text-rose-700 font-bold flex items-center gap-1.5">
+                          <span>🚨 เลขไมล์นี้ถึง/เลยกำหนดเช็คระยะแล้ว ({Math.abs(rem).toLocaleString()} กม.) ควรนำรถเข้าตรวจเช็คทันที</span>
+                        </p>
+                      );
+                    } else if (rem <= 1000) {
+                      msgs.push(
+                        <p key="m-warn" className="text-amber-800 font-bold flex items-center gap-1.5">
+                          <span>⚠️ เลขไมล์นี้ใกล้ถึงรอบเช็คระยะ (เหลืออีก {rem.toLocaleString()} กม.) ระบบจะแจ้งเตือนเมื่อจอง</span>
+                        </p>
+                      );
+                    }
+                  }
+                  if (quickMileageVehicle.tireAlertMileage) {
+                    const remTire = quickMileageVehicle.tireAlertMileage - val;
+                    if (remTire <= 0) {
+                      msgs.push(
+                        <p key="t-over" className="text-rose-700 font-bold flex items-center gap-1.5">
+                          <span>🚨 เลขไมล์นี้ถึง/เลยรอบเปลี่ยนยางแล้ว ({Math.abs(remTire).toLocaleString()} กม.)</span>
+                        </p>
+                      );
+                    } else if (remTire <= 1000) {
+                      msgs.push(
+                        <p key="t-warn" className="text-amber-800 font-bold flex items-center gap-1.5">
+                          <span>⚠️ เลขไมล์นี้ใกล้ถึงรอบเปลี่ยนยาง (เหลืออีก {remTire.toLocaleString()} กม.)</span>
+                        </p>
+                      );
+                    }
+                  }
+                  if (msgs.length === 0) return null;
+                  return (
+                    <div className="mt-2.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1">
+                      {msgs}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-3 pt-2">

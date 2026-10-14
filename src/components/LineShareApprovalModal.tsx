@@ -400,6 +400,19 @@ export default function LineShareApprovalModal({
                     <span className="text-gray-700 text-right truncate">{booking.purpose}</span>
                   </div>
 
+                  {Array.isArray(enrichedBooking.maintenanceAlerts) && enrichedBooking.maintenanceAlerts.length > 0 && (
+                    <div className="p-2 bg-amber-50 border border-amber-300 rounded-lg text-[10px] space-y-0.5">
+                      <span className="font-bold text-amber-950 block">
+                        ⚠️ แจ้งเตือนสถานะรถยนต์ (ใกล้ถึงกำหนด):
+                      </span>
+                      {enrichedBooking.maintenanceAlerts.map((m, idx) => (
+                        <div key={idx} className="text-amber-800 pl-1.5 font-medium">
+                          • {m}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="pt-2 border-t border-gray-100 space-y-1 text-[10px]">
                     <div
                       className={`font-bold flex items-center gap-1 ${
