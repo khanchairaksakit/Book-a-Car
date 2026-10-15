@@ -16,6 +16,7 @@ import {
   MENU_DEFINITIONS,
   DEFAULT_ROLE_PERMISSIONS,
   isUserAdmin,
+  maskPhoneNumber,
 } from '../utils/userHelpers';
 import {
   DEFAULT_PASSWORD_POLICY,
@@ -1082,13 +1083,9 @@ export default function UserRegistration({
                 {currentUser.phone && (
                   <span>
                     • {isEn ? 'Tel:' : 'โทร:'}{' '}
-                    <a
-                      href={`tel:${currentUser.phone.replace(/[^0-9+]/g, '')}`}
-                      className="text-emerald-700 hover:text-emerald-800 font-mono font-bold hover:underline"
-                      title={`กดเพื่อโทรออก ${currentUser.phone}`}
-                    >
-                      📞 {currentUser.phone}
-                    </a>
+                    <span className="text-emerald-700 font-mono font-bold">
+                      📞 {maskPhoneNumber(currentUser.phone)}
+                    </span>
                   </span>
                 )}
               </p>
@@ -1368,15 +1365,12 @@ export default function UserRegistration({
 
                     <div className="text-[11px] text-gray-500 mb-3 flex items-center justify-between gap-2">
                       {user.phone ? (
-                        <a
-                          href={`tel:${user.phone.replace(/[^0-9+]/g, '')}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
-                          title={`กดเพื่อโทรออก ${user.phone}`}
+                        <span
+                          className="inline-flex items-center gap-1 text-emerald-700 font-mono font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
                         >
                           <Phone className="w-3 h-3 text-emerald-600" />
-                          <span>{isEn ? 'Tel:' : 'โทร:'} {user.phone}</span>
-                        </a>
+                          <span>{isEn ? 'Tel:' : 'โทร:'} {maskPhoneNumber(user.phone)}</span>
+                        </span>
                       ) : (
                         <span className="flex items-center gap-1">
                           <Phone className="w-3 h-3 text-gray-400" />
@@ -2017,12 +2011,9 @@ export default function UserRegistration({
                       <td className="p-2.5 text-gray-700">{row.division}</td>
                       <td className="p-2.5 text-gray-700">
                         {row.phone ? (
-                          <a
-                            href={`tel:${row.phone.replace(/[^0-9+]/g, '')}`}
-                            className="text-emerald-700 hover:underline font-mono font-semibold"
-                          >
-                            {row.phone}
-                          </a>
+                          <span className="text-gray-900 font-mono font-semibold">
+                            {maskPhoneNumber(row.phone)}
+                          </span>
                         ) : (
                           '-'
                         )}

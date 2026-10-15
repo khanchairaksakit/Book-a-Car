@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Vehicle, User, Booking, BookingStatus, RolePermissionsMatrix, AppMenuKey, AuditLogEntry, PasswordPolicy } from './types';
 import {
   INITIAL_VEHICLES,
@@ -38,6 +38,8 @@ import {
 import {
   getStoredPasswordPolicy,
   saveStoredPasswordPolicy,
+  getUserPasswordExpiryInfo,
+  formatThaiDateShort,
 } from './utils/passwordPolicyUtils';
 
 import BookingSystem from './components/BookingSystem';
@@ -49,6 +51,8 @@ import LoginPage from './components/LoginPage';
 import FleetReport from './components/FleetReport';
 import AuditLogView from './components/AuditLogView';
 import BookingManual from './components/BookingManual';
+import UserProfileModal from './components/UserProfileModal';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import LineShareApprovalModal from './components/LineShareApprovalModal';
 import LineQuickApproveModal from './components/LineQuickApproveModal';
 import {
@@ -100,6 +104,9 @@ import {
   History,
   Sparkles,
   Zap,
+  AlertTriangle,
+  KeyRound,
+  User as UserIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -321,6 +328,61 @@ export default function App() {
     setActiveTab('dashboard');
     localStorage.removeItem('car_booking_current_user');
     setIsLoginPageOpen(true);
+  };
+
+  // User Profile & Change Password modal states
+  const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+
+  // Password Expiration status for current user (alerts when daysRemaining <= 10 or expired)
+  const currentUserPasswordExpiry = useMemo(() => {
+    if (!currentUser) return null;
+    return getUserPasswordExpiryInfo(currentUser, passwordPolicy);
+  }, [currentUser, passwordPolicy]);
+
+  const handleSaveUserProfile = async (updatedUser: User) => {
+    await saveUser(updatedUser);
+    setCurrentUser(updatedUser);
+    localStorage.setItem('car_booking_current_user', JSON.stringify(updatedUser));
+    setUsers((prev) => {
+      const next = prev.map((u) => (u.id === updatedUser.id ? updatedUser : u));
+      localStorage.setItem('car_booking_users', JSON.stringify(next));
+      return next;
+    });
+    recordAuditLog({
+      category: 'USER',
+      action: 'แก้ไขข้อมูลผู้ใช้ (Update User)',
+      actorId: updatedUser.id,
+      actorName: updatedUser.name,
+      actorRole: getCurrentActorRole(updatedUser),
+      actorDepartment: updatedUser.department,
+      targetLabel: updatedUser.name,
+      details: `ผู้ใช้งาน "${updatedUser.name}" แก้ไขข้อมูลโปรไฟล์ส่วนตัวของตนเอง`,
+    }).catch(() => {});
+    setToastMessage('บันทึกข้อมูลส่วนตัวเรียบร้อยแล้ว', updatedUser.id);
+  };
+
+  const handleSuccessChangePassword = async (updatedUser: User) => {
+    await saveUser(updatedUser);
+    setCurrentUser(updatedUser);
+    localStorage.setItem('car_booking_current_user', JSON.stringify(updatedUser));
+    setUsers((prev) => {
+      const next = prev.map((u) => (u.id === updatedUser.id ? updatedUser : u));
+      localStorage.setItem('car_booking_users', JSON.stringify(next));
+      return next;
+    });
+    recordAuditLog({
+      category: 'AUTH',
+      action: 'เปลี่ยนรหัสผ่าน (Change Password)',
+      actorId: updatedUser.id,
+      actorName: updatedUser.name,
+      actorRole: getCurrentActorRole(updatedUser),
+      actorDepartment: updatedUser.department,
+      targetLabel: updatedUser.username || updatedUser.email,
+      details: `ผู้ใช้งาน "${updatedUser.name}" เปลี่ยนรหัสผ่านใหม่สำเร็จ`,
+    }).catch(() => {});
+    setIsChangePasswordModalOpen(false);
+    setToastMessage('เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว', updatedUser.id);
   };
 
   const [activeTab, setActiveTab] = useState<
@@ -1697,7 +1759,19 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              <div className="pt-2 border-t border-slate-800">
+              <div className="pt-2 border-t border-slate-800 flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  id="sidebar-profile-btn"
+                  onClick={() => {
+                    setIsUserProfileModalOpen(true);
+                    setIsSidebarOpen(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-1.5 px-3 text-xs font-semibold text-indigo-300 hover:text-white bg-indigo-950/40 hover:bg-indigo-900/50 rounded-xl border border-indigo-800/40 transition-colors cursor-pointer"
+                >
+                  <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>แก้ไขข้อมูลส่วนตัว / โปรไฟล์</span>
+                </button>
                 <button
                   id="sidebar-logout-btn"
                   onClick={handleLogout}
@@ -1986,16 +2060,32 @@ export default function App() {
             <div className="h-8 w-[1px] bg-gray-200 hidden lg:block" />
 
             {currentUser && (
-              <div
+              <button
+                type="button"
                 id="header-profile-box"
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl shadow-2xs"
-                title={currentUser.name}
+                onClick={() => setIsUserProfileModalOpen(true)}
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 rounded-xl shadow-2xs transition-all cursor-pointer text-left group"
+                title={`คลิกเพื่อดูและแก้ไขโปรไฟล์ส่วนตัว (${currentUser.name})`}
               >
-                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shrink-0 shadow-xs">
-                  {currentUser.name.substring(0, 2)}
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 group-hover:bg-indigo-700 flex items-center justify-center font-bold text-xs text-white shrink-0 shadow-xs transition-colors">
+                    {currentUser.name.substring(0, 2)}
+                  </div>
+                  {currentUserPasswordExpiry?.isExpiringSoon && (
+                    <span
+                      className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 border-2 border-white rounded-full animate-pulse"
+                      title="รหัสผ่านใกล้หมดอายุ"
+                    />
+                  )}
+                  {currentUserPasswordExpiry?.isExpired && (
+                    <span
+                      className="absolute -top-1 -right-1 w-3 h-3 bg-rose-600 border-2 border-white rounded-full animate-pulse"
+                      title="รหัสผ่านหมดอายุแล้ว"
+                    />
+                  )}
                 </div>
                 <div className="text-left hidden sm:block">
-                  <span className="text-xs font-bold block text-gray-900 leading-tight">
+                  <span className="text-xs font-bold block text-gray-900 group-hover:text-indigo-600 leading-tight transition-colors">
                     {currentUser.name}
                   </span>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -2004,14 +2094,19 @@ export default function App() {
                         {r}
                       </span>
                     ))}
+                    {currentUserPasswordExpiry?.isExpiringSoon && (
+                      <span className="text-[9px] font-bold px-1 py-0 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                        หมดอายุใน {currentUserPasswordExpiry.daysRemaining} วัน
+                      </span>
+                    )}
                   </div>
                 </div>
                 {isUserAdmin(currentUser) ? (
                   <Shield className="w-3.5 h-3.5 text-purple-600 hidden sm:block" />
                 ) : (
-                  <CircleUser className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+                  <CircleUser className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 hidden sm:block transition-colors" />
                 )}
-              </div>
+              </button>
             )}
 
             {/* Logout button in header */}
@@ -2026,6 +2121,60 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {/* Persistent Password Expiry Alert Banner (shown when daysRemaining <= 10 or expired, until changed) */}
+        {currentUserPasswordExpiry && currentUserPasswordExpiry.expiryDays > 0 && (currentUserPasswordExpiry.isExpiringSoon || currentUserPasswordExpiry.isExpired) && (
+          <div
+            id="password-expiry-alert-banner"
+            className={`border-b px-4 py-3 sm:px-6 transition-all ${
+              currentUserPasswordExpiry.isExpired
+                ? 'bg-rose-600 text-white border-rose-700'
+                : 'bg-amber-500 text-slate-950 border-amber-600'
+            }`}
+          >
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 font-medium">
+                <AlertTriangle className={`w-5 h-5 shrink-0 ${currentUserPasswordExpiry.isExpired ? 'text-white' : 'text-slate-950'}`} />
+                <div>
+                  <span className="font-bold">
+                    {currentUserPasswordExpiry.isExpired
+                      ? '⚠️ รหัสผ่านของคุณหมดอายุแล้ว:'
+                      : `⚠️ แจ้งเตือน: รหัสผ่านของคุณจะหมดอายุในอีก ${currentUserPasswordExpiry.daysRemaining} วัน:`}
+                  </span>{' '}
+                  <span>
+                    {currentUserPasswordExpiry.isExpired
+                      ? 'ครบกำหนดเปลี่ยนรหัสผ่านตามนโยบายความปลอดภัย กรุณาตั้งรหัสผ่านใหม่เพื่อความปลอดภัย'
+                      : `ครบกำหนดวันที่ ${formatThaiDateShort(currentUserPasswordExpiry.expiryDate)} กรุณาเปลี่ยนรหัสผ่านใหม่เพื่อความปลอดภัย`}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  id="banner-btn-change-password"
+                  onClick={() => setIsChangePasswordModalOpen(true)}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs ${
+                    currentUserPasswordExpiry.isExpired
+                      ? 'bg-white text-rose-700 hover:bg-rose-50'
+                      : 'bg-slate-900 text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>เปลี่ยนรหัสผ่านทันที</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsUserProfileModalOpen(true)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold underline hover:opacity-80 cursor-pointer ${
+                    currentUserPasswordExpiry.isExpired ? 'text-rose-100' : 'text-slate-900'
+                  }`}
+                >
+                  ดูโปรไฟล์
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Main dynamic container with responsive padding and animation */}
         <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full flex-1">
@@ -2169,6 +2318,7 @@ export default function App() {
 
               {activeTab === 'manual' && (
                 <BookingManual
+                  currentUser={currentUser}
                   language={language}
                   onNavigateTab={(tab) => setActiveTab(tab)}
                 />
@@ -2218,6 +2368,31 @@ export default function App() {
             handleCloseLineQuickApprove();
             setActiveTab('booking');
           }}
+        />
+      )}
+
+      {/* User Profile Modal (Accessed by clicking user box in header or sidebar) */}
+      {currentUser && isUserProfileModalOpen && (
+        <UserProfileModal
+          isOpen={isUserProfileModalOpen}
+          onClose={() => setIsUserProfileModalOpen(false)}
+          currentUser={currentUser}
+          policy={passwordPolicy}
+          onSaveUser={handleSaveUserProfile}
+          onOpenChangePasswordModal={() => setIsChangePasswordModalOpen(true)}
+        />
+      )}
+
+      {/* Change Password Modal (Small dedicated popup requiring Old Password, New Password, Confirm Password) */}
+      {currentUser && isChangePasswordModalOpen && (
+        <ChangePasswordModal
+          isOpen={isChangePasswordModalOpen}
+          user={currentUser}
+          policy={passwordPolicy}
+          requireOldPassword={true}
+          isForced={false}
+          onClose={() => setIsChangePasswordModalOpen(false)}
+          onSuccessChangePassword={handleSuccessChangePassword}
         />
       )}
 

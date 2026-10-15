@@ -1,5 +1,6 @@
 import { Booking, User } from '../types';
 import { getBookingJobNumber } from './dateHelpers';
+import { maskPhoneNumber } from './userHelpers';
 
 export const LINE_MODULE_STORAGE_KEY = 'car_booking_line_module_enabled';
 const DEFAULT_SHARED_APP_URL =
@@ -188,7 +189,7 @@ export function buildLineShareMessage(
     `เรียนคุณ ${targetApproverLabel}${approverLineTag}`,
     `━━━━━━━━━━━━━━`,
     `👤 ผู้ขอใช้รถ: ${booking.userName}${deptInfo ? ` (${deptInfo})` : ''}${requesterLineLabel}`,
-    `📞 เบอร์โทร: ${booking.userPhone || '-'}`,
+    `📞 เบอร์โทร: ${booking.userPhone ? maskPhoneNumber(booking.userPhone) : '-'}`,
     `🚘 รถยนต์: ${booking.vehicleName}`,
     `📅 เริ่มเดินทาง: ${formatThaiDateTimeForLine(booking.startDate)}`,
     `🏁 คืนรถยนต์: ${formatThaiDateTimeForLine(booking.endDate)}`,

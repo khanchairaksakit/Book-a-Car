@@ -668,3 +668,32 @@ export function getRoleBadgeInfo(
       };
   }
 }
+
+/**
+ * Masks a phone number so that middle digits are obscured with 'x'.
+ * Example: 086-553-2511 -> 08x-xxx-x511
+ * Example: 0865532511   -> 08x-xxx-x511
+ */
+export function maskPhoneNumber(phone?: string | null): string {
+  if (!phone) return '-';
+  const trimmed = String(phone).trim();
+  if (!trimmed || trimmed === '-') return '-';
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 10) {
+    const prefix = digits.slice(0, 2);
+    const suffix = digits.slice(-3);
+    return `${prefix}x-xxx-x${suffix}`;
+  } else if (digits.length === 9) {
+    const prefix = digits.slice(0, 2);
+    const suffix = digits.slice(-3);
+    return `${prefix}x-xxx-x${suffix}`;
+  } else if (digits.length > 5) {
+    const prefix = digits.slice(0, 2);
+    const suffix = digits.slice(-3);
+    return `${prefix}x-xxx-x${suffix}`;
+  }
+
+  return trimmed.replace(/\d/g, 'x');
+}
+

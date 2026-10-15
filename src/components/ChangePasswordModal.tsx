@@ -27,6 +27,7 @@ interface ChangePasswordModalProps {
   user: User;
   policy: PasswordPolicy;
   isForced?: boolean;
+  requireOldPassword?: boolean;
   reasonText?: string;
   onClose?: () => void;
   onLogout?: () => void;
@@ -38,24 +39,33 @@ export default function ChangePasswordModal({
   user,
   policy,
   isForced = false,
+  requireOldPassword = true,
   reasonText,
   onClose,
   onLogout,
   onSuccessChangePassword,
 }: ChangePasswordModalProps) {
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showOldPass, setShowOldPass] = useState(false);
   const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [genOffset, setGenOffset] = useState(1);
 
+  const shouldAskOldPassword = requireOldPassword && !isForced;
+
   useEffect(() => {
     if (isOpen) {
+      setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setError('');
+      setShowOldPass(false);
       setShowNewPass(false);
+      setShowConfirmPass(false);
     }
   }, [isOpen, user.id]);
 
@@ -83,6 +93,26 @@ export default function ChangePasswordModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (shouldAskOldPassword) {
+      if (!oldPassword) {
+        setError('กรุณากรอกรหัสผ่านเดิม');
+        return;
+      }
+      if (user.password && oldPassword !== user.password) {
+        setError('รหัสผ่านเดิมไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+        return;
+      }
+      if (newPassword === oldPassword) {
+        setError('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม');
+        return;
+      }
+    }
+
+    if (!newPassword) {
+      setError('กรุณากรอกรหัสผ่านใหม่');
+      return;
+    }
 
     if (!validation.isValid) {
       setError(validation.errors[0] || 'รหัสผ่านใหม่ยังไม่ผ่านเงื่อนไขนโยบายรหัสผ่าน');
@@ -212,6 +242,38 @@ export default function ChangePasswordModal({
               </div>
             )}
 
+            {/* Old Password Field (when required) */}
+            {shouldAskOldPassword && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  รหัสผ่านเดิม (Old Password) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                  <input
+                    id="input-change-old-password"
+                    type={showOldPass ? 'text' : 'password'}
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                    placeholder="กรอกรหัสผ่านเดิมของคุณ"
+                    className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOldPass(!showOldPass)}
+                    className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  >
+                    {showOldPass ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* New Password Field */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -261,13 +323,24 @@ export default function ChangePasswordModal({
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
                 <input
                   id="input-change-confirm-password"
-                  type={showNewPass ? 'text' : 'password'}
+                  type={showConfirmPass ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPass(!showConfirmPass)}
+                  className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                >
+                  {showConfirmPass ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
               </div>
             </div>
 

@@ -15,6 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { Vehicle, Booking, User, VehicleType } from '../types';
+import { maskPhoneNumber } from '../utils/userHelpers';
 import {
   formatMileage,
   formatThaiDate,
@@ -493,14 +494,9 @@ export default function VehicleOverview({
                         if (!contactPhone) return null;
                         return (
                           <div className="text-[11px] flex items-center gap-1">
-                            <a
-                              href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 font-mono font-bold text-emerald-700 hover:text-emerald-800 hover:underline bg-white/90 px-1.5 py-0.2 rounded border border-emerald-200"
-                              title={`กดเพื่อโทรออก ${contactPhone}`}
-                            >
-                              📞 {contactPhone}
-                            </a>
+                            <span className="inline-flex items-center gap-1 font-mono font-bold text-emerald-700 bg-white/90 px-1.5 py-0.2 rounded border border-emerald-200">
+                              📞 {maskPhoneNumber(contactPhone)}
+                            </span>
                           </div>
                         );
                       })()}

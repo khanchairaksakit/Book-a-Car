@@ -370,7 +370,7 @@ export function getUserPasswordExpiryInfo(
   const diffMs = expiryMs - nowMs;
   const daysRemaining = Math.ceil(diffMs / 86400000);
   const isExpired = diffMs <= 0;
-  const isExpiringSoon = !isExpired && daysRemaining <= 7;
+  const isExpiringSoon = !isExpired && daysRemaining <= 10;
 
   return {
     neverExpires: false,

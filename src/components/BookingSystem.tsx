@@ -11,6 +11,7 @@ import {
   canUserApproveBooking,
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
+  maskPhoneNumber,
 } from '../utils/userHelpers';
 import {
   getRealTodayStr,
@@ -986,14 +987,9 @@ export default function BookingSystem({
                           return (
                             <>
                               <span>•</span>
-                              <a
-                                href={`tel:${contactPhone.replace(/[^0-9+]/g, '')}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-mono font-semibold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
-                                title={`กดเพื่อโทรออก ${contactPhone}`}
-                              >
-                                📞 {contactPhone}
-                              </a>
+                              <span className="inline-flex items-center gap-1 text-emerald-700 font-mono font-semibold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                📞 {maskPhoneNumber(contactPhone)}
+                              </span>
                             </>
                           );
                         })()}
@@ -2044,14 +2040,9 @@ export default function BookingSystem({
                             : 'ไม่ได้เลือกผู้ใช้'}
                         </span>
                         {currentUser?.phone && (
-                          <a
-                            href={`tel:${currentUser.phone.replace(/[^0-9+]/g, '')}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
-                            title={`กดเพื่อโทรออก ${currentUser.phone}`}
-                          >
-                            📞 {currentUser.phone}
-                          </a>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                            📞 {maskPhoneNumber(currentUser.phone)}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -2499,14 +2490,9 @@ export default function BookingSystem({
                                   Approve 1
                                 </span>
                                 {approver.phone && (
-                                  <a
-                                    href={`tel:${approver.phone.replace(/[^0-9+]/g, '')}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-[10px] font-mono font-semibold text-emerald-700 hover:text-emerald-800 hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200"
-                                    title={`กดเพื่อโทรออก ${approver.phone}`}
-                                  >
-                                    📞 {approver.phone}
-                                  </a>
+                                  <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                    📞 {maskPhoneNumber(approver.phone)}
+                                  </span>
                                 )}
                               </div>
                             </div>

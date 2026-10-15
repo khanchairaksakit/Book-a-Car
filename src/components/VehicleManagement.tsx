@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Vehicle, VehicleType, VehicleStatus, User, Booking } from '../types';
+import { maskPhoneNumber } from '../utils/userHelpers';
 import {
   Plus,
   Edit2,
@@ -673,14 +674,9 @@ export default function VehicleManagement({
                                   {latestUsage.userName}
                                 </span>
                                 {latestUsage.userPhone && (
-                                  <a
-                                    href={`tel:${latestUsage.userPhone.replace(/[^0-9+]/g, '')}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex items-center gap-0.5 text-emerald-700 hover:text-emerald-800 text-[10px] font-mono font-bold hover:underline bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0"
-                                    title={`กดเพื่อโทรออก ${latestUsage.userPhone}`}
-                                  >
-                                    📞 {latestUsage.userPhone}
-                                  </a>
+                                  <span className="inline-flex items-center gap-0.5 text-emerald-700 text-[10px] font-mono font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
+                                    📞 {maskPhoneNumber(latestUsage.userPhone)}
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -863,8 +859,8 @@ export default function VehicleManagement({
                               {latestUsage.userName}
                             </span>
                             {latestUsage.userPhone && (
-                              <span className="text-[10px] text-gray-400 font-mono block">
-                                {latestUsage.userPhone}
+                              <span className="text-[10px] text-gray-500 font-mono block">
+                                📞 {maskPhoneNumber(latestUsage.userPhone)}
                               </span>
                             )}
                           </div>
