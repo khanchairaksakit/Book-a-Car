@@ -1161,10 +1161,22 @@ export default function App() {
     const existing = bookings.find((b) => b.id === bookingId);
 
     if (status === 'Approved') {
-      const stage1Name = extraData?.stage1ApprovedBy || existing?.stage1ApprovedBy;
-      const stage2Name = extraData?.stage2ApprovedBy || currentUser?.name || 'ผู้ดูแลรถ';
-      approverName = stage1Name ? `${stage1Name} (ผู้จัดการ) & ${stage2Name} (ผู้ดูแลรถ)` : `${stage2Name}`;
-      approvedAt = new Date().toISOString();
+      // If booking was already approved and we are only updating extra fields (e.g. departure checklist / mileage / fuel),
+      // preserve the authentic approverName and approvedAt without overwriting with current requester's name!
+      if (existing?.status === 'Approved' && existing.approverName && !extraData?.stage2ApprovedBy && !extraData?.stage1ApprovedBy) {
+        approverName = existing.approverName;
+        approvedAt = existing.approvedAt || new Date().toISOString();
+      } else {
+        const stage1Name = extraData?.stage1ApprovedBy || existing?.stage1ApprovedBy;
+        const stage2Name =
+          extraData?.stage2ApprovedBy ||
+          existing?.stage2ApprovedBy ||
+          existing?.stage2ApproverName ||
+          currentUser?.name ||
+          'ผู้ดูแลรถ';
+        approverName = stage1Name ? `${stage1Name} (ผู้จัดการ) & ${stage2Name} (ผู้ดูแลรถ)` : `${stage2Name}`;
+        approvedAt = existing?.approvedAt || new Date().toISOString();
+      }
     } else if (status === 'Cancelled') {
       const inferredStage: 1 | 2 =
         extraData?.rejectedStage ||
