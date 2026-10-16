@@ -8,7 +8,7 @@ import {
   triggerServerLineApprovalPush,
 } from '../utils/lineApprovalUtils';
 import { getBookingJobNumber } from '../utils/dateHelpers';
-import { maskPhoneNumber } from '../utils/userHelpers';
+import { maskPhoneNumber, getTelHref } from '../utils/userHelpers';
 import {
   X,
   Check,
@@ -356,12 +356,15 @@ export default function LineShareApprovalModal({
                   {(booking.userPhone || requesterUser?.phone) && (
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-gray-400 shrink-0">เบอร์ติดต่อ:</span>
-                      <span
-                        className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
+                      <a
+                        href={getTelHref(booking.userPhone || requesterUser?.phone)}
+                        onClick={(e) => e.stopPropagation()}
+                        title="กดเพื่อโทรออก"
+                        className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 transition-colors cursor-pointer"
                       >
                         <Phone className="w-3 h-3 shrink-0" />
                         <span>{maskPhoneNumber(booking.userPhone || requesterUser?.phone)}</span>
-                      </span>
+                      </a>
                     </div>
                   )}
                   <div className="flex justify-between gap-2">

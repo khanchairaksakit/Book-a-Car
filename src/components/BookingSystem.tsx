@@ -12,6 +12,7 @@ import {
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
   maskPhoneNumber,
+  getTelHref,
 } from '../utils/userHelpers';
 import {
   getRealTodayStr,
@@ -987,9 +988,14 @@ export default function BookingSystem({
                           return (
                             <>
                               <span>•</span>
-                              <span className="inline-flex items-center gap-1 text-emerald-700 font-mono font-semibold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                              <a
+                                href={getTelHref(contactPhone)}
+                                onClick={(e) => e.stopPropagation()}
+                                title="กดเพื่อโทรออก"
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-mono font-semibold bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 transition-colors cursor-pointer"
+                              >
                                 📞 {maskPhoneNumber(contactPhone)}
-                              </span>
+                              </a>
                             </>
                           );
                         })()}
@@ -2040,9 +2046,14 @@ export default function BookingSystem({
                             : 'ไม่ได้เลือกผู้ใช้'}
                         </span>
                         {currentUser?.phone && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                          <a
+                            href={getTelHref(currentUser.phone)}
+                            onClick={(e) => e.stopPropagation()}
+                            title="กดเพื่อโทรออก"
+                            className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 transition-colors cursor-pointer"
+                          >
                             📞 {maskPhoneNumber(currentUser.phone)}
-                          </span>
+                          </a>
                         )}
                       </div>
                     </div>
@@ -2490,9 +2501,14 @@ export default function BookingSystem({
                                   Approve 1
                                 </span>
                                 {approver.phone && (
-                                  <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  <a
+                                    href={getTelHref(approver.phone)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="กดเพื่อโทรออก"
+                                    className="text-[10px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 transition-colors cursor-pointer"
+                                  >
                                     📞 {maskPhoneNumber(approver.phone)}
-                                  </span>
+                                  </a>
                                 )}
                               </div>
                             </div>

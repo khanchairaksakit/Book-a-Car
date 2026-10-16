@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Vehicle, VehicleType, VehicleStatus, User, Booking } from '../types';
-import { maskPhoneNumber } from '../utils/userHelpers';
+import { maskPhoneNumber, getTelHref } from '../utils/userHelpers';
 import {
   Plus,
   Edit2,
@@ -674,9 +674,14 @@ export default function VehicleManagement({
                                   {latestUsage.userName}
                                 </span>
                                 {latestUsage.userPhone && (
-                                  <span className="inline-flex items-center gap-0.5 text-emerald-700 text-[10px] font-mono font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
+                                  <a
+                                    href={getTelHref(latestUsage.userPhone)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="กดเพื่อโทรออก"
+                                    className="inline-flex items-center gap-0.5 text-emerald-700 hover:text-emerald-900 text-[10px] font-mono font-bold bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0 transition-colors cursor-pointer"
+                                  >
                                     📞 {maskPhoneNumber(latestUsage.userPhone)}
-                                  </span>
+                                  </a>
                                 )}
                               </div>
                             </div>
@@ -859,9 +864,14 @@ export default function VehicleManagement({
                               {latestUsage.userName}
                             </span>
                             {latestUsage.userPhone && (
-                              <span className="text-[10px] text-gray-500 font-mono block">
+                              <a
+                                href={getTelHref(latestUsage.userPhone)}
+                                onClick={(e) => e.stopPropagation()}
+                                title="กดเพื่อโทรออก"
+                                className="text-[10px] text-emerald-700 hover:text-emerald-900 font-mono block hover:underline cursor-pointer"
+                              >
                                 📞 {maskPhoneNumber(latestUsage.userPhone)}
-                              </span>
+                              </a>
                             )}
                           </div>
                         </div>

@@ -13,6 +13,7 @@ import {
   getEligibleStage1Approvers,
   canUserApproveBooking,
   maskPhoneNumber,
+  getTelHref,
 } from '../utils/userHelpers';
 import { getBookingJobNumber } from '../utils/dateHelpers';
 import {
@@ -514,9 +515,14 @@ export default function LineQuickApproveModal({
                 <div className="flex items-center gap-2">
                   <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span className="text-gray-500">เบอร์ติดต่อ: </span>
-                  <span className="font-mono font-bold text-emerald-700 inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    <span>📞 {maskPhoneNumber(booking.userPhone || requesterUser?.phone)}</span>
-                  </span>
+                  <a
+                    href={getTelHref(booking.userPhone || requesterUser?.phone)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="กดเพื่อโทรออก"
+                    className="font-mono font-bold text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 transition-colors cursor-pointer"
+                  >
+                    📞 {maskPhoneNumber(booking.userPhone || requesterUser?.phone)}
+                  </a>
                 </div>
               )}
 

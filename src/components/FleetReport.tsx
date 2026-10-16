@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Booking, Vehicle, User } from '../types';
 import { Language } from '../utils/translations';
 import { formatThaiDate } from '../utils/vehicleAlerts';
-import { canUserViewBooking, maskPhoneNumber } from '../utils/userHelpers';
+import { canUserViewBooking, maskPhoneNumber, getTelHref } from '../utils/userHelpers';
 import { getBookingJobNumber } from '../utils/dateHelpers';
 import { getStoredDepartments, getStoredDivisions } from '../utils/organizationUtils';
 import { subscribeToOrganizationSettings } from '../lib/firebase';
@@ -784,12 +784,15 @@ export default function FleetReport({
                       <td className="p-2 border border-gray-300 whitespace-nowrap font-semibold text-gray-900">
                         <div>{b.userName}</div>
                         {userPhone && (
-                          <span
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5 font-mono"
+                          <a
+                            href={getTelHref(userPhone)}
+                            onClick={(e) => e.stopPropagation()}
+                            title="กดเพื่อโทรออก"
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5 font-mono transition-colors cursor-pointer"
                           >
                             <Phone className="w-2.5 h-2.5 shrink-0 print:hidden" />
                             <span>{maskPhoneNumber(userPhone)}</span>
-                          </span>
+                          </a>
                         )}
                       </td>
                       <td className="p-2 border border-gray-300 text-gray-700 text-[11px]">

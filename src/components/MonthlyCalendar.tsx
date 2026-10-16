@@ -7,6 +7,7 @@ import {
   getEligibleStage1Approvers,
   getEligibleStage2Approvers,
   maskPhoneNumber,
+  getTelHref,
 } from '../utils/userHelpers';
 import CameraCaptureModal from './CameraCaptureModal';
 import FuelGaugeGraphic from './FuelGaugeGraphic';
@@ -1204,9 +1205,14 @@ export default function MonthlyCalendar({
                             {currentUser ? `${currentUser.name} (${currentUser.department})` : 'ไม่ได้เลือกผู้ใช้'}
                           </span>
                           {currentUser?.phone && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                            <a
+                              href={getTelHref(currentUser.phone)}
+                              onClick={(e) => e.stopPropagation()}
+                              title="กดเพื่อโทรออก"
+                              className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 transition-colors cursor-pointer"
+                            >
                               📞 {maskPhoneNumber(currentUser.phone)}
-                            </span>
+                            </a>
                           )}
                         </div>
                       </div>
@@ -1635,9 +1641,14 @@ export default function MonthlyCalendar({
                                   Approve 1
                                 </span>
                                 {approver.phone && (
-                                  <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  <a
+                                    href={getTelHref(approver.phone)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="กดเพื่อโทรออก"
+                                    className="text-[10px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 transition-colors cursor-pointer"
+                                  >
                                     📞 {maskPhoneNumber(approver.phone)}
-                                  </span>
+                                  </a>
                                 )}
                               </div>
                             </div>
@@ -1849,9 +1860,14 @@ export default function MonthlyCalendar({
                               b.userPhone || users.find((u) => u.id === b.userId)?.phone || '';
                             if (!contactPhone) return null;
                             return (
-                              <span className="inline-flex items-center gap-1 text-emerald-700 font-mono font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              <a
+                                href={getTelHref(contactPhone)}
+                                onClick={(e) => e.stopPropagation()}
+                                title="กดเพื่อโทรออก"
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-mono font-bold bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 transition-colors cursor-pointer"
+                              >
                                 📞 {maskPhoneNumber(contactPhone)}
-                              </span>
+                              </a>
                             );
                           })()}
                         </div>

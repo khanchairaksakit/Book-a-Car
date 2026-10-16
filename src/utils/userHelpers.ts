@@ -697,3 +697,21 @@ export function maskPhoneNumber(phone?: string | null): string {
   return trimmed.replace(/\d/g, 'x');
 }
 
+/**
+ * Extracts digits from a phone number string (preserving leading '+' if international)
+ * for use in tel: links.
+ */
+export function getCleanPhoneDigits(phone?: string | null): string {
+  if (!phone) return '';
+  const trimmed = String(phone).trim();
+  return trimmed.replace(/[^\d+]/g, '');
+}
+
+/**
+ * Generates a valid tel: protocol URI from a phone number.
+ */
+export function getTelHref(phone?: string | null): string {
+  const digits = getCleanPhoneDigits(phone);
+  return digits ? `tel:${digits}` : '';
+}
+
