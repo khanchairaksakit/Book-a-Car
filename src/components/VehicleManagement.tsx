@@ -77,6 +77,8 @@ export default function VehicleManagement({
   // Form Fields: Maintenance & Alerts
   const [currentMileage, setCurrentMileage] = useState<string>('0');
   const [mileageAlertThreshold, setMileageAlertThreshold] = useState<string>('10000');
+  const [lastMaintenanceMileage, setLastMaintenanceMileage] = useState<string>('');
+  const [lastMaintenanceDate, setLastMaintenanceDate] = useState<string>('');
   const [taxExpiryDate, setTaxExpiryDate] = useState<string>('');
   const [taxAlertDaysBefore, setTaxAlertDaysBefore] = useState<string>('30');
   const [tireAlertMileage, setTireAlertMileage] = useState<string>('50000');
@@ -106,6 +108,8 @@ export default function VehicleManagement({
     setDescription('');
     setCurrentMileage('0');
     setMileageAlertThreshold('10000');
+    setLastMaintenanceMileage('');
+    setLastMaintenanceDate('');
     setTaxExpiryDate('');
     setTaxAlertDaysBefore('30');
     setTireAlertMileage('50000');
@@ -129,6 +133,8 @@ export default function VehicleManagement({
     // Maintenance fields
     setCurrentMileage(vehicle.currentMileage !== undefined ? String(vehicle.currentMileage) : '0');
     setMileageAlertThreshold(vehicle.mileageAlertThreshold !== undefined ? String(vehicle.mileageAlertThreshold) : '10000');
+    setLastMaintenanceMileage(vehicle.lastMaintenanceMileage !== undefined ? String(vehicle.lastMaintenanceMileage) : '');
+    setLastMaintenanceDate(vehicle.lastMaintenanceDate || '');
     setTaxExpiryDate(vehicle.taxExpiryDate || '');
     setTaxAlertDaysBefore(vehicle.taxAlertDaysBefore !== undefined ? String(vehicle.taxAlertDaysBefore) : '30');
     setTireAlertMileage(vehicle.tireAlertMileage !== undefined ? String(vehicle.tireAlertMileage) : '50000');
@@ -201,6 +207,7 @@ export default function VehicleManagement({
 
     const parsedMileage = parseInt(currentMileage, 10);
     const parsedMileageThreshold = parseInt(mileageAlertThreshold, 10);
+    const parsedLastMaintMileage = parseInt(lastMaintenanceMileage, 10);
     const parsedTaxDaysBefore = parseInt(taxAlertDaysBefore, 10);
     const parsedTireMileage = parseInt(tireAlertMileage, 10);
 
@@ -215,6 +222,8 @@ export default function VehicleManagement({
       description: description.trim(),
       currentMileage: !isNaN(parsedMileage) ? parsedMileage : undefined,
       mileageAlertThreshold: !isNaN(parsedMileageThreshold) ? parsedMileageThreshold : undefined,
+      lastMaintenanceMileage: !isNaN(parsedLastMaintMileage) ? parsedLastMaintMileage : undefined,
+      lastMaintenanceDate: lastMaintenanceDate || undefined,
       taxExpiryDate: taxExpiryDate || undefined,
       taxAlertDaysBefore: !isNaN(parsedTaxDaysBefore) ? parsedTaxDaysBefore : 30,
       tireAlertMileage: !isNaN(parsedTireMileage) ? parsedTireMileage : undefined,
@@ -524,6 +533,12 @@ export default function VehicleManagement({
                             {vehicle.mileageAlertThreshold
                               ? `เช็คระยะที่: ${formatMileage(vehicle.mileageAlertThreshold)}`
                               : 'ยังไม่กำหนดรอบเช็ค'}
+                            {(vehicle.lastMaintenanceMileage !== undefined || vehicle.lastMaintenanceDate) && (
+                              <span className="block text-[10px] text-indigo-600 font-medium">
+                                ล่าสุด: {vehicle.lastMaintenanceMileage !== undefined ? `${vehicle.lastMaintenanceMileage.toLocaleString()} กม.` : ''}
+                                {vehicle.lastMaintenanceDate ? ` (${formatThaiDate(vehicle.lastMaintenanceDate)})` : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1188,6 +1203,48 @@ export default function VehicleManagement({
                           <span className="text-[10px] text-gray-500 mt-1 block">
                             กำหนดรอบเช็คระยะ/เปลี่ยนถ่ายน้ำมันเครื่อง
                           </span>
+                        </div>
+                      </div>
+
+                      {/* ข้อมูลการเช็คระยะล่าสุด */}
+                      <div className="pt-2.5 border-t border-slate-200/80">
+                        <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                          <Wrench className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>บันทึกการเช็คระยะล่าสุด (Last Service Record)</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                              วันที่เช็คระยะล่าสุด
+                            </label>
+                            <input
+                              id="car-input-last-maint-date"
+                              type="date"
+                              value={lastMaintenanceDate}
+                              onChange={(e) => setLastMaintenanceDate(e.target.value)}
+                              className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
+                            />
+                            <span className="text-[10px] text-gray-500 mt-1 block">
+                              วันที่นำรถเข้าศูนย์บริการหรือเช็คระยะครั้งล่าสุด
+                            </span>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                              เลขไมล์เช็คระยะล่าสุด (กม.)
+                            </label>
+                            <input
+                              id="car-input-last-maint-mileage"
+                              type="number"
+                              min={0}
+                              value={lastMaintenanceMileage}
+                              onChange={(e) => setLastMaintenanceMileage(e.target.value)}
+                              placeholder="เช่น 40000"
+                              className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden"
+                            />
+                            <span className="text-[10px] text-gray-500 mt-1 block">
+                              เลขไมล์บนหน้าปัด ณ วันที่เช็คระยะล่าสุด
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>

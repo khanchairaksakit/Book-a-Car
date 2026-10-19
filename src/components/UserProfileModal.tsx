@@ -35,6 +35,7 @@ interface UserProfileModalProps {
   policy: PasswordPolicy;
   onSaveUser: (updatedUser: User) => Promise<void> | void;
   onOpenChangePasswordModal: () => void;
+  onTestSessionTimeout?: () => void;
 }
 
 export default function UserProfileModal({
@@ -44,6 +45,7 @@ export default function UserProfileModal({
   policy,
   onSaveUser,
   onOpenChangePasswordModal,
+  onTestSessionTimeout,
 }: UserProfileModalProps) {
   // Form states (editable by user)
   const [name, setName] = useState(currentUser.name || '');
@@ -417,15 +419,33 @@ export default function UserProfileModal({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  id="btn-open-change-password-popup"
-                  onClick={onOpenChangePasswordModal}
-                  className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 border border-indigo-200 rounded-xl transition-all cursor-pointer shadow-2xs shrink-0"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>เปลี่ยนรหัสผ่าน</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  {onTestSessionTimeout && (
+                    <button
+                      type="button"
+                      id="btn-test-session-timeout"
+                      onClick={() => {
+                        onClose();
+                        onTestSessionTimeout();
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title="ทดสอบการแจ้งเตือนเซสชันหมดอายุ (นับถอยหลัง 15 วินาที)"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span>ทดสอบ Session Timeout (15 วิ)</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    id="btn-open-change-password-popup"
+                    onClick={onOpenChangePasswordModal}
+                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 border border-indigo-200 rounded-xl transition-all cursor-pointer shadow-2xs shrink-0"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>เปลี่ยนรหัสผ่าน</span>
+                  </button>
+                </div>
               </div>
             </div>
 

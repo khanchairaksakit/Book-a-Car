@@ -55,6 +55,7 @@ import UserProfileModal from './components/UserProfileModal';
 import ChangePasswordModal from './components/ChangePasswordModal';
 import LineShareApprovalModal from './components/LineShareApprovalModal';
 import LineQuickApproveModal from './components/LineQuickApproveModal';
+import SessionTimeoutModal from './components/SessionTimeoutModal';
 import {
   triggerServerLineApprovalPush,
   getLineModuleEnabled,
@@ -282,7 +283,85 @@ export default function App() {
     return getUserRoles(u).join(', ');
   };
 
+  // Session Timeout state (30 min inactivity limit + 15 sec confirmation countdown)
+  const [isSessionTimeoutModalOpen, setIsSessionTimeoutModalOpen] = useState(false);
+  const [sessionCountdown, setSessionCountdown] = useState(15);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(null);
+  const lastActivityRef = React.useRef<number>(Date.now());
+  const INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutes
+
+  // Inactivity tracking: resets timestamp on mouse, keyboard, touch, or scroll events
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const recordUserActivity = () => {
+      // Only refresh activity if countdown modal is not currently showing
+      if (!isSessionTimeoutModalOpen) {
+        lastActivityRef.current = Date.now();
+      }
+    };
+
+    const trackedEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    trackedEvents.forEach((evt) => {
+      window.addEventListener(evt, recordUserActivity, { passive: true });
+    });
+
+    return () => {
+      trackedEvents.forEach((evt) => {
+        window.removeEventListener(evt, recordUserActivity);
+      });
+    };
+  }, [currentUser, isSessionTimeoutModalOpen]);
+
+  // Periodic ticker running every second to check inactivity and manage 15-second countdown
+  useEffect(() => {
+    if (!currentUser) {
+      if (isSessionTimeoutModalOpen) setIsSessionTimeoutModalOpen(false);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (isSessionTimeoutModalOpen) {
+        setSessionCountdown((prev) => {
+          if (prev <= 1) {
+            // 15 seconds elapsed without user confirmation -> automatic force logout
+            setIsSessionTimeoutModalOpen(false);
+            setSessionExpiredNotice(
+              'เซสชันของคุณหมดอายุเนื่องจากไม่มีการใช้งานนานเกินกว่า 30 นาที กรุณาเข้าสู่ระบบใหม่อีกครั้ง'
+            );
+            handleLogout();
+            return 15;
+          }
+          return prev - 1;
+        });
+      } else {
+        const inactiveDuration = Date.now() - lastActivityRef.current;
+        if (inactiveDuration >= INACTIVITY_LIMIT_MS) {
+          setIsSessionTimeoutModalOpen(true);
+          setSessionCountdown(15);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentUser, isSessionTimeoutModalOpen]);
+
+  const handleConfirmContinueSession = () => {
+    lastActivityRef.current = Date.now();
+    setIsSessionTimeoutModalOpen(false);
+    setSessionCountdown(15);
+    setToastMessage('ยืนยันใช้งานต่อเรียบร้อยแล้ว ต่อเวลาเซสชันสำเร็จ');
+  };
+
+  const handleTestSessionTimeout = () => {
+    setIsSessionTimeoutModalOpen(true);
+    setSessionCountdown(15);
+  };
+
   const handleLogin = (user: User) => {
+    lastActivityRef.current = Date.now();
+    setIsSessionTimeoutModalOpen(false);
+    setSessionExpiredNotice(null);
     setToastState(null);
     setCurrentUser(user);
     setActiveTab('dashboard');
@@ -324,6 +403,7 @@ export default function App() {
       }).catch(() => {});
     }
     setToastState(null);
+    setIsSessionTimeoutModalOpen(false);
     setCurrentUser(null);
     setActiveTab('dashboard');
     localStorage.removeItem('car_booking_current_user');
@@ -1682,6 +1762,8 @@ export default function App() {
           language={language}
           passwordPolicy={passwordPolicy}
           onUpdateUserPassword={handleUpdateUserPassword}
+          sessionExpiredNotice={sessionExpiredNotice}
+          onClearSessionNotice={() => setSessionExpiredNotice(null)}
         />
         {lineQuickApproveState && activeLineQuickApproveBooking && (
           <LineQuickApproveModal
@@ -2392,6 +2474,7 @@ export default function App() {
           policy={passwordPolicy}
           onSaveUser={handleSaveUserProfile}
           onOpenChangePasswordModal={() => setIsChangePasswordModalOpen(true)}
+          onTestSessionTimeout={handleTestSessionTimeout}
         />
       )}
 
@@ -2407,6 +2490,17 @@ export default function App() {
           onSuccessChangePassword={handleSuccessChangePassword}
         />
       )}
+
+      {/* Session Timeout Warning Modal (30 min inactivity + 15s countdown) */}
+      <SessionTimeoutModal
+        isOpen={isSessionTimeoutModalOpen}
+        countdown={sessionCountdown}
+        onConfirmContinue={handleConfirmContinueSession}
+        onLogout={() => {
+          setIsSessionTimeoutModalOpen(false);
+          handleLogout();
+        }}
+      />
 
       {/* Floating Toast Message (Scoped to currentUser, auto-dismisses after 5 seconds) */}
       {toastState && (!toastState.userId || toastState.userId === currentUser?.id) && (

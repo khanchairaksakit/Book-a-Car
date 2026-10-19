@@ -442,6 +442,17 @@ export default function VehicleOverview({
                       <Gauge className="w-3 h-3 text-gray-400" />
                       <span>{formatMileage(vehicle.currentMileage)}</span>
                     </span>
+                    {(vehicle.lastMaintenanceMileage !== undefined || vehicle.lastMaintenanceDate) && (
+                      <span
+                        className="flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-medium border border-indigo-100 truncate"
+                        title={`เช็คระยะล่าสุด: ${vehicle.lastMaintenanceMileage !== undefined ? `${vehicle.lastMaintenanceMileage.toLocaleString()} กม.` : ''}${vehicle.lastMaintenanceDate ? ` (${formatThaiDate(vehicle.lastMaintenanceDate)})` : ''}`}
+                      >
+                        <Wrench className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
+                        <span className="truncate">
+                          เช็คระยะ: {vehicle.lastMaintenanceMileage !== undefined ? `${vehicle.lastMaintenanceMileage.toLocaleString()} กม.` : ''}
+                        </span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Approaching Maintenance Alerts (1,000 km / 1 month notice) */}

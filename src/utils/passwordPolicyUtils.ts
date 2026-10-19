@@ -2,6 +2,7 @@ import {
   PasswordPolicy,
   PreventReuseOption,
   PasswordExpiryDaysOption,
+  PasswordResetTokenRecord,
   User,
 } from '../types';
 
@@ -9,6 +10,7 @@ export const PASSWORD_POLICY_STORAGE_KEY = 'car_booking_password_policy';
 
 export const PREVENT_REUSE_OPTIONS: PreventReuseOption[] = [0, 3, 5, 7];
 export const PASSWORD_EXPIRY_DAYS_OPTIONS: PasswordExpiryDaysOption[] = [0, 30, 60, 90, 180];
+export const MAX_FAILED_ATTEMPTS_OPTIONS: number[] = [0, 3, 5, 10];
 
 export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
   requireLowercase: true,
@@ -17,6 +19,7 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
   requireNumber: true,
   preventReuseCount: 0,
   expiryDays: 0,
+  maxFailedAttempts: 5,
 };
 
 /**
@@ -58,6 +61,12 @@ export function normalizePasswordPolicy(raw: any): PasswordPolicy {
     ? (rawExpiry as PasswordExpiryDaysOption)
     : 0;
 
+  const rawMaxFailed = Number(raw.maxFailedAttempts);
+  const maxFailedAttempts =
+    !isNaN(rawMaxFailed) && rawMaxFailed >= 0
+      ? rawMaxFailed
+      : DEFAULT_PASSWORD_POLICY.maxFailedAttempts ?? 5;
+
   return {
     requireLowercase:
       typeof raw.requireLowercase === 'boolean'
@@ -77,6 +86,7 @@ export function normalizePasswordPolicy(raw: any): PasswordPolicy {
         : DEFAULT_PASSWORD_POLICY.requireNumber,
     preventReuseCount,
     expiryDays,
+    maxFailedAttempts,
     ...(raw.updatedAt ? { updatedAt: String(raw.updatedAt) } : {}),
   };
 }
@@ -417,5 +427,142 @@ export function getPasswordPolicySummaryBadges(policy: PasswordPolicy): string[]
       ? `หมดอายุ ${policy.expiryDays} วัน`
       : 'ไม่มีวันหมดอายุ (0 วัน)'
   );
+  badges.push(
+    (policy.maxFailedAttempts ?? 0) > 0
+      ? `ล็อคบัญชีเมื่อใส่รหัสผิด ${policy.maxFailedAttempts} ครั้ง`
+      : 'ไม่จำกัดครั้งใส่รหัสผิด (ไม่ล็อค)'
+  );
   return badges;
 }
+
+export const PASSWORD_RESET_TOKENS_STORAGE_KEY = 'car_booking_password_reset_tokens';
+
+export function savePasswordResetToken(tokenRecord: PasswordResetTokenRecord): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(PASSWORD_RESET_TOKENS_STORAGE_KEY);
+    const list: PasswordResetTokenRecord[] = raw ? JSON.parse(raw) : [];
+    // Filter out expired or already used tokens
+    const now = Date.now();
+    const active = list.filter((t) => new Date(t.expiresAt).getTime() > now && !t.used);
+    active.push(tokenRecord);
+    localStorage.setItem(PASSWORD_RESET_TOKENS_STORAGE_KEY, JSON.stringify(active));
+  } catch (err) {
+    console.error('Failed to save reset token:', err);
+  }
+}
+
+export function getPasswordResetToken(token: string): PasswordResetTokenRecord | null {
+  if (typeof window === 'undefined' || !token) return null;
+  try {
+    const raw = localStorage.getItem(PASSWORD_RESET_TOKENS_STORAGE_KEY);
+    if (!raw) return null;
+    const list: PasswordResetTokenRecord[] = JSON.parse(raw);
+    const found = list.find((t) => t.token === token);
+    if (!found) return null;
+    if (new Date(found.expiresAt).getTime() <= Date.now()) return null;
+    if (found.used) return null;
+    return found;
+  } catch {
+    return null;
+  }
+}
+
+export function consumePasswordResetToken(token: string): void {
+  if (typeof window === 'undefined' || !token) return;
+  try {
+    const raw = localStorage.getItem(PASSWORD_RESET_TOKENS_STORAGE_KEY);
+    if (!raw) return;
+    const list: PasswordResetTokenRecord[] = JSON.parse(raw);
+    const updated = list.map((t) => (t.token === token ? { ...t, used: true } : t));
+    localStorage.setItem(PASSWORD_RESET_TOKENS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Lockout duration configuration: 15 minutes (900,000 ms)
+ */
+export const LOCKOUT_DURATION_MINUTES = 15;
+export const LOCKOUT_DURATION_MS = LOCKOUT_DURATION_MINUTES * 60 * 1000;
+
+export interface UserLockoutStatus {
+  isLocked: boolean;
+  isAutoUnlocked: boolean; // True if 15 minutes have passed since lock time
+  remainingMs: number;
+  remainingMinutes: number;
+  remainingSeconds: number;
+  formattedRemaining: string; // e.g. "14:25 นาที"
+  lockedAtDate?: Date;
+}
+
+/**
+ * Calculates current lock status for a user, taking 15-minute auto-unlock into account.
+ */
+export function getUserLockoutStatus(user?: User | null): UserLockoutStatus {
+  if (!user || !user.isLocked) {
+    return {
+      isLocked: false,
+      isAutoUnlocked: false,
+      remainingMs: 0,
+      remainingMinutes: 0,
+      remainingSeconds: 0,
+      formattedRemaining: '0:00',
+    };
+  }
+
+  // Parse lock date
+  let lockedAtDate: Date;
+  if (user.lockedAt) {
+    const parsed = new Date(user.lockedAt);
+    lockedAtDate = isNaN(parsed.getTime()) ? new Date() : parsed;
+  } else {
+    lockedAtDate = new Date();
+  }
+
+  const elapsedMs = Date.now() - lockedAtDate.getTime();
+  const remainingMs = Math.max(0, LOCKOUT_DURATION_MS - elapsedMs);
+
+  // If 15 minutes have passed, eligible for automatic unlock!
+  if (remainingMs <= 0) {
+    return {
+      isLocked: false,
+      isAutoUnlocked: true,
+      remainingMs: 0,
+      remainingMinutes: 0,
+      remainingSeconds: 0,
+      formattedRemaining: '0:00',
+      lockedAtDate,
+    };
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const formattedRemaining = `${minutes}:${seconds < 10 ? '0' : ''}${seconds} นาที`;
+
+  return {
+    isLocked: true,
+    isAutoUnlocked: false,
+    remainingMs,
+    remainingMinutes: minutes,
+    remainingSeconds: seconds,
+    formattedRemaining,
+    lockedAtDate,
+  };
+}
+
+/**
+ * Returns a clean User object with lock and failed login attempts cleared.
+ */
+export function getUnlockedUserRecord(user: User): User {
+  return {
+    ...user,
+    isLocked: false,
+    failedLoginAttempts: 0,
+    lockedAt: undefined,
+    lockedReason: undefined,
+  };
+}
+

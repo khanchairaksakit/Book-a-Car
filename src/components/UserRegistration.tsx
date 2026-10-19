@@ -28,6 +28,8 @@ import {
   getUserPasswordHistoryList,
   formatThaiDateShort,
   getPasswordPolicySummaryBadges,
+  getUserLockoutStatus,
+  getUnlockedUserRecord,
 } from '../utils/passwordPolicyUtils';
 import {
   downloadUserExcelTemplate,
@@ -1363,6 +1365,38 @@ export default function UserRegistration({
                               >
                                 หมดอายุใน {expInfo.daysRemaining} วัน ({formatThaiDateShort(expInfo.expiryDate)})
                               </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {user.isLocked && (() => {
+                        const lockStat = getUserLockoutStatus(user);
+                        return (
+                          <div className="mt-2 flex items-center justify-between gap-1.5 p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
+                            <div className="flex items-center gap-1.5 font-bold min-w-0">
+                              <Lock className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              <span className="truncate">
+                                {lockStat.isAutoUnlocked ? (
+                                  <span className="text-amber-800">ครบ 15 นาทีแล้ว (พร้อมปลดล็อค)</span>
+                                ) : (
+                                  <span>
+                                    ถูกล็อค (ผิด {user.failedLoginAttempts || 0} ครั้ง • ปลดล็อคใน {lockStat.formattedRemaining})
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            {hasEditPermission && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onEditUser(getUnlockedUserRecord(user));
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                                title="คลิกเพื่อปลดล็อคบัญชีทันที (Admin Unlock)"
+                              >
+                                ปลดล็อคทันที
+                              </button>
                             )}
                           </div>
                         );

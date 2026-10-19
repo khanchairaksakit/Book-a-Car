@@ -8,15 +8,18 @@ import {
 import {
   PREVENT_REUSE_OPTIONS,
   PASSWORD_EXPIRY_DAYS_OPTIONS,
+  MAX_FAILED_ATTEMPTS_OPTIONS,
   DEFAULT_PASSWORD_POLICY,
   validatePasswordAgainstPolicy,
   generatePasswordForPolicy,
   getUserPasswordExpiryInfo,
   formatThaiDateShort,
   getUserPasswordHistoryList,
+  getUserLockoutStatus,
 } from '../utils/passwordPolicyUtils';
 import {
   Shield,
+  ShieldAlert,
   Lock,
   KeyRound,
   Check,
@@ -162,12 +165,27 @@ export default function PasswordPolicyModal({
     }));
   };
 
+  const [unlockedUserIds, setUnlockedUserIds] = useState<string[]>([]);
+
   const handleSelectExpiryDays = (val: PasswordExpiryDaysOption) => {
     if (!canEdit) return;
     setDraftPolicy((prev) => ({
       ...prev,
       expiryDays: val,
     }));
+  };
+
+  const handleSelectMaxFailedAttempts = (val: number) => {
+    if (!canEdit) return;
+    setDraftPolicy((prev) => ({
+      ...prev,
+      maxFailedAttempts: Math.max(0, val),
+    }));
+  };
+
+  const handleUnlockUser = (userId: string) => {
+    if (!canEdit) return;
+    setUnlockedUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
   };
 
   const handleSave = async () => {
@@ -196,13 +214,18 @@ export default function PasswordPolicyModal({
         const dateChanged = nextPasswordUpdatedAt !== u.passwordUpdatedAt;
         const passChanged = nextPassword !== u.password;
         const historyMissing = !Array.isArray(u.passwordHistory) || u.passwordHistory.length === 0;
+        const isExplicitlyUnlocked = unlockedUserIds.includes(u.id);
+        const lockChanged = isExplicitlyUnlocked && (u.isLocked || (u.failedLoginAttempts ?? 0) > 0);
 
-        if (dateChanged || passChanged || historyMissing) {
+        if (dateChanged || passChanged || historyMissing || lockChanged) {
           updatedUsersList.push({
             ...u,
             password: nextPassword,
             passwordUpdatedAt: nextPasswordUpdatedAt,
             passwordHistory: nextHistory,
+            ...(isExplicitlyUnlocked
+              ? { isLocked: false, failedLoginAttempts: 0, lockedAt: undefined, lockedReason: undefined }
+              : {}),
           });
         }
       });
@@ -238,7 +261,8 @@ export default function PasswordPolicyModal({
     (draftPolicy.requireSpecialChar ? 1 : 0) +
     (draftPolicy.requireNumber ? 1 : 0) +
     (draftPolicy.preventReuseCount > 0 ? 1 : 0) +
-    (draftPolicy.expiryDays > 0 ? 1 : 0);
+    (draftPolicy.expiryDays > 0 ? 1 : 0) +
+    ((draftPolicy.maxFailedAttempts ?? 0) > 0 ? 1 : 0);
 
   return (
     <AnimatePresence>
@@ -469,8 +493,8 @@ export default function PasswordPolicyModal({
               </div>
             </div>
 
-            {/* Section 2: ห้ามซ้ำกัน xx ครั้ง (0, 3, 5, 7) & รหัสผ่านหมดอายุ xx วัน (0, 30, 60, 90, 180) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Section 2: ห้ามซ้ำกัน xx ครั้ง (0, 3, 5, 7) & รหัสผ่านหมดอายุ xx วัน (0, 30, 60, 90, 180) & ล็อคบัญชีเมื่อใส่รหัสผิด xx ครั้ง */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Option 5: ห้ามซ้ำกัน xx ครั้ง */}
               <div
                 id="policy-option-prevent-reuse"
@@ -512,7 +536,7 @@ export default function PasswordPolicyModal({
                 </div>
 
                 {/* Button Selectors for 0, 3, 5, 7 */}
-                <div className="grid grid-cols-4 gap-2 pt-1">
+                <div className="grid grid-cols-4 gap-1.5 pt-1">
                   {PREVENT_REUSE_OPTIONS.map((opt) => {
                     const isSelected = draftPolicy.preventReuseCount === opt;
                     return (
@@ -522,15 +546,15 @@ export default function PasswordPolicyModal({
                         type="button"
                         disabled={!canEdit}
                         onClick={() => handleSelectPreventReuse(opt)}
-                        className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                        className={`py-2 px-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
                           isSelected
                             ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
                             : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300 hover:bg-amber-50/40'
                         }`}
                       >
-                        <span className="font-mono text-sm">{opt} ครั้ง</span>
+                        <span className="font-mono text-xs sm:text-sm">{opt} ครั้ง</span>
                         <span
-                          className={`text-[10px] font-medium ${
+                          className={`text-[9px] font-medium truncate max-w-full ${
                             isSelected ? 'text-amber-100' : 'text-slate-400'
                           }`}
                         >
@@ -575,15 +599,14 @@ export default function PasswordPolicyModal({
                         </span>
                       </span>
                       <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                        ตัวเลือก <strong>0, 30, 60, 90, 180</strong> วัน (หากเลือกเป็น{' '}
-                        <strong>0</strong> หมายถึงไม่มีวันหมดอายุ • สัมพันธ์กับวันใช้รหัสของ User นั้นๆ)
+                        ตัวเลือก <strong>0, 30, 60, 90, 180</strong> วัน (เลือก <strong>0</strong> = ไม่มีวันหมดอายุ)
                       </p>
                     </div>
                   </label>
                 </div>
 
                 {/* Button Selectors for 0, 30, 60, 90, 180 */}
-                <div className="grid grid-cols-5 gap-1.5 pt-1">
+                <div className="grid grid-cols-5 gap-1 pt-1">
                   {PASSWORD_EXPIRY_DAYS_OPTIONS.map((opt) => {
                     const isSelected = draftPolicy.expiryDays === opt;
                     return (
@@ -593,23 +616,140 @@ export default function PasswordPolicyModal({
                         type="button"
                         disabled={!canEdit}
                         onClick={() => handleSelectExpiryDays(opt)}
-                        className={`py-2 px-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
                           isSelected
                             ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                             : 'bg-white text-slate-700 border-slate-200 hover:border-rose-300 hover:bg-rose-50/40'
                         }`}
                       >
-                        <span className="font-mono text-xs sm:text-sm">{opt} วัน</span>
+                        <span className="font-mono text-xs">{opt} วัน</span>
                         <span
                           className={`text-[9px] font-medium truncate max-w-full ${
                             isSelected ? 'text-rose-100' : 'text-slate-400'
                           }`}
                         >
-                          {opt === 0 ? 'ไม่หมดอายุ' : `ทุก ${opt} วัน`}
+                          {opt === 0 ? 'ไม่หมดอายุ' : `${opt} วัน`}
                         </span>
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Direct Numeric Input Box for Expiry Days */}
+                <div className="pt-2 border-t border-rose-100 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-700">
+                    หรือกรอกจำนวนวันหมดอายุเอง:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      id="input-policy-expiry-days"
+                      type="number"
+                      min={0}
+                      max={365}
+                      disabled={!canEdit}
+                      value={draftPolicy.expiryDays}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        const clean = isNaN(v) ? 0 : Math.max(0, v);
+                        handleSelectExpiryDays(clean as any);
+                      }}
+                      className="w-20 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-bold text-center bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-rose-500 shadow-2xs"
+                    />
+                    <span className="text-xs text-slate-500 font-medium">วัน</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Option 7: กำหนดใส่รหัสผิดกี่ครั้ง User นั้นถึง Lock */}
+              <div
+                id="policy-option-max-failed-attempts"
+                className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                  (draftPolicy.maxFailedAttempts ?? 0) > 0
+                    ? 'bg-purple-50/60 border-purple-300 shadow-2xs'
+                    : 'bg-slate-50/70 border-slate-200'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      id="checkbox-policy-failed-lock"
+                      type="checkbox"
+                      checked={(draftPolicy.maxFailedAttempts ?? 0) > 0}
+                      disabled={!canEdit}
+                      onChange={(e) =>
+                        handleSelectMaxFailedAttempts(e.target.checked ? 5 : 0)
+                      }
+                      className="mt-0.5 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-purple-600" />
+                        <span>
+                          กำหนดใส่รหัสผิด{' '}
+                          <strong className="text-purple-700 font-mono">
+                            {draftPolicy.maxFailedAttempts ?? 0}
+                          </strong>{' '}
+                          ครั้ง User ถึง Lock
+                        </span>
+                      </span>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        ระบุจำนวนครั้งที่อนุญาตให้ใส่รหัสผิด หากใส่ผิดครบตามจำนวน บัญชีจะถูกล็อคทันที (เลือกหรือกรอก <strong>0</strong> = ไม่ล็อค)
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Preset Button Selectors */}
+                <div className="grid grid-cols-4 gap-1.5 pt-1">
+                  {MAX_FAILED_ATTEMPTS_OPTIONS.map((opt) => {
+                    const isSelected = (draftPolicy.maxFailedAttempts ?? 0) === opt;
+                    return (
+                      <button
+                        key={opt}
+                        id={`btn-max-failed-${opt}`}
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => handleSelectMaxFailedAttempts(opt)}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:bg-purple-50/40'
+                        }`}
+                      >
+                        <span className="font-mono text-xs sm:text-sm">{opt} ครั้ง</span>
+                        <span
+                          className={`text-[9px] font-medium truncate max-w-full ${
+                            isSelected ? 'text-purple-100' : 'text-slate-400'
+                          }`}
+                        >
+                          {opt === 0 ? 'ไม่ล็อค' : `ผิด ${opt} ครั้ง`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Direct Numeric Input Box (similar to expiry days) */}
+                <div className="pt-2 border-t border-purple-100 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-700">
+                    หรือกรอกจำนวนครั้งเอง (เป็นตัวเลขให้กรอก):
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      id="input-policy-max-failed-attempts"
+                      type="number"
+                      min={0}
+                      max={99}
+                      disabled={!canEdit}
+                      value={draftPolicy.maxFailedAttempts ?? 0}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        handleSelectMaxFailedAttempts(isNaN(v) ? 0 : Math.max(0, v));
+                      }}
+                      className="w-20 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-bold text-center bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                    />
+                    <span className="text-xs text-slate-500 font-medium">ครั้ง</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -737,6 +877,7 @@ export default function PasswordPolicyModal({
                         <th className="py-2.5 px-3">วันที่เริ่มใช้รหัสของ User</th>
                         <th className="py-2.5 px-3">วันหมดอายุรหัสผ่าน</th>
                         <th className="py-2.5 px-3">สถานะการบังคับเปลี่ยนรหัส</th>
+                        <th className="py-2.5 px-3">สถานะบัญชี / ล็อค</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -872,6 +1013,49 @@ export default function PasswordPolicyModal({
                                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                     <span>ปกติ (เหลือ {expiryInfo.daysRemaining} วัน)</span>
                                   </span>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                {unlockedUserIds.includes(u.id) ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-300">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>ปลดล็อคแล้ว (รอกดบันทึก)</span>
+                                  </span>
+                                ) : u.isLocked ? (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-lg border border-rose-300">
+                                      <Lock className="w-3 h-3 text-rose-600" />
+                                      <span>ล็อคแล้ว (ผิด {u.failedLoginAttempts || 0} ครั้ง)</span>
+                                    </span>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUnlockUser(u.id)}
+                                        className="px-2 py-0.5 text-[10px] font-bold text-indigo-700 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-200 rounded-md transition-colors cursor-pointer"
+                                      >
+                                        ปลดล็อค
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (u.failedLoginAttempts ?? 0) > 0 ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                      ผิด {u.failedLoginAttempts} ครั้ง
+                                    </span>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUnlockUser(u.id)}
+                                        className="px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded cursor-pointer"
+                                        title="รีเซ็ตจำนวนครั้งที่ใส่รหัสผิด"
+                                      >
+                                        รีเซ็ต
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-slate-500 font-medium">ปกติ</span>
                                 )}
                               </td>
                             </tr>

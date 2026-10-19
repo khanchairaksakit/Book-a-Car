@@ -29,6 +29,8 @@ export interface Vehicle {
   // Maintenance & Alert Fields
   currentMileage?: number; // เลขไมล์ปัจจุบัน (กม.)
   mileageAlertThreshold?: number; // เลขไมล์แจ้งเตือนเช็คระยะรอบถัดไป (กม.)
+  lastMaintenanceMileage?: number; // เลขไมล์เช็คระยะล่าสุด (กม.)
+  lastMaintenanceDate?: string; // วันที่เช็คระยะล่าสุด (YYYY-MM-DD)
   taxExpiryDate?: string; // วันหมดอายุภาษี (YYYY-MM-DD)
   taxAlertDaysBefore?: number; // แจ้งเตือนล่วงหน้ากี่วัน (ค่าเริ่มต้น 30 วัน)
   tireAlertMileage?: number; // เลขไมล์แจ้งเตือนเปลี่ยนยางรอบถัดไป (กม.)
@@ -71,7 +73,18 @@ export interface PasswordPolicy {
   requireNumber: boolean; // ตัวเลข (0-9)
   preventReuseCount: PreventReuseOption; // ห้ามซ้ำกัน xx ครั้ง (0, 3, 5, 7)
   expiryDays: PasswordExpiryDaysOption; // รหัสผ่านหมดอายุ xx วัน (0, 30, 60, 90, 180)
+  maxFailedAttempts?: number; // กำหนดใส่รหัสผิดกี่ครั้ง User ถึงล็อค (0 = ไม่ล็อค เช่น 3, 5 ครั้ง)
   updatedAt?: string;
+}
+
+export interface PasswordResetTokenRecord {
+  token: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  createdAt: string;
+  expiresAt: string;
+  used?: boolean;
 }
 
 export interface User {
@@ -89,6 +102,10 @@ export interface User {
   passwordUpdatedAt?: string; // วันเวลาที่เริ่มใช้/เปลี่ยนรหัสผ่านล่าสุดของ user นั้นๆ (ISO string)
   passwordHistory?: string[]; // ประวัติรหัสผ่านที่เคยใช้ของ user นั้นๆ
   lineUserId?: string; // LINE User ID หรือ LINE ID สำหรับรับแจ้งเตือนอนุมัติ
+  failedLoginAttempts?: number; // จำนวนครั้งที่ใส่รหัสผ่านผิดสะสม
+  isLocked?: boolean; // บัญชีถูกล็อคหรือไม่
+  lockedAt?: string; // วันเวลาที่บัญชีถูกล็อค
+  lockedReason?: string; // สาเหตุที่ล็อคบัญชี
 }
 
 export interface Booking {
