@@ -188,7 +188,7 @@ export default function ChangePasswordModal({
                     : 'เปลี่ยนรหัสผ่าน (Change Password)'}
                 </h3>
                 <p className="text-xs text-slate-200 mt-0.5">
-                  บัญชี: <strong>{user.name}</strong> (@{user.username || user.email.split('@')[0]})
+                  บัญชี: <strong>{user.name}</strong> (@{user.username || (user.email ? user.email.split('@')[0] : (user.employeeCode || user.id || 'user'))})
                 </p>
               </div>
             </div>

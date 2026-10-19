@@ -10,17 +10,20 @@ import {
   PASSWORD_EXPIRY_DAYS_OPTIONS,
   MAX_FAILED_ATTEMPTS_OPTIONS,
   DEFAULT_PASSWORD_POLICY,
+  normalizePasswordPolicy,
   validatePasswordAgainstPolicy,
   generatePasswordForPolicy,
   getUserPasswordExpiryInfo,
   formatThaiDateShort,
   getUserPasswordHistoryList,
   getUserLockoutStatus,
+  getUnlockedUserRecord,
 } from '../utils/passwordPolicyUtils';
 import {
   Shield,
   ShieldAlert,
   Lock,
+  Unlock,
   KeyRound,
   Check,
   CheckCircle2,
@@ -53,28 +56,35 @@ export default function PasswordPolicyModal({
   isOpen,
   onClose,
   policy,
-  users,
+  users = [],
   canEdit,
   onSavePolicy,
 }: PasswordPolicyModalProps) {
-  const [draftPolicy, setDraftPolicy] = useState<PasswordPolicy>(policy);
+  const [draftPolicy, setDraftPolicy] = useState<PasswordPolicy>(() => normalizePasswordPolicy(policy));
   const [userStartDates, setUserStartDates] = useState<Record<string, string>>({});
   const [autoApplyCompliantPassword, setAutoApplyCompliantPassword] = useState<boolean>(true);
   const [testPassword, setTestPassword] = useState<string>('');
   const [visibleUserPass, setVisibleUserPass] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState('');
+  const [unlockedUserIds, setUnlockedUserIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen) {
-      setDraftPolicy(policy);
+      const safePolicy = normalizePasswordPolicy(policy);
+      setDraftPolicy(safePolicy);
+      setUnlockedUserIds([]);
       const initialDates: Record<string, string> = {};
-      users.forEach((u) => {
-        const info = getUserPasswordExpiryInfo(u, policy);
-        initialDates[u.id] = info.startDateIso.substring(0, 10);
+      const safeUsers = Array.isArray(users) ? users : [];
+      safeUsers.forEach((u) => {
+        if (!u || !u.id) return;
+        const info = getUserPasswordExpiryInfo(u, safePolicy);
+        if (info?.startDateIso) {
+          initialDates[u.id] = info.startDateIso.substring(0, 10);
+        }
       });
       setUserStartDates(initialDates);
-      setTestPassword(generatePasswordForPolicy(policy));
+      setTestPassword(generatePasswordForPolicy(safePolicy));
       setSavedSuccess('');
     }
   }, [isOpen, policy, users]);
@@ -85,10 +95,10 @@ export default function PasswordPolicyModal({
     setTestPassword(generatePasswordForPolicy(draftPolicy));
   }, [
     isOpen,
-    draftPolicy.requireLowercase,
-    draftPolicy.requireUppercase,
-    draftPolicy.requireSpecialChar,
-    draftPolicy.requireNumber,
+    draftPolicy?.requireLowercase,
+    draftPolicy?.requireUppercase,
+    draftPolicy?.requireSpecialChar,
+    draftPolicy?.requireNumber,
   ]);
 
   const sampleCompliantPassword = useMemo(
@@ -103,35 +113,38 @@ export default function PasswordPolicyModal({
 
   // Compute per-user password status & sort by who expires first ("หาก user ไหนหมดอายุก่อนก็ต้องเปลี่ยนรหัสก่อน")
   const sortedUserStatuses = useMemo(() => {
-    const list = users.map((u) => {
-      const customDateStr = userStartDates[u.id];
-      const effectiveUser: User = customDateStr
-        ? { ...u, passwordUpdatedAt: `${customDateStr}T09:00:00.000Z` }
-        : u;
-      const expiryInfo = getUserPasswordExpiryInfo(effectiveUser, draftPolicy);
-      const charValidation = validatePasswordAgainstPolicy(
-        u.password || 'password123',
-        draftPolicy,
-        u,
-        false
-      );
-      const historyCount = getUserPasswordHistoryList(u).length;
-      return {
-        user: effectiveUser,
-        expiryInfo,
-        charValidation,
-        historyCount,
-      };
-    });
+    const safeUsers = Array.isArray(users) ? users : [];
+    const list = safeUsers
+      .filter((u): u is User => Boolean(u && u.id))
+      .map((u) => {
+        const customDateStr = userStartDates[u.id];
+        const effectiveUser: User = customDateStr
+          ? { ...u, passwordUpdatedAt: `${customDateStr}T09:00:00.000Z` }
+          : u;
+        const expiryInfo = getUserPasswordExpiryInfo(effectiveUser, draftPolicy);
+        const charValidation = validatePasswordAgainstPolicy(
+          u.password || 'password123',
+          draftPolicy,
+          u,
+          false
+        );
+        const historyCount = getUserPasswordHistoryList(u).length;
+        return {
+          user: effectiveUser,
+          expiryInfo,
+          charValidation,
+          historyCount,
+        };
+      });
 
     // Sort order: when expiryDays > 0, sort by earliest expiryDate (most expired / fewest days remaining first)
     return list.sort((a, b) => {
-      if (draftPolicy.expiryDays > 0) {
+      if ((draftPolicy?.expiryDays ?? 0) > 0) {
         const aRem = a.expiryInfo.daysRemaining ?? 999999;
         const bRem = b.expiryInfo.daysRemaining ?? 999999;
         if (aRem !== bRem) return aRem - bRem;
       }
-      return a.user.name.localeCompare(b.user.name, 'th');
+      return (a.user?.name || '').localeCompare(b.user?.name || '', 'th');
     });
   }, [users, userStartDates, draftPolicy]);
 
@@ -142,6 +155,11 @@ export default function PasswordPolicyModal({
 
   const expiredUsersCount = useMemo(
     () => sortedUserStatuses.filter((item) => item.expiryInfo.isExpired).length,
+    [sortedUserStatuses]
+  );
+
+  const lockedUsersInModal = useMemo(
+    () => sortedUserStatuses.filter((item) => item.user.isLocked),
     [sortedUserStatuses]
   );
 
@@ -165,8 +183,6 @@ export default function PasswordPolicyModal({
     }));
   };
 
-  const [unlockedUserIds, setUnlockedUserIds] = useState<string[]>([]);
-
   const handleSelectExpiryDays = (val: PasswordExpiryDaysOption) => {
     if (!canEdit) return;
     setDraftPolicy((prev) => ({
@@ -183,9 +199,33 @@ export default function PasswordPolicyModal({
     }));
   };
 
-  const handleUnlockUser = (userId: string) => {
+  const handleUnlockUserImmediately = async (targetUser: User) => {
     if (!canEdit) return;
-    setUnlockedUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+    const unlocked = getUnlockedUserRecord(targetUser);
+    setUnlockedUserIds((prev) => (prev.includes(targetUser.id) ? prev : [...prev, targetUser.id]));
+    try {
+      await onSavePolicy(draftPolicy, [unlocked]);
+      setSavedSuccess(`ปลดล็อคบัญชี "${targetUser.name}" สำเร็จเรียบร้อยแล้วทันที`);
+      setTimeout(() => setSavedSuccess(''), 4000);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUnlockAllLockedUsers = async () => {
+    if (!canEdit) return;
+    const safeUsers = Array.isArray(users) ? users : [];
+    const lockedList = safeUsers.filter((u) => u.isLocked);
+    if (lockedList.length === 0) return;
+    const allUnlocked = lockedList.map((u) => getUnlockedUserRecord(u));
+    setUnlockedUserIds(allUnlocked.map((u) => u.id));
+    try {
+      await onSavePolicy(draftPolicy, allUnlocked);
+      setSavedSuccess(`ปลดล็อคบัญชีผู้ใช้ทั้งหมด ${allUnlocked.length} ท่าน สำเร็จเรียบร้อยแล้วทันที`);
+      setTimeout(() => setSavedSuccess(''), 4000);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleSave = async () => {
@@ -193,8 +233,10 @@ export default function PasswordPolicyModal({
     setIsSaving(true);
     try {
       const updatedUsersList: User[] = [];
+      const safeUsers = Array.isArray(users) ? users : [];
 
-      users.forEach((u) => {
+      safeUsers.forEach((u) => {
+        if (!u || !u.id) return;
         const dateStr = userStartDates[u.id];
         const nextPasswordUpdatedAt = dateStr
           ? `${dateStr}T09:00:00.000Z`
@@ -248,11 +290,6 @@ export default function PasswordPolicyModal({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const handleResetDefault = () => {
-    if (!canEdit) return;
-    setDraftPolicy({ ...DEFAULT_PASSWORD_POLICY });
   };
 
   const activeCount =
@@ -867,6 +904,35 @@ export default function PasswordPolicyModal({
                 )}
               </div>
 
+              {/* Prominent Locked Users Alert & One-Click Unlock All in Section 2 */}
+              {lockedUsersInModal.length > 0 && (
+                <div className="p-3.5 bg-rose-50 border-2 border-rose-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+                        <span>มีผู้ใช้งานถูกล็อคบัญชีอยู่ {lockedUsersInModal.length} ท่าน (ใส่รหัสผิดเกินกำหนด)</span>
+                      </div>
+                      <p className="text-[11px] text-rose-700 mt-0.5">
+                        Admin สามารถกดปุ่มปลดล็อคทันทีเพื่อให้ผู้ใช้กลับมาเข้าสู่ระบบได้เลย
+                      </p>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={handleUnlockAllLockedUsers}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
+                    >
+                      <Unlock className="w-4 h-4" />
+                      <span>ปลดล็อคผู้ใช้ทั้งหมดทันที ({lockedUsersInModal.length} คน)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
                 <div className="overflow-x-auto max-h-64">
                   <table className="w-full text-left border-collapse text-xs">
@@ -920,7 +986,7 @@ export default function PasswordPolicyModal({
 
                               <td className="py-2.5 px-3 font-mono">
                                 <div className="text-[11px] font-bold text-indigo-700">
-                                  @{u.username || u.email.split('@')[0]}
+                                  @{u.username || (u.email ? u.email.split('@')[0] : (u.employeeCode || u.id || 'user'))}
                                 </div>
                                 <div className="flex items-center gap-1 mt-0.5">
                                   <span className="text-[11px] text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">
@@ -1018,27 +1084,36 @@ export default function PasswordPolicyModal({
 
                               <td className="py-2.5 px-3 whitespace-nowrap">
                                 {unlockedUserIds.includes(u.id) ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-300">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>ปลดล็อคแล้ว (รอกดบันทึก)</span>
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>ปลดล็อคแล้ว (พร้อมใช้งาน)</span>
                                   </span>
-                                ) : u.isLocked ? (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-lg border border-rose-300">
-                                      <Lock className="w-3 h-3 text-rose-600" />
-                                      <span>ล็อคแล้ว (ผิด {u.failedLoginAttempts || 0} ครั้ง)</span>
-                                    </span>
-                                    {canEdit && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUnlockUser(u.id)}
-                                        className="px-2 py-0.5 text-[10px] font-bold text-indigo-700 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-200 rounded-md transition-colors cursor-pointer"
-                                      >
-                                        ปลดล็อค
-                                      </button>
-                                    )}
-                                  </div>
-                                ) : (u.failedLoginAttempts ?? 0) > 0 ? (
+                                ) : u.isLocked ? (() => {
+                                    const lockStat = getUserLockoutStatus(u);
+                                    return (
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-300">
+                                          <Lock className="w-3.5 h-3.5 text-rose-600" />
+                                          <span>
+                                            {lockStat.isAutoUnlocked
+                                              ? 'ครบ 15 นาทีแล้ว (พร้อมปลดล็อค)'
+                                              : `ล็อค (ผิด ${u.failedLoginAttempts || 0} ครั้ง • ปลดล็อคใน ${lockStat.formattedRemaining})`}
+                                          </span>
+                                        </span>
+                                        {canEdit && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleUnlockUserImmediately(u)}
+                                            className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                            title="คลิกเพื่อปลดล็อคผู้ใช้งานรายนี้ทันที"
+                                          >
+                                            <Unlock className="w-3.5 h-3.5" />
+                                            <span>ปลดล็อคทันที</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })() : (u.failedLoginAttempts ?? 0) > 0 ? (
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[11px] text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
                                       ผิด {u.failedLoginAttempts} ครั้ง
@@ -1046,8 +1121,8 @@ export default function PasswordPolicyModal({
                                     {canEdit && (
                                       <button
                                         type="button"
-                                        onClick={() => handleUnlockUser(u.id)}
-                                        className="px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded cursor-pointer"
+                                        onClick={() => handleUnlockUserImmediately(u)}
+                                        className="px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer"
                                         title="รีเซ็ตจำนวนครั้งที่ใส่รหัสผิด"
                                       >
                                         รีเซ็ต
@@ -1070,24 +1145,9 @@ export default function PasswordPolicyModal({
           </div>
 
           {/* Modal Footer */}
-          <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2">
-              {canEdit && (
-                <button
-                  id="btn-reset-password-policy"
-                  type="button"
-                  onClick={handleResetDefault}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl transition-colors cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>คืนค่าเริ่มต้น</span>
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                id="btn-cancel-password-policy"
+          <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+            <button
+              id="btn-cancel-password-policy"
                 type="button"
                 onClick={onClose}
                 className="flex-1 sm:flex-initial px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
@@ -1106,7 +1166,6 @@ export default function PasswordPolicyModal({
                   <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกนโยบายรหัสผ่าน'}</span>
                 </button>
               )}
-            </div>
           </div>
         </motion.div>
       </div>

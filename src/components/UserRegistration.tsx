@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   User,
   UserRole,
@@ -51,6 +51,7 @@ import {
 } from '../lib/firebase';
 import DepartmentDivisionModal, { DeptDivRenameItem } from './DepartmentDivisionModal';
 import PasswordPolicyModal from './PasswordPolicyModal';
+import ErrorBoundary from './ErrorBoundary';
 import {
   UserCheck,
   Shield,
@@ -59,6 +60,7 @@ import {
   X,
   AlertCircle,
   Lock,
+  Unlock,
   Eye,
   EyeOff,
   UserPlus,
@@ -566,9 +568,40 @@ export default function UserRegistration({
     }, 4000);
   };
 
+  const lockedUsersCount = useMemo(() => {
+    return Array.isArray(users) ? users.filter((u) => u.isLocked).length : 0;
+  }, [users]);
+
+  const handleUnlockSingleUser = async (targetUser: User) => {
+    const unlocked = getUnlockedUserRecord(targetUser);
+    if (onEditUser) {
+      await onEditUser(unlocked);
+    }
+    setImportSuccessMsg(`ปลดล็อคบัญชี "${targetUser.name}" สำเร็จแล้ว ผู้ใช้สามารถเข้าสู่ระบบได้ทันที`);
+    setTimeout(() => setImportSuccessMsg(''), 4500);
+  };
+
+  const handleUnlockAllLockedUsers = async () => {
+    const safeUsers = Array.isArray(users) ? users : [];
+    const lockedList = safeUsers.filter((u) => u.isLocked);
+    if (lockedList.length === 0) return;
+    const allUnlocked = lockedList.map((u) => getUnlockedUserRecord(u));
+    if (onEditMultipleUsers) {
+      await onEditMultipleUsers(allUnlocked);
+    } else if (onEditUser) {
+      for (const u of allUnlocked) {
+        await onEditUser(u);
+      }
+    }
+    setImportSuccessMsg(`ปลดล็อคบัญชีผู้ใช้ทั้งหมด ${allUnlocked.length} ท่าน สำเร็จเรียบร้อยแล้ว`);
+    setTimeout(() => setImportSuccessMsg(''), 4500);
+  };
+
   // Filtered Users List
   const filteredUsers = users.filter((u) => {
-    if (roleFilter !== 'All') {
+    if (roleFilter === 'Locked') {
+      if (!u.isLocked) return false;
+    } else if (roleFilter !== 'All') {
       if (!hasRole(u, roleFilter as UserRole)) return false;
     }
     if (deptFilter !== 'All') {
@@ -1076,7 +1109,7 @@ export default function UserRegistration({
                   })}
                 </div>
                 <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 font-mono font-semibold rounded-md border border-indigo-200">
-                  @{currentUser.username || currentUser.email.split('@')[0]}
+                  @{currentUser.username || (currentUser.email ? currentUser.email.split('@')[0] : (currentUser.employeeCode || currentUser.id || 'user'))}
                 </span>
               </div>
               <p className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
@@ -1101,6 +1134,47 @@ export default function UserRegistration({
           </div>
           <div className="bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-indigo-100 text-xs font-semibold text-indigo-700 shadow-2xs">
             🟢 {isEn ? 'Currently Logged In' : 'โปรไฟล์ที่กำลังเข้าสู่ระบบ'}
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Locked Users Alert & Quick Unlock Banner */}
+      {lockedUsersCount > 0 && (
+        <div
+          id="locked-users-alert-banner"
+          className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-inner">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-rose-950 flex items-center gap-2">
+                <span>มีบัญชีผู้ใช้งานถูกล็อค {lockedUsersCount} บัญชี (ใส่รหัสผ่านผิดเกินกำหนด)</span>
+              </h4>
+              <p className="text-xs text-rose-700 mt-0.5">
+                ผู้ดูแลระบบสามารถกดปลดล็อคเพื่อให้ผู้ใช้กลับเข้าสู่ระบบได้ทันที หรือรอระบบปลดล็อคอัตโนมัติเมื่อครบ 15 นาที
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <button
+              type="button"
+              onClick={() => setRoleFilter('Locked')}
+              className="px-3 py-1.5 bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              แสดงเฉพาะที่ถูกล็อค ({lockedUsersCount})
+            </button>
+            {(hasEditPermission || isUserAdmin(currentUser)) && (
+              <button
+                type="button"
+                onClick={handleUnlockAllLockedUsers}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>ปลดล็อคผู้ใช้ทั้งหมดทันที ({lockedUsersCount})</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1171,6 +1245,21 @@ export default function UserRegistration({
                 {r === 'All' ? (isEn ? 'All' : 'ทั้งหมด') : r}
               </button>
             ))}
+
+            {lockedUsersCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setRoleFilter('Locked')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  roleFilter === 'Locked'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-rose-100/90 hover:bg-rose-200 text-rose-800 border border-rose-300'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>ถูกล็อค ({lockedUsersCount})</span>
+              </button>
+            )}
           </div>
 
           {/* Clear Filters Button if any active */}
@@ -1228,7 +1317,7 @@ export default function UserRegistration({
             {filteredUsers.map((user) => {
               const isActive = currentUser?.id === user.id;
               const userPass = user.password || 'password123';
-              const userHandle = user.username || user.email.split('@')[0];
+              const userHandle = user.username || (user.email ? user.email.split('@')[0] : (user.employeeCode || user.id || 'user'));
               const isPasswordVisible = visiblePasswords[user.id];
               const userRoleList = getUserRoles(user);
 
@@ -1237,7 +1326,9 @@ export default function UserRegistration({
                   key={user.id}
                   id={`user-card-${user.id}`}
                   className={`relative p-5 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
-                    isActive
+                    user.isLocked
+                      ? 'bg-rose-50/50 border-rose-400 ring-2 ring-rose-400/25 shadow-sm'
+                      : isActive
                       ? 'bg-indigo-50/40 border-indigo-400 ring-2 ring-indigo-400/20 shadow-xs'
                       : 'bg-white border-gray-200 hover:border-gray-300 shadow-xs'
                   }`}
@@ -1248,7 +1339,9 @@ export default function UserRegistration({
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
                           className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 ${
-                            userRoleList.includes('Admin')
+                            user.isLocked
+                              ? 'bg-rose-600'
+                              : userRoleList.includes('Admin')
                               ? 'bg-purple-600'
                               : userRoleList.includes('Approve')
                               ? 'bg-blue-600'
@@ -1258,9 +1351,17 @@ export default function UserRegistration({
                           {user.name.substring(0, 2)}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-gray-900 text-sm leading-snug truncate" title={user.name}>
-                            {user.name}
-                          </h4>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-gray-900 text-sm leading-snug truncate" title={user.name}>
+                              {user.name}
+                            </h4>
+                            {user.isLocked && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white shrink-0 shadow-2xs">
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>ถูกล็อค</span>
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] font-mono text-gray-500 font-semibold">
                             {user.employeeCode ? `[${user.employeeCode}]` : '-'}
                           </span>
@@ -1373,29 +1474,29 @@ export default function UserRegistration({
                       {user.isLocked && (() => {
                         const lockStat = getUserLockoutStatus(user);
                         return (
-                          <div className="mt-2 flex items-center justify-between gap-1.5 p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
-                            <div className="flex items-center gap-1.5 font-bold min-w-0">
-                              <Lock className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                              <span className="truncate">
-                                {lockStat.isAutoUnlocked ? (
-                                  <span className="text-amber-800">ครบ 15 นาทีแล้ว (พร้อมปลดล็อค)</span>
-                                ) : (
-                                  <span>
-                                    ถูกล็อค (ผิด {user.failedLoginAttempts || 0} ครั้ง • ปลดล็อคใน {lockStat.formattedRemaining})
-                                  </span>
-                                )}
-                              </span>
+                          <div className="mt-3 p-3 bg-rose-100/90 border border-rose-300 rounded-xl text-xs text-rose-950 space-y-2">
+                            <div className="flex items-start gap-2 font-bold">
+                              <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="text-xs font-bold text-rose-950">
+                                  บัญชีถูกล็อค (ใส่รหัสผิด {user.failedLoginAttempts || 0} ครั้ง)
+                                </div>
+                                <div className="text-[11px] text-rose-700 font-medium">
+                                  {lockStat.isAutoUnlocked
+                                    ? 'ครบ 15 นาทีแล้ว (ระบบพร้อมปลดล็อค)'
+                                    : `ปลดล็อคอัตโนมัติในอีก ${lockStat.formattedRemaining}`}
+                                </div>
+                              </div>
                             </div>
-                            {hasEditPermission && (
+                            {(hasEditPermission || isUserAdmin(currentUser)) && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  onEditUser(getUnlockedUserRecord(user));
-                                }}
-                                className="px-2.5 py-1 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                                onClick={() => handleUnlockSingleUser(user)}
+                                className="w-full py-2 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
                                 title="คลิกเพื่อปลดล็อคบัญชีทันที (Admin Unlock)"
                               >
-                                ปลดล็อคทันที
+                                <Unlock className="w-4 h-4" />
+                                <span>ปลดล็อคบัญชีนี้ทันที</span>
                               </button>
                             )}
                           </div>
@@ -1539,6 +1640,45 @@ export default function UserRegistration({
 
               <form id="user-registration-form" onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 space-y-3.5">
                 <div className="flex-1 overflow-y-auto pr-1 space-y-3.5">
+                  {/* If user is locked, show prominent unlock card right in edit form */}
+                  {isEditing?.isLocked && (
+                    <div className="p-3.5 bg-rose-50 border-2 border-rose-300 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center shrink-0">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-rose-950">
+                            บัญชีนี้กำลังถูกล็อค (ใส่รหัสผิดเกินกำหนด {isEditing.failedLoginAttempts || 0} ครั้ง)
+                          </div>
+                          <div className="text-[11px] text-rose-700 mt-0.5">
+                            {getUserLockoutStatus(isEditing).isAutoUnlocked
+                              ? 'ครบ 15 นาทีแล้ว (ระบบพร้อมปลดล็อค)'
+                              : `ปลดล็อคอัตโนมัติในอีก ${getUserLockoutStatus(isEditing).formattedRemaining}`}
+                          </div>
+                        </div>
+                      </div>
+                      {(hasEditPermission || isUserAdmin(currentUser)) && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const unlocked = getUnlockedUserRecord(isEditing);
+                            setIsEditing(unlocked);
+                            if (onEditUser) {
+                              await onEditUser(unlocked);
+                            }
+                            setImportSuccessMsg(`ปลดล็อคบัญชี "${unlocked.name}" เรียบร้อยแล้ว`);
+                            setTimeout(() => setImportSuccessMsg(''), 4500);
+                          }}
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
+                        >
+                          <Unlock className="w-4 h-4" />
+                          <span>ปลดล็อคบัญชีนี้ทันที</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Employee ID */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -2148,7 +2288,7 @@ export default function UserRegistration({
             </div>
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-gray-700 space-y-1">
               <p><strong className="font-semibold text-gray-900">{isEn ? 'Name:' : 'ชื่อ-นามสกุล:'}</strong> {deletingUser.name}</p>
-              <p><strong className="font-semibold text-gray-900">Username:</strong> @{deletingUser.username || deletingUser.email.split('@')[0]}</p>
+              <p><strong className="font-semibold text-gray-900">Username:</strong> @{deletingUser.username || (deletingUser.email ? deletingUser.email.split('@')[0] : (deletingUser.employeeCode || deletingUser.id || 'user'))}</p>
               <p><strong className="font-semibold text-gray-900">{isEn ? 'Department:' : 'แผนก:'}</strong> {deletingUser.department}</p>
               <p><strong className="font-semibold text-gray-900">{isEn ? 'Email:' : 'อีเมล:'}</strong> {deletingUser.email}</p>
             </div>
@@ -2207,20 +2347,25 @@ export default function UserRegistration({
       />
 
       {/* System Password Policy Configuration Modal */}
-      <PasswordPolicyModal
-        isOpen={isPasswordPolicyModalOpen}
-        onClose={() => setIsPasswordPolicyModalOpen(false)}
-        policy={passwordPolicy}
-        users={users}
-        canEdit={hasEditPermission || isUserAdmin(currentUser)}
-        onSavePolicy={async (newPolicy, updatedUsersList) => {
-          if (onUpdatePasswordPolicy) {
-            await onUpdatePasswordPolicy(newPolicy, updatedUsersList);
-          }
-          setImportSuccessMsg('บันทึกการตั้งค่านโยบายรหัสผ่านของระบบเรียบร้อยแล้ว');
-          setTimeout(() => setImportSuccessMsg(''), 4000);
-        }}
-      />
+      <ErrorBoundary
+        fallbackTitle="เกิดข้อผิดพลาดในการเปิดนโยบายรหัสผ่าน"
+        onReset={() => setIsPasswordPolicyModalOpen(false)}
+      >
+        <PasswordPolicyModal
+          isOpen={isPasswordPolicyModalOpen}
+          onClose={() => setIsPasswordPolicyModalOpen(false)}
+          policy={passwordPolicy}
+          users={users}
+          canEdit={hasEditPermission || isUserAdmin(currentUser)}
+          onSavePolicy={async (newPolicy, updatedUsersList) => {
+            if (onUpdatePasswordPolicy) {
+              await onUpdatePasswordPolicy(newPolicy, updatedUsersList);
+            }
+            setImportSuccessMsg('บันทึกการตั้งค่านโยบายรหัสผ่านของระบบเรียบร้อยแล้ว');
+            setTimeout(() => setImportSuccessMsg(''), 4000);
+          }}
+        />
+      </ErrorBoundary>
         </>
       )}
     </div>

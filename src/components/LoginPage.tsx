@@ -198,8 +198,8 @@ export default function LoginPage({
       setIsLoading(false);
       setError(
         language === 'th'
-          ? 'ไม่พบบัญชีผู้ใช้งานนี้ในระบบ (อนุญาตเฉพาะผู้ใช้งานที่มีรายชื่ออยู่ในระบบจริงเท่านั้น)'
-          : 'User account not found in the system.'
+          ? 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง'
+          : 'Username or password incorrect. Please try again.'
       );
       return;
     }

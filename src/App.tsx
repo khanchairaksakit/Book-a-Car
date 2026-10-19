@@ -110,6 +110,7 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   // Language locked to Thai ('th')
@@ -2272,8 +2273,9 @@ export default function App() {
 
         {/* Main dynamic container with responsive padding and animation */}
         <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full flex-1">
-          <AnimatePresence mode="wait">
-            <motion.div
+          <ErrorBoundary>
+            <AnimatePresence mode="wait">
+              <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2419,6 +2421,7 @@ export default function App() {
               )}
             </motion.div>
           </AnimatePresence>
+        </ErrorBoundary>
         </main>
       </div>
 

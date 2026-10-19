@@ -266,7 +266,7 @@ export default function UserProfileModal({
                 <div className="relative">
                   <input
                     type="text"
-                    value={currentUser.username || currentUser.email.split('@')[0]}
+                    value={currentUser.username || (currentUser.email ? currentUser.email.split('@')[0] : (currentUser.employeeCode || currentUser.id || 'user'))}
                     disabled
                     readOnly
                     className="w-full pl-3 pr-8 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono text-slate-500 cursor-not-allowed select-none"
