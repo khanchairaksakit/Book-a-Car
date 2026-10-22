@@ -105,6 +105,22 @@ export const INITIAL_VEHICLES: Vehicle[] = [
 
 export const INITIAL_USERS: User[] = [
   {
+    id: 'user-0',
+    employeeCode: 'EMP-000',
+    name: 'ขรรค์ชัย (Khanchai R.)',
+    department: 'ฝ่ายอำนวยการและบริหารทั่วไป',
+    division: 'ฝ่ายวางแผนกลยุทธ์บริษัท',
+    phone: '081-888-9999',
+    email: 'khanchai.r@ax.co.th',
+    roles: ['Admin', 'Approve 1', 'Approve 2', 'User', 'Operator'],
+    role: 'Admin',
+    username: 'admin',
+    password: 'password123',
+    passwordUpdatedAt: '2026-10-10T09:00:00.000Z',
+    passwordHistory: ['password123'],
+    lineUserId: 'khanchai_r',
+  },
+  {
     id: 'user-1',
     employeeCode: 'EMP-001',
     name: 'สมชาย ใจดี',

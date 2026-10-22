@@ -38,9 +38,79 @@ import {
   safeLocalStorageSet,
 } from '../utils/organizationUtils';
 import { compressDataUrlIfNeeded } from '../utils/imageCompression';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  User as FirebaseUser,
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+
+export const googleAuthProvider = new GoogleAuthProvider();
+googleAuthProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+
+// In-memory token caching pattern
+let isSigningIn = false;
+let cachedAccessToken: string | null = null;
+let cachedGoogleUser: FirebaseUser | null = null;
+
+export const initGoogleAuth = (
+  onAuthSuccess?: (user: FirebaseUser, token: string) => void,
+  onAuthFailure?: () => void
+) => {
+  return onAuthStateChanged(auth, async (user: FirebaseUser | null) => {
+    cachedGoogleUser = user;
+    if (user) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      cachedAccessToken = null;
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+};
+
+export const googleSignIn = async (): Promise<{ user: FirebaseUser; accessToken: string } | null> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, googleAuthProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Failed to get access token from Google Auth');
+    }
+    cachedAccessToken = credential.accessToken;
+    cachedGoogleUser = result.user;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    console.error('Google sign in error:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+export const getGoogleAccessToken = async (): Promise<string | null> => {
+  return cachedAccessToken;
+};
+
+export const getCachedGoogleUser = (): FirebaseUser | null => {
+  return cachedGoogleUser;
+};
+
+export const googleSignOut = async () => {
+  await auth.signOut();
+  cachedAccessToken = null;
+  cachedGoogleUser = null;
+};
+
 let firestoreInstance;
 try {
   const databaseId = (firebaseConfig as any).firestoreDatabaseId;

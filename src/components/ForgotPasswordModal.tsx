@@ -27,6 +27,18 @@ import {
   generatePasswordForPolicy,
   DEFAULT_PASSWORD_POLICY,
 } from '../utils/passwordPolicyUtils';
+import {
+  sendGmailMessage,
+  buildPasswordResetEmailHtml,
+} from '../services/gmailService';
+import {
+  initGoogleAuth,
+  googleSignIn,
+  googleSignOut,
+  getCachedGoogleUser,
+  getGoogleAccessToken,
+} from '../lib/firebase';
+import { User as FirebaseUser } from 'firebase/auth';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -56,6 +68,14 @@ export default function ForgotPasswordModal({
   const [activeTokenRecord, setActiveTokenRecord] = useState<PasswordResetTokenRecord | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Gmail real email sending state
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [isSendingGmail, setIsSendingGmail] = useState(false);
+  const [gmailSentSuccess, setGmailSentSuccess] = useState(false);
+  const [gmailSentUserEmail, setGmailSentUserEmail] = useState('');
+  const [gmailError, setGmailError] = useState('');
+  const [showConfirmSendGmailModal, setShowConfirmSendGmailModal] = useState(false);
+
   // Reset password form state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -81,7 +101,24 @@ export default function ForgotPasswordModal({
     });
   };
 
-  // On open, initialize identifier or directly find user if prefilled
+  // Listen to Google Auth state
+  useEffect(() => {
+    const unsub = initGoogleAuth(
+      (u) => {
+        setGoogleUser(u);
+      },
+      () => {
+        setGoogleUser(null);
+      }
+    );
+    const cached = getCachedGoogleUser();
+    if (cached) {
+      setGoogleUser(cached);
+    }
+    return () => unsub();
+  }, []);
+
+  // On open, check URL resetToken or initialize identifier / matched user
   useEffect(() => {
     if (isOpen) {
       setResetError('');
@@ -90,6 +127,32 @@ export default function ForgotPasswordModal({
       setNewPassword('');
       setConfirmPassword('');
       setIsSubmitting(false);
+      setGmailSentSuccess(false);
+      setGmailError('');
+      setIsSendingGmail(false);
+      setShowConfirmSendGmailModal(false);
+
+      // Check if URL has ?resetToken=...
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('resetToken');
+        if (urlToken) {
+          const rec = getPasswordResetToken(urlToken);
+          if (rec) {
+            const foundUser = users.find(
+              (u) =>
+                u.id === rec.userId ||
+                (u.email && u.email.toLowerCase() === rec.userEmail.toLowerCase())
+            );
+            if (foundUser) {
+              setMatchedUser(foundUser);
+              setActiveTokenRecord(rec);
+              setStep('reset_form');
+              return;
+            }
+          }
+        }
+      }
 
       if (initialIdentifier && initialIdentifier.trim()) {
         const found = findUser(initialIdentifier);
@@ -121,7 +184,96 @@ export default function ForgotPasswordModal({
     setStep('confirm');
   };
 
-  // Confirm request & simulate email transmission
+  const handleStartSendGmail = async () => {
+    setGmailError('');
+    if (!matchedUser || !matchedUser.email) return;
+
+    const token = await getGoogleAccessToken();
+    if (!token) {
+      try {
+        const authRes = await googleSignIn();
+        if (authRes?.user) {
+          setGoogleUser(authRes.user);
+          setShowConfirmSendGmailModal(true);
+        }
+      } catch (err: any) {
+        setGmailError(err?.message || 'การเชื่อมต่อ Google ล้มเหลว');
+      }
+    } else {
+      setShowConfirmSendGmailModal(true);
+    }
+  };
+
+  const executeSendGmail = async () => {
+    if (!matchedUser || !matchedUser.email) return;
+    setIsSendingGmail(true);
+    setGmailError('');
+
+    let tokenRec = activeTokenRecord;
+    if (!tokenRec) {
+      const token = `rst-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      tokenRec = {
+        token,
+        userId: matchedUser.id,
+        userEmail: matchedUser.email,
+        userName: matchedUser.name,
+        createdAt: new Date().toISOString(),
+        expiresAt,
+        used: false,
+      };
+      savePasswordResetToken(tokenRec);
+      setActiveTokenRecord(tokenRec);
+    }
+
+    const resetUrl =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}${window.location.pathname}?resetToken=${tokenRec.token}`
+        : `https://car-booking-app.local/reset-password?token=${tokenRec.token}`;
+
+    const htmlBody = buildPasswordResetEmailHtml({
+      recipientName: matchedUser.name,
+      resetUrl,
+      userEmail: matchedUser.email,
+    });
+
+    const result = await sendGmailMessage({
+      to: matchedUser.email,
+      subject: `[Car Booking] ลิงก์สำหรับตั้งค่ารหัสผ่านใหม่สำหรับคุณ ${matchedUser.name}`,
+      htmlBody,
+    });
+
+    setIsSendingGmail(false);
+    if (result.success) {
+      setGmailSentSuccess(true);
+      setGmailSentUserEmail(result.userEmail || googleUser?.email || '');
+      setStep('sent_email');
+    } else {
+      setGmailError(result.error || 'เกิดข้อผิดพลาดในการส่งอีเมลผ่าน Gmail');
+    }
+  };
+
+  // Direct Reset without waiting for email
+  const handleDirectReset = () => {
+    if (!matchedUser) return;
+    const token = `rst-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins expiry
+    const record: PasswordResetTokenRecord = {
+      token,
+      userId: matchedUser.id,
+      userEmail: matchedUser.email || '',
+      userName: matchedUser.name,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      used: false,
+    };
+
+    savePasswordResetToken(record);
+    setActiveTokenRecord(record);
+    setStep('reset_form');
+  };
+
+  // Generate Reset Token & show direct link panel
   const handleConfirmReset = () => {
     if (!matchedUser) return;
     if (!matchedUser.email || !matchedUser.email.trim()) {
@@ -159,6 +311,15 @@ export default function ForgotPasswordModal({
     navigator.clipboard?.writeText(resetLinkUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleMailto = () => {
+    if (!matchedUser || !resetLinkUrl) return;
+    const subject = encodeURIComponent('[Car Booking] ลิงก์สำหรับตั้งค่ารหัสผ่านใหม่');
+    const body = encodeURIComponent(
+      `เรียน คุณ ${matchedUser.name},\n\nนี่คือลิงก์สำหรับตั้งค่ารหัสผ่านใหม่ของคุณ (ใช้งานได้ 15 นาที):\n${resetLinkUrl}\n\nหากคุณไม่ได้เป็นผู้ร้องขอ กรุณาละเว้นข้อความนี้`
+    );
+    window.location.href = `mailto:${matchedUser.email}?subject=${subject}&body=${body}`;
   };
 
   // Policy validation for new password
@@ -376,22 +537,116 @@ export default function ForgotPasswordModal({
 
                   {/* Check Email Presence */}
                   {matchedUser.email && matchedUser.email.trim() ? (
-                    <div className="bg-white border border-indigo-100 rounded-xl p-3.5 space-y-1.5 shadow-2xs">
-                      <div className="flex items-center gap-2 text-xs font-bold text-indigo-900">
-                        <Mail className="w-4 h-4 text-indigo-600" />
-                        <span>อีเมลที่ลงทะเบียนไว้ในระบบ:</span>
+                    <div className="space-y-3">
+                      <div className="bg-white border border-indigo-100 rounded-xl p-3.5 space-y-1.5 shadow-2xs">
+                        <div className="flex items-center gap-2 text-xs font-bold text-indigo-900">
+                          <Mail className="w-4 h-4 text-indigo-600" />
+                          <span>อีเมลที่ลงทะเบียนไว้ในระบบ:</span>
+                        </div>
+                        <div className="pl-6">
+                          <span
+                            id="forgot-display-user-email"
+                            className="text-sm sm:text-base font-bold font-mono text-indigo-600 bg-indigo-50/80 px-2.5 py-1 rounded-md border border-indigo-200 inline-block"
+                          >
+                            {matchedUser.email}
+                          </span>
+                        </div>
                       </div>
-                      <div className="pl-6">
-                        <span
-                          id="forgot-display-user-email"
-                          className="text-sm sm:text-base font-bold font-mono text-indigo-600 bg-indigo-50/80 px-2.5 py-1 rounded-md border border-indigo-200 inline-block"
-                        >
-                          {matchedUser.email}
-                        </span>
+
+                      {/* Real Gmail Delivery Card */}
+                      <div className="bg-gradient-to-r from-indigo-50/90 to-blue-50/90 border border-indigo-200 rounded-2xl p-4 space-y-3 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-xl bg-white border border-indigo-200 flex items-center justify-center shadow-2xs">
+                              <Mail className="w-4 h-4 text-indigo-600" />
+                            </div>
+                            <div>
+                              <h5 className="text-xs font-bold text-gray-900">
+                                ส่งอีเมลจริงไปยัง {matchedUser.email}
+                              </h5>
+                              <p className="text-[10px] text-gray-500">
+                                ผ่านบริการ Google Workspace Gmail
+                              </p>
+                            </div>
+                          </div>
+                          {googleUser && (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              พร้อมส่ง
+                            </span>
+                          )}
+                        </div>
+
+                        {gmailError && (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                            <span>{gmailError}</span>
+                          </div>
+                        )}
+
+                        {googleUser ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-[11px] bg-white/80 p-2.5 rounded-xl border border-indigo-100">
+                              <span className="text-gray-500">
+                                บัญชี Google ที่เชื่อมต่อ: <strong className="text-gray-800">{googleUser.email}</strong>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => googleSignOut().then(() => setGoogleUser(null))}
+                                className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
+                              >
+                                สลับบัญชี
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              id="btn-send-real-gmail"
+                              disabled={isSendingGmail}
+                              onClick={handleStartSendGmail}
+                              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              {isSendingGmail ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Mail className="w-4 h-4" />
+                              )}
+                              <span>✉️ ส่งลิงก์ไปยังอีเมลจริง ({matchedUser.email}) ผ่าน Gmail</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-[11px] text-gray-600 leading-relaxed">
+                              ระบบพร้อมส่งอีเมลจริงด้วย Gmail แล้ว กดปุ่มด้านล่างเพื่อเข้าสู่ระบบ Google และสั่งส่งอีเมลตรงไปยังกล่องจดหมายจริงได้ทันที
+                            </p>
+                            <button
+                              type="button"
+                              id="btn-google-signin-send"
+                              disabled={isSendingGmail}
+                              onClick={handleStartSendGmail}
+                              className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 active:scale-98 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs hover:shadow-sm flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48">
+                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                              </svg>
+                              <span>Sign in with Google เพื่อส่งอีเมลจริงผ่าน Gmail</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[11px] text-gray-500 pl-6 pt-0.5">
-                        ระบบจะสร้างและส่งลิงก์สำหรับรีเซตรหัสผ่านไปยังอีเมลนี้ ลิงก์มีอายุ 15 นาที
-                      </p>
+
+                      {/* Instant Direct Reset Alternative */}
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1 text-slate-700">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                          <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>หรือต้องการตั้งรหัสผ่านใหม่บนหน้านี้ทันที?</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-slate-600">
+                          คุณสามารถกดปุ่ม <strong>"⚡ ตั้งรหัสผ่านใหม่ทันที"</strong> เพื่อเปลี่ยนรหัสผ่านได้ทันทีโดยไม่ต้องรอเปิดกล่องอีเมล
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     /* User has NO EMAIL in system */
@@ -423,115 +678,175 @@ export default function ForgotPasswordModal({
                 )}
 
                 {/* Confirmation Actions */}
-                <div className="flex items-center justify-between gap-3 pt-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setStep('lookup');
                       setLookupError('');
                     }}
-                    className="px-3.5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                    className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer order-last sm:order-first"
                   >
                     ← ค้นหาบัญชีอื่น
                   </button>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     <button
                       id="btn-forgot-cancel"
                       type="button"
                       onClick={onClose}
-                      className="px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
+                      className="px-3.5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
                     >
                       ยกเลิก
                     </button>
 
                     {matchedUser.email && matchedUser.email.trim() && (
-                      <button
-                        id="btn-forgot-confirm-send"
-                        type="button"
-                        onClick={handleConfirmReset}
-                        className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>ยืนยันขอรีเซตรหัสผ่าน</span>
-                      </button>
+                      <>
+                        <button
+                          id="btn-forgot-create-link"
+                          type="button"
+                          onClick={handleConfirmReset}
+                          className="px-3.5 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          title="สร้างลิงก์สำหรับคัดลอกหรือส่งต่อ"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>สร้างลิงก์รีเซต</span>
+                        </button>
+
+                        <button
+                          id="btn-forgot-direct-reset"
+                          type="button"
+                          onClick={handleDirectReset}
+                          className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Sparkles className="w-4 h-4 text-indigo-200" />
+                          <span>⚡ ตั้งรหัสผ่านใหม่ทันที (ไม่ต้องรออีเมล)</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* STEP 3: SIMULATED EMAIL INBOX / LINK DISPATCH */}
+            {/* STEP 3: RESET LINK READY & DIRECT DISPATCH */}
             {step === 'sent_email' && matchedUser && activeTokenRecord && (
               <div className="space-y-4">
-                <div className="text-center space-y-1">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto mb-2">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <h4 className="font-bold text-base text-gray-900">
-                    ส่งลิงก์รีเซตรหัสผ่านเรียบร้อยแล้ว
-                  </h4>
-                  <p className="text-xs text-gray-500">
-                    ระบบส่งลิงก์สำหรับเปลี่ยนรหัสผ่านไปยังอีเมลของคุณแล้ว (มีอายุ 15 นาที)
-                  </p>
-                </div>
-
-                {/* Email Delivery Simulation Card */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2">
-                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-indigo-600" />
-                      กล่องข้อความจำลอง (Simulated Inbox)
-                    </span>
-                    <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-2 py-0.5 rounded-full">
-                      ส่งสำเร็จ
-                    </span>
-                  </div>
-
-                  <div className="text-xs space-y-1 text-slate-700">
-                    <div>
-                      <span className="text-gray-400">ถึง (To):</span>{' '}
-                      <strong className="font-mono text-indigo-700">{matchedUser.email}</strong>
+                {gmailSentSuccess ? (
+                  /* GMAIL REAL EMAIL SUCCESS HEADER */
+                  <div className="text-center space-y-1">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto mb-2 shadow-xs">
+                      <CheckCircle2 className="w-6 h-6" />
                     </div>
-                    <div>
-                      <span className="text-gray-400">หัวข้อ:</span>{' '}
-                      <span>[Car Booking] ลิงก์สำหรับตั้งค่ารหัสผ่านใหม่ (Reset Password Link)</span>
-                    </div>
-                  </div>
-
-                  {/* Reset Link Action Card */}
-                  <div className="bg-white border border-indigo-200 rounded-xl p-3.5 space-y-2.5">
-                    <p className="text-xs text-slate-700 leading-relaxed">
-                      เรียน คุณ<strong>{matchedUser.name}</strong>, มีการร้องขอรีเซตรหัสผ่านสำหรับบัญชีของคุณ กรุณากดปุ่มด้านล่างเพื่อเข้าสู่หน้าตั้งค่ารหัสผ่านใหม่:
+                    <h4 className="font-bold text-base text-gray-900">
+                      ส่งอีเมลจริงไปยัง {matchedUser.email} สำเร็จแล้ว!
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      ส่งออกจากบัญชี Gmail: <strong className="text-indigo-700 font-semibold">{gmailSentUserEmail || googleUser?.email}</strong>
                     </p>
+                  </div>
+                ) : (
+                  /* DIRECT LINK READY HEADER */
+                  <div className="text-center space-y-1">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center mx-auto mb-2 shadow-xs">
+                      <KeyRound className="w-6 h-6" />
+                    </div>
+                    <h4 className="font-bold text-base text-gray-900">
+                      ลิงก์รีเซตรหัสผ่านพร้อมใช้งานแล้ว
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      สำหรับบัญชี: <strong className="text-indigo-700 font-semibold">{matchedUser.name}</strong> ({matchedUser.email})
+                    </p>
+                  </div>
+                )}
 
-                    <button
-                      id="btn-open-reset-password-page"
-                      type="button"
-                      onClick={() => setStep('reset_form')}
-                      className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <span>กดที่นี่เพื่อไปยังหน้าเปลี่ยนรหัสผ่าน</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <span className="text-[10px] text-gray-400 font-mono truncate max-w-[280px]">
-                        {resetLinkUrl}
-                      </span>
+                {/* Delivery Notice Card */}
+                {gmailSentSuccess ? (
+                  <div className="bg-emerald-50/90 border border-emerald-200 rounded-2xl p-4 space-y-2 text-xs text-emerald-950">
+                    <div className="flex items-center gap-2 font-bold text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>อีเมลส่งออกถึงเซิร์ฟเวอร์เรียบร้อยแล้ว</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-emerald-900">
+                      ระบบได้ทำการส่งอีเมลจริงพร้อมปุ่มตั้งค่ารหัสผ่านใหม่ไปยัง <strong>{matchedUser.email}</strong> เรียบร้อยแล้ว (ลิงก์มีอายุ 15 นาที)
+                    </p>
+                    <p className="text-[11px] text-emerald-800">
+                      📩 กรุณาเปิดแอปอีเมลหรือ Outlook ของคุณเพื่อตรวจสอบกล่องข้อความขาเข้า (Inbox) หรือโฟลเดอร์จดหมายขยะ (Spam/Junk) ได้เลย!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2 text-xs text-amber-900">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-bold text-amber-800">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>ต้องการส่งอีเมลจริงไปยัง {matchedUser.email}?</span>
+                      </div>
                       <button
                         type="button"
-                        onClick={handleCopyLink}
-                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer shrink-0"
+                        onClick={handleStartSendGmail}
+                        disabled={isSendingGmail}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
                       >
-                        {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedLink ? 'คัดลอกแล้ว' : 'คัดลอกลิงก์'}</span>
+                        <Mail className="w-3 h-3" />
+                        <span>ส่งผ่าน Gmail จริง</span>
                       </button>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-amber-800">
+                      คุณสามารถคลิกปุ่มด้านบนเพื่อสั่งส่งอีเมลจริงผ่าน Gmail หรือกดปุ่มด้านล่างเพื่อเปลี่ยนรหัสผ่านบนหน้านี้ได้ทันที
+                    </p>
+                  </div>
+                )}
+
+                {/* Direct Action Card */}
+                <div className="bg-white border border-indigo-200 rounded-2xl p-4 space-y-3.5 shadow-sm">
+                  <button
+                    id="btn-open-reset-password-page"
+                    type="button"
+                    onClick={() => setStep('reset_form')}
+                    className="w-full py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>กดที่นี่เพื่อเปลี่ยนรหัสผ่านใหม่ทันที (ไม่ต้องรออีเมล)</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span className="font-semibold text-gray-700">ลิงก์รีเซตรหัสผ่าน (อายุ 15 นาที):</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCopyLink}
+                          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200"
+                        >
+                          {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedLink ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleMailto}
+                          className="text-xs font-bold text-slate-600 hover:text-slate-800 flex items-center gap-1 cursor-pointer bg-slate-100 px-2 py-1 rounded-md border border-slate-200"
+                          title="เปิดโปรแกรมส่งอีเมลในเครื่อง"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>เปิดใน Mail App</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] font-mono text-gray-700 break-all select-all">
+                      {resetLinkUrl}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-1">
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setStep('confirm')}
+                    className="text-xs text-gray-500 hover:text-gray-700 font-semibold cursor-pointer"
+                  >
+                    ← ย้อนกลับ
+                  </button>
                   <button
                     type="button"
                     onClick={onClose}
@@ -721,6 +1036,75 @@ export default function ForgotPasswordModal({
           </div>
         </motion.div>
       </div>
+
+      {/* Confirmation Modal for sending real email via Gmail API */}
+      {showConfirmSendGmailModal && matchedUser && (
+        <div
+          id="confirm-send-gmail-modal-backdrop"
+          className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+          onClick={() => setShowConfirmSendGmailModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-gray-900">
+                  ยืนยันการส่งอีเมลจริงผ่าน Gmail
+                </h4>
+                <p className="text-[11px] text-gray-500">
+                  บริการ Google Workspace Gmail
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1.5 text-slate-700">
+              <div>
+                <span className="text-gray-400">ส่งจาก (From):</span>{' '}
+                <strong className="text-gray-900">{googleUser?.email || 'บัญชี Google ของคุณ'}</strong>
+              </div>
+              <div>
+                <span className="text-gray-400">ส่งถึง (To):</span>{' '}
+                <strong className="text-indigo-600">{matchedUser.email}</strong> ({matchedUser.name})
+              </div>
+              <div>
+                <span className="text-gray-400">หัวข้อ:</span>{' '}
+                <span>[Car Booking] ลิงก์สำหรับตั้งค่ารหัสผ่านใหม่</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-gray-600 leading-relaxed">
+              ระบบจะทำการสร้างและส่งลิงก์สำหรับรีเซตรหัสผ่าน (อายุ 15 นาที) ไปยังกล่องจดหมายจริงของผู้รับทันที
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowConfirmSendGmailModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-send-gmail-action"
+                onClick={() => {
+                  setShowConfirmSendGmailModal(false);
+                  executeSendGmail();
+                }}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white text-xs font-bold shadow-md shadow-indigo-600/20 cursor-pointer flex items-center gap-1.5"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>ยืนยันส่งอีเมล</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AnimatePresence>
   );
 }

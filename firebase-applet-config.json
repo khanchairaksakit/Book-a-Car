@@ -1,12 +1,11 @@
 {
-  "projectId": "fleet-fefc5",
-  "appId": "1:90802279312:web:8d5e1d3f14fffd0ad09915",
-  "apiKey": "AIzaSyB_Hnim69j-c_488WjTsIz5KPbiwYJRDg0",
-  "authDomain": "fleet-fefc5.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-adb955cc-9afb-4a36-a3d2-db66137197bf",
-  "storageBucket": "fleet-fefc5.firebasestorage.app",
-  "messagingSenderId": "90802279312",
+  "projectId": "gen-lang-client-0488997203",
+  "appId": "1:618305002647:web:984ac16ff11a906a815dd2",
+  "apiKey": "AIzaSyCVi5-lM3ABoV-uVGyPdjqv3mqIsZ3Dkxg",
+  "authDomain": "gen-lang-client-0488997203.firebaseapp.com",
+  "storageBucket": "gen-lang-client-0488997203.firebasestorage.app",
+  "messagingSenderId": "618305002647",
   "measurementId": "",
-  "oAuthClientId": "90802279312-dosfhuveijrp5876163s7pt0qt2aqnn4.apps.googleusercontent.com",
+  "oAuthClientId": "618305002647-mnv719ilt6q1s4lsth5bojknehnhut0u.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

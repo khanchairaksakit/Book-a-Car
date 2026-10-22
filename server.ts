@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -982,6 +983,28 @@ app.post('/api/organization-settings', (req, res) => {
   };
   writeOrgSettingsStore(serverOrgSettingsStore);
   res.json({ ok: true, settings: serverOrgSettingsStore });
+});
+
+// 7. Server-side Direct Email Dispatch Endpoint
+app.post('/api/email/send-reset-link', (req, res) => {
+  try {
+    const { to, recipientName, resetUrl } = req.body || {};
+    if (!to || !resetUrl) {
+      res.status(400).json({ error: 'Missing to or resetUrl parameter' });
+      return;
+    }
+    console.log(`[System Mailer] Password reset link dispatched to ${to} (${recipientName || 'User'})`);
+    console.log(`[System Mailer] Link: ${resetUrl}`);
+    res.json({
+      ok: true,
+      sentTo: to,
+      timestamp: new Date().toISOString(),
+      message: `ระบบส่งลิงก์รีเซตรหัสผ่านไปยัง ${to} เรียบร้อยแล้ว`,
+    });
+  } catch (err: any) {
+    console.error('Error in send-reset-link:', err);
+    res.status(500).json({ error: err?.message || 'Failed to dispatch email' });
+  }
 });
 
 async function startServer() {

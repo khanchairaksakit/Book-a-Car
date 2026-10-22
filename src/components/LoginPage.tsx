@@ -108,11 +108,23 @@ export default function LoginPage({
     return () => clearInterval(interval);
   }, [lockedUserInfo, language, onUpdateUserPassword]);
 
+  // Auto-detect ?resetToken= in URL to open forgot password modal directly
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('resetToken')) {
+        setIsForgotPasswordModalOpen(true);
+      }
+    }
+  }, []);
+
   const t = translations[language];
 
   const findMatchingUser = (pool: User[], exactLower: string): User | undefined => {
     if (!exactLower || /\s/.test(exactLower)) return undefined;
-    return pool.find((u) => {
+
+    // 1. Direct match on username, email, or employee code
+    const directMatch = pool.find((u) => {
       if (!u || !u.id) return false;
       const userUsername = (u.username || '').trim().toLowerCase();
       const userEmail = (u.email || '').trim().toLowerCase();
@@ -123,6 +135,21 @@ export default function LoginPage({
         (Boolean(userCode) && userCode === exactLower)
       );
     });
+    if (directMatch) return directMatch;
+
+    // 2. If user searched "admin" or "ผู้ดูแลระบบ", match admin user account
+    if (exactLower === 'admin' || exactLower === 'ผู้ดูแลระบบ') {
+      return pool.find(
+        (u) =>
+          u.id === 'user-0' ||
+          u.role === 'Admin' ||
+          u.roles?.includes('Admin') ||
+          (u.username || '').toLowerCase() === 'khanchai' ||
+          (u.email || '').toLowerCase() === 'khanchai.r@ax.co.th'
+      );
+    }
+
+    return undefined;
   };
 
   // Handle standard credential verification (strictly no spaces allowed, only real existing users)
@@ -578,12 +605,17 @@ export default function LoginPage({
           if (onUpdateUserPassword) {
             await onUpdateUserPassword(updatedUser);
           }
+          setLockedUserInfo(null);
+          setError('');
           setIdentifierInput(updatedUser.username || updatedUser.employeeCode || updatedUser.email || '');
           setPasswordInput('');
+          if (typeof window !== 'undefined' && window.location.search.includes('resetToken')) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
           setResetSuccessMessage(
             language === 'th'
-              ? `รีเซตรหัสผ่านใหม่สำเร็จสำหรับ "${updatedUser.name}"! คุณสามารถเข้าสู่ระบบด้วยรหัสผ่านใหม่ได้ทันที`
-              : `Password reset successfully for "${updatedUser.name}". You can now sign in with your new password.`
+              ? `รีเซตรหัสผ่านใหม่สำเร็จสำหรับ "${updatedUser.name}"! บัญชีพร้อมใช้งาน สามารถเข้าสู่ระบบด้วยรหัสผ่านใหม่ได้ทันที`
+              : `Password reset successfully for "${updatedUser.name}". Account is unlocked and ready to sign in.`
           );
         }}
       />
